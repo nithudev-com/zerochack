@@ -14,8 +14,10 @@ test('customer can navigate the workspace, store approved access, and persist a 
   await page.getByLabel('Website name').fill('E2E Website');
   await page.getByLabel('Website URL').fill('https://example.com');
   await page.getByRole('button', { name: 'Add and continue' }).click();
+  await expect(page).toHaveURL(/\/customer\/websites\/[a-f\d-]+$/);
   await expect(page.getByRole('heading', { name: 'E2E Website' })).toBeVisible();
-  await page.getByRole('link', { name: 'Open workspace' }).click();
+  await page.getByRole('link', { name: '← Websites', exact: true }).click();
+  await page.locator('.website-card').filter({ has: page.getByRole('heading', { name: 'E2E Website', exact: true }) }).getByRole('link', { name: 'Open workspace' }).click();
   await expect(page.getByRole('navigation', { name: 'Website workspace' })).toBeVisible();
   await page.getByLabel('Secure access details').fill('Type: CMS\nHost: cms.example.test\nUsername: fixture-editor\nPassword: synthetic-e2e-vault-marker');
   await expect(page.getByRole('button', { name: 'Store securely' })).toBeDisabled();
@@ -47,14 +49,15 @@ test('customer can navigate the workspace, store approved access, and persist a 
 
 test('customer portal remains usable on a mobile viewport', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await login(page);
+  await page.getByRole('button', { name: 'Menu', exact: true }).click();
   const navigation = page.getByRole('navigation', { name: 'Customer navigation' });
   await expect(navigation).toBeVisible(); await navigation.getByRole('link', { name: 'My Websites' }).click();
   await expect(page.getByRole('heading', { name: 'Websites' })).toBeVisible();
   await page.getByLabel('Website name').fill('Mobile E2E Website');
   await page.getByLabel('Website URL').fill('https://example.org');
   await page.getByRole('button', { name: 'Add and continue' }).click();
+  await expect(page).toHaveURL(/\/customer\/websites\/[a-f\d-]+$/);
   await expect(page.getByRole('heading', { name: 'Mobile E2E Website' })).toBeVisible();
-  await page.getByRole('link', { name: 'Open workspace' }).last().click();
   await expect(page.getByRole('region', { name: 'Mobile E2E Website conversation', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Website options' }).click();
   const workspaceNavigation = page.getByRole('navigation', { name: 'Website workspace' });
