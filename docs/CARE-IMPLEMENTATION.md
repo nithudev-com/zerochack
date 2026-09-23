@@ -46,14 +46,14 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 | `npm run lint` | Passed |
 | `npm run typecheck` | Passed across workspaces |
 | `npm run build` | API, web, and worker production builds passed |
-| Care API integration suite | 31 passing tests using actual authentication/routes and a disposable PGlite PostgreSQL-compatible database; all repository migrations applied |
+| `npm run test:integration` | 44 passing tests against real PostgreSQL 16 and Redis 7 in GitHub CI, including all 31 Care integration tests; one opt-in live scan test skipped |
 | Care browser suite | 13 passing API-fixture browser journeys; protected repair previews, exact plan approval, secure intake, responsive widths, environment clearing, Markdown isolation, Tamil input, IME, navigation, themes, and disclosure clearing |
 | `npm audit --omit=dev --audit-level=high` | Zero reported vulnerabilities in the checked dependency graph |
 | OpenAPI generation | Passed using `node --import tsx apps/api/src/generate-openapi.ts`; generated specification updated |
 
 The browser suite is not a live provider test and does not validate production secrets, DNS, SSH, billing, or deployment. The care integration suite verifies duplicate capture, staging/production history separation, cross-tenant denial, grants, real TOTP enrollment/step-up, reassignment denial, reveal/revocation, legacy replacement, expiry cleanup, stale worker handling, and real authenticated resumable SSE.
 
-The complete integration suite was also attempted through PGlite: 15 tests passed, 4 failed, and 1 was skipped in that earlier run. The four failures included socket/protocol/connection errors after database operations in the PostgreSQL compatibility adapter. **The complete integration suite is not recorded as passing.** It must pass against the real PostgreSQL 16/Redis CI services. Production migration rollback, load, crash/race, accessibility assistive-technology, live provider, and recovery drills remain open. The normal Playwright browser installer could not complete in this workspace; local browser checks used an npm-distributed Chromium binary. The optional `CARE_CHROMIUM_EXECUTABLE` path exists only in the test runner.
+The full integration suite passed against the real PostgreSQL 16/Redis services in [GitHub CI run 35837889941](https://github.com/nithudev-com/zerochack/actions/runs/35837889941). This resolves the earlier local PGlite socket/protocol failures. That run exposed a separate browser-test configuration issue: the browser used `localhost` while the API allowed `127.0.0.1`. The test runner now uses one loopback hostname for the browser, API and CORS allowlist; the complete browser run is pending revalidation. Production migration rollback, load, crash/race, accessibility assistive-technology, live provider, and recovery drills remain open. The normal Playwright browser installer could not complete in this workspace; local Care browser checks used an npm-distributed Chromium binary. The optional `CARE_CHROMIUM_EXECUTABLE` path exists only in the test runner.
 
 ## Approved multi-role source review
 
