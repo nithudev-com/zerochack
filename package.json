@@ -27,9 +27,11 @@
     "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up --build",
     "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
     "test:e2e:care": "playwright test --config playwright.care.config.ts",
-    "care:preflight": "tsx apps/api/src/scripts/care-preflight.ts"
+    "care:preflight": "tsx apps/api/src/scripts/care-preflight.ts",
+    "test:accessibility": "playwright test --config playwright.care.config.ts --grep \"automated WCAG\""
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "^1.55.0",
     "@types/node": "^22.15.0",
     "@typescript-eslint/eslint-plugin": "^8.40.0",

@@ -11,7 +11,7 @@ All 24 roles can now run **text-source reviews**. A02 also retains customer chat
 5. Open the plan and review the selected roles, source fingerprint, model, language, scope and allowance. Select **Approve source review** to authorize this exact plan for one hour.
 6. **Your AI team** and the review workspace show real persisted steps. Each role runs once, records its result and unlocks the next role. The workflow does not replay failed or stale model invocations.
 7. Open reports to see source observations, exact path/line citations, suggested actions and limitations. Every finding must quote supplied source within its stated line range. This establishes source provenance, not correctness of the model's interpretation.
-8. Stop the review when needed. An in-flight call may still cost money; its result is fenced from publication after cancellation. Completed reports remain available until retention expiry. To change scope or continue stopped work, prepare and approve a new plan; there is no automatic retry button for an uncertain call.
+8. Stop the review when needed. An in-flight call may still cost money; its result is fenced from publication after cancellation. Completed reports remain available; automatic artifact deletion is disabled. To change scope or continue stopped work, prepare and approve a new plan; there is no automatic retry button for an uncertain call.
 
 Reports may say `REVIEWED`, `NEEDS_INPUT`, or `NOT_APPLICABLE`. A role can finish with missing inputs or inapplicable scope; completion means it returned a validated report, not that it fixed the website. No current advisory feed, image understanding, browser rendering, visual comparison or test execution is supplied to these review roles.
 
@@ -23,13 +23,13 @@ The deterministic order starts with A01/A03 when selected, places specialist rev
 
 PostgreSQL stores approvals, leases, step indices, predecessor roles, activity events, usage references and encrypted report artifacts. The worker commits each completed step before claiming another. Review and static repair claims share a website lock with a fresh state recheck. One source-review step runs per website at a time. Each model call has a two-minute cancellation deadline; a 90-second heartbeat loss marks work stale and holds uncertain cost. Worker shutdown stops new review claims and awaits its current review step.
 
-Approval binds source digest, selected role order, language, issue, expected outcome, model configuration and allowance. Configuration changes require a new plan. The actor's current membership/permissions and the source artifact are rechecked before model use and result publication. Source and reports remain encrypted; raw review responses are excluded from ordinary AI usage response storage. Reports and source have the existing seven-day artifact retention and tenant quota.
+Approval binds source digest, selected role order, language, issue, expected outcome, model configuration and allowance. Configuration changes require a new plan. The actor's current membership/permissions and the source artifact are rechecked before model use and result publication. Source and reports remain encrypted; raw review responses are excluded from ordinary AI usage response storage. Reports and source have no automatic retention expiry. The tenant quota blocks new uploads rather than evicting history. Previously erased artifacts cannot be recovered by the migration.
 
 Known provider usage is charged even if citation validation fails. Unknown provider outcomes retain budget reservations. The allowance covers model usage only; it is not a complete infrastructure bill or a guarantee about the provider's eventual invoice. Concurrent legacy chat cost reservation remains an open platform limitation.
 
 ## Implemented tool handlers
 
-These nine offline handlers are called by the deterministic review runner. They are not an unrestricted model-selected tool loop. Every invocation checks its server-bound approval and scope; callers cannot submit another tenant, website or network destination.
+These fourteen bounded handlers are called by the deterministic review runner. They are not an unrestricted model-selected tool loop. Every invocation checks its server-bound approval and scope; callers cannot submit another tenant, website or network destination.
 
 | ID | Handler | Implemented result |
 | --- | --- | --- |
@@ -41,13 +41,18 @@ These nine offline handlers are called by the deterministic review runner. They 
 | T11 | source_search_symbols | Bounded literal source matches; no regex execution or AST claims |
 | T19 | dependencies_inventory | Declared package.json dependencies with truncation and advisory limitations |
 | T21 | secrets_scan_local | Pattern-screening results without secret values |
+| T31 | accessibility_run_checks | Static HTML language, alt/title and ID references; no browser or WCAG certification |
+| T32 | content_check_links | Local HTML fragment IDs; no fetching |
+| T53 | recovery_get_readiness | Server-bound production backup/monitoring metadata and unresolved release gaps; no restore certification |
+| T65 | source_check_syntax | In-memory strict JSON and JS/TS/JSX/TSX parsing without filesystem/import/config access |
+| T66 | design_check_css | Standalone CSS parsing without plugins/source maps or rendering |
 | T59 | workflow_get_status | Current job state and completed predecessor roles |
 
-The other **55 proposed tools remain disabled**. The owner registry describes the actual execution mode. T10 has a 250 KB output limit; the other implemented tools have a 64 KB limit. Oversized output stops the review instead of silently omitting required source.
+The other **52 proposed tools remain disabled**. The owner registry describes the actual execution mode. T10 has a 250 KB output limit; the other implemented tools have a 64 KB limit. Oversized output stops the review instead of silently omitting required source.
 
 ## Deployment
 
-Deploy API, web and worker together and apply migration `20260923020000_care_source_reviews` after the existing care migrations. Configure:
+Deploy API, web and worker together and apply migrations through `20260923030000_care_preserve_history`. Stop old maintenance workers before migrating; they still contain the former artifact purge. Source-review policy is now `source-review-v2`; unfinished v1 plans require a new approval plan, while their saved results remain readable. Configure:
 
 ```dotenv
 CARE_ENABLED=true
@@ -69,6 +74,6 @@ Keep the existing PostgreSQL, Redis, Zod, Prisma, provider adapters and frontend
 
 ## Validation and remaining gates
 
-The recorded local checks are 131 unit tests, 33 Care API integration tests using PGlite and fixture model/remote adapters, and 13 API-fixture browser tests. The integration suite exercises every one of the 24 roles, checkpoints between fresh service instances, tenant isolation, exact approval, invalid citations, current authorization, cancellation, reservations, dependency failure, a second worker, stale handling and rollback before HTTP success. The full integration suite also ran against real PostgreSQL 16/Redis in CI; subsequent commit-order regression fixes are tracked in the current [pull request checks](https://github.com/nithudev-com/zerochack/pull/1/checks).
+The expanded suites cover 135 unit tests, 36 Care API integration tests using PGlite and fixture model/remote adapters, and 16 API-fixture browser tests. Consult the current PR checks for completed CI evidence. The integration suite exercises every one of the 24 roles, checkpoints between fresh service instances, tenant isolation, exact approval, invalid citations, current authorization, cancellation, reservations, dependency failure, a second worker, stale handling and rollback before HTTP success. The full integration suite also ran against real PostgreSQL 16/Redis in CI; subsequent commit-order regression fixes are tracked in the current [pull request checks](https://github.com/nithudev-com/zerochack/pull/1/checks).
 
 These are implementation-contract tests, not an accuracy benchmark of a real model. PostgreSQL 16/Redis CI must pass for the revision being released. Live provider representative-case evaluations, production migrations/rollback, load/failover and real publish/restore drills remain separate gates. The original 100-item project is not complete. See `CARE-IMPLEMENTATION.md` and `upgrade-ledger.json` for the wider status. The customer and owner flow is also explained in [Tamil](USAGE-TA.md).

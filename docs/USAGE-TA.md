@@ -102,4 +102,15 @@ Deployment configuration loaded ஆன சூழலில் `npm run care:prefl
 
 இந்த bounded source-review flow-க்கு கூடுதல் agent framework அல்லது vector database சேர்க்கப்படவில்லை. தற்போதைய stack போதுமானது. Accuracy/reliability-ஐ உறுதிசெய்ய real provider-ல் representative cases, மனித மதிப்பீடு, failure/recovery drills மற்றும் deployment verification தேவை.
 
-24 review roles செயல்படுத்தப்பட்டுள்ளன; proposed tool catalogue-ல் 9 offline handlers உள்ளன, 55 wider tools இன்னும் disabled. General application repair-க்கு isolated execution/browser workers, supported build/test profiles, target-specific connectors, independent verification மற்றும் operational recovery வேலைகள் மீதமுள்ளன. இவை முடியும் வரை “அனைத்து agents/tools-ம் 100% production working” என்று இந்த project-ஐக் கூற முடியாது.
+24 review roles செயல்படுத்தப்பட்டுள்ளன; proposed tool catalogue-ல் 14 bounded handlers உள்ளன, 52 wider tools இன்னும் disabled. General application repair-க்கு isolated execution/browser workers, supported build/test profiles, target-specific connectors, independent verification மற்றும் operational recovery வேலைகள் மீதமுள்ளன. இவை முடியும் வரை “அனைத்து agents/tools-ம் 100% production working” என்று இந்த project-ஐக் கூற முடியாது.
+
+
+## Browser மூடிய பிறகு தொடர்வது
+
+அதே account-ல் login செய்து **My Websites → Open workspace** திறக்கவும். Submit செய்த messages, jobs, source files, reports ஆகியவை சேமிக்கப்பட்டிருக்கும். **Load older messages**, **Load older jobs** மூலம் பழைய history-ஐப் பார்க்கலாம். Source/report files ஏழு நாட்களில் தானாக அழியும் பழைய விதி நீக்கப்பட்டுள்ளது. Storage நிரம்பினால் புதிய upload நிறுத்தப்படும்; பழைய history அழிக்கப்படாது. Submit செய்யாத draft மற்றும் credential input browser storage-ல் சேமிக்கப்படாது. Expired credential அல்லது approval-க்கு புதிய அனுமதி தேவை; history இருப்பது அனுமதியை நீட்டிக்காது.
+
+## புதிய code, design, recovery checks
+
+Review report-ல் **Deterministic source checks** திறந்தால் HTML accessibility attributes, local links, JSON/JS/TS syntax மற்றும் CSS parsing முடிவுகள் தெரியும். இவை source-ஐ execute செய்வதில்லை; முழு build/test அல்லது WCAG certification அல்ல. **Recovery readiness** திறந்தால் production backup record, backup schedule, monitoring record, unresolved release ஆகியவற்றின் உண்மையான சேமிக்கப்பட்ட நிலை தெரியும். “Configured” என்பது restore செய்து நிரூபிக்கப்பட்டது என்று அர்த்தமில்லை. Staging-க்கு ஆதாரம் இல்லாவிட்டால் “not observed” எனத் தெரியும்.
+
+தற்போது 24 review roles, 14 implemented tools உள்ளன; 52 wider tool contracts disabled. Figma போன்ற ChatGPT connector இணைப்பு உங்கள் application-க்கு MCP server அல்லது account credential தானாக அமைக்காது. Account-specific configuration, live-provider evaluation மற்றும் தனியான restore drill இன்னும் தேவை.

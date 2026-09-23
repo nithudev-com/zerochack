@@ -59,7 +59,7 @@ export async function reviewRoutes(app: FastifyInstance, options: { environment:
     const artifacts = await database.careArtifact.findMany({ where: { jobId: job.id, tenantId: job.tenantId }, select: artifactMetadata });
     const reports = [];
     for (const agent of agents.filter((run) => run.resultArtifactId)) {
-      const stored = await database.careArtifact.findFirst({ where: { id: agent.resultArtifactId!, jobId: job.id, tenantId: job.tenantId, websiteId: job.websiteId, status: 'ACCEPTED', expiresAt: { gt: new Date() } } });
+      const stored = await database.careArtifact.findFirst({ where: { id: agent.resultArtifactId!, jobId: job.id, tenantId: job.tenantId, websiteId: job.websiteId, status: 'ACCEPTED', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] } });
       if (stored) reports.push({ agentRunId: agent.id, ...reviewReport(reviewResultSchema.parse(JSON.parse(readArtifact(stored, env).toString('utf8')))) });
     }
     return { job, revision, agents, artifacts, reports, capabilities: { enabled: env.CARE_REVIEW_ENABLED, maximumBudgetMicros: env.CARE_REVIEW_BUDGET_MICROS }, completedSteps: agents.filter((agent) => agent.state === 'COMPLETED').length, totalSteps: (revision.plan as unknown as ReviewPlan).roleIds.length };

@@ -14,6 +14,8 @@ try {
   await database.$queryRaw`SELECT 1`;
   const columns = await database.$queryRaw<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'care_agent_runs' AND column_name IN ('step_index','depends_on','result_artifact_id','usage_id')`;
   checks.push({ name: 'database_schema', state: columns.length === 4 ? 'PASS' : 'BLOCKED', detail: columns.length === 4 ? 'Care review columns are present.' : 'Apply all repository migrations.' });
+  const retention = await database.$queryRaw<Array<{ is_nullable: string }>>`SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'care_artifacts' AND column_name = 'expires_at'`;
+  checks.push({ name: 'saved_history_schema', state: retention[0]?.is_nullable === 'YES' ? 'PASS' : 'BLOCKED', detail: 'The history-preservation migration must be applied and all old maintenance workers stopped.' });
   redis = new Redis(env.REDIS_URL, { lazyConnect: true, connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 0, retryStrategy: () => null });
   redis.on('error', () => undefined);
   try {
@@ -34,5 +36,5 @@ try {
 } finally {
   redis?.disconnect(); await database.$disconnect();
 }
-process.stdout.write(JSON.stringify({ sourceReviewRoles: agentCatalogue.filter((role) => role.sourceReview).length, implementedOfflineTools: toolCatalogue.filter((tool) => tool.enabled).length, checks, productionCertified: false }, null, 2) + '\n');
+process.stdout.write(JSON.stringify({ sourceReviewRoles: agentCatalogue.filter((role) => role.sourceReview).length, implementedTools: toolCatalogue.filter((tool) => tool.enabled).length, implementedOfflineTools: toolCatalogue.filter((tool) => tool.implementation === 'OFFLINE_SOURCE_REVIEW').length, checks, productionCertified: false }, null, 2) + '\n');
 process.exitCode = checks.some((check) => check.state === 'BLOCKED') ? 1 : 0;

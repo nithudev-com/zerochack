@@ -30,7 +30,7 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 | Other stored account types / staging connectors | Storage only; connection execution unavailable |
 | Claude provider | Adapter and contract tests implemented; live smoke test outstanding |
 | AI role catalogue | All 24 roles execute bounded source reviews; A02 chat and A08 static HTML repair remain separate modes |
-| Proposed tool catalogue | Nine offline source-review handlers implemented; 55 wider interfaces remain disabled |
+| Proposed tool catalogue | Fourteen bounded source-review handlers implemented; 52 wider interfaces remain disabled |
 | Existing assessment tools | Existing scoped tools remain separate from the proposed catalogue |
 | Repair execution and source patches | Static HTML data-only runner implemented; disposable execution workers unavailable |
 | Attachments | Validated encrypted HTML, screenshots and redacted logs; privacy review required |
@@ -44,12 +44,12 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 
 | Check | Result and scope |
 | --- | --- |
-| `npm test` | 131 passing tests in 21 files, including Anthropic contracts, care policy/vault checks, static candidate validation and SFTP transport contracts |
+| `npm test` | 135 passing tests in 22 files, including Anthropic contracts, care policy/vault checks, static candidate validation and SFTP transport contracts |
 | `npm run lint` | Passed |
 | `npm run typecheck` | Passed across workspaces |
 | `npm run build` | API, web, and worker production builds passed |
-| `npm run test:integration` | 44 passing tests against real PostgreSQL 16 and Redis 7 in GitHub CI, including all 31 Care integration tests; one opt-in live scan test skipped |
-| Care browser suite | 13 passing API-fixture browser journeys; protected repair previews, exact plan approval, secure intake, responsive widths, environment clearing, Markdown isolation, Tamil input, IME, navigation, themes, and disclosure clearing |
+| `npm run test:integration` | 36 Care tests passed locally against PGlite with fixture providers/remotes; the current PR CI checks run the full suite against PostgreSQL 16/Redis 7, with one opt-in live scan excluded |
+| Care browser suite | 16 passing API-fixture browser journeys, including axe accessibility checks and complete history pagination; protected repair previews, exact plan approval, secure intake, responsive widths, environment clearing, Markdown isolation, Tamil input, IME, navigation, themes, and disclosure clearing |
 | `npm audit --omit=dev --audit-level=high` | Zero reported vulnerabilities in the checked dependency graph |
 | OpenAPI generation | Passed using `node --import tsx apps/api/src/generate-openapi.ts`; generated specification updated |
 
@@ -61,7 +61,7 @@ Production migration rollback, load, crash/race, accessibility assistive-technol
 
 ## Approved multi-role source review
 
-All 24 roles can run customer-approved text-source reviews through the real gateway integration. Source snapshots and reports are encrypted, approvals bind exact scope/model/allowance, and each step is checkpointed in PostgreSQL. Nine bounded offline tools supply authorized source and workflow context. Strict result schemas reject fabricated file/line quotations. Later roles receive prior summaries as untrusted context and must cite source independently. Reports expose missing evidence and do not certify model conclusions, tests or repairs.
+All 24 roles can run customer-approved text-source reviews through the real gateway integration. Source snapshots and reports are encrypted, approvals bind exact scope/model/allowance, and each step is checkpointed in PostgreSQL. Thirteen offline tools and one scoped recovery-metadata tool supply authorized source and workflow context. Strict result schemas reject fabricated file/line quotations. Later roles receive prior summaries as untrusted context and must cite source independently. Reports expose missing evidence and do not certify model conclusions, tests or repairs.
 
 The customer can choose all roles or a smaller team and request Tamil or English reports. The team panel no longer truncates the assigned team at twelve roles. Worker claims serialize reviews and static repairs per website. A source-screening expression was bounded to avoid excessive processing on long text. A read-only `care:preflight` command reports missing deployment configuration. See [CARE-SOURCE-REVIEWS.md](CARE-SOURCE-REVIEWS.md) for usage, limits and rollout.
 
@@ -79,7 +79,7 @@ Failed candidate health triggers the specifically approved conditional restore, 
 
 ## Remaining implementation and external gates
 
-General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 55 proposed general tool interfaces, dynamic coordinator graphs, reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
+General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 52 proposed general tool interfaces, dynamic coordinator graphs, reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
 
 Before enabling production release, run the full integration suite against PostgreSQL 16/Redis, use a real provider account with configured prices, test a disposable SFTP/static-host target and rollback, establish an exclusive deployment window, verify key/backup retention, and complete crash/failover and authorization-expiry drills. A separate external writer can race SFTP; it must be excluded operationally because ordinary SFTP cannot atomically compare and swap against unrelated writers. Neither static checks nor this branch certify production readiness.
 
@@ -92,3 +92,10 @@ These images show the local application with synthetic API fixtures, not a live 
 ![Desktop chat fixture](screenshots/care-desktop.png)
 
 ![Mobile chat fixture with Tamil input](screenshots/care-mobile.png)
+
+
+## Saved history, deterministic diagnostics and recovery evidence
+
+Case artifacts no longer expire automatically. Stable tenant/site/environment cursors expose all older messages and jobs; initial chat reads now return the latest 200 messages rather than silently stopping at the first 200. Browser closure does not cancel approved worker jobs. Unsent drafts and credential inputs are intentionally excluded from persistent browser storage. A maintenance/API-restart test preserves encrypted source and reports beyond one year.
+
+Five additional handlers cover static HTML semantics, local fragment links, source syntax, CSS syntax and actual scoped recovery metadata. The registry now contains 66 contracts: 14 implemented, 52 disabled. `@axe-core/playwright` adds automated WCAG checks of the actual Care UI in mobile/desktop and light/dark states; those checks found and fixed a theme-transition contrast failure. They do not certify all accessibility needs. See [tools and recovery setup](CARE-TOOLS-AND-RECOVERY.md).

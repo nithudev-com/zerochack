@@ -68,7 +68,7 @@ Set CARE_REPAIR_ENABLED=true on all API/worker instances only after migrations a
 
 The repair worker polls durable database jobs every two seconds, allows one running repair per website, uses a two-minute model cancellation deadline and a 90-second lease heartbeat threshold, and does not replay stale work. It supports only standalone HTML and inline CSS. It does not provision an engineering container or execute source. Do not enable broader role/tool catalogue entries to bypass this boundary.
 
-Artifacts expire after seven days. The maintenance worker wipes expired ciphertext when no active or unresolved website release requires recovery material. Retained ciphertext does not extend expired authorization or make an expired artifact available through the API. Operator intervention may be necessary after expiry. Database backups retain ciphertext according to the database policy. Artifact-key rotation/re-encryption is not yet implemented; retain the key while any live or recovery artifact depends on it.
+Case artifacts now have no automatic expiry. The maintenance worker preserves submitted source, reports, candidates and release recovery evidence. Apply `20260923030000_care_preserve_history` with old maintenance workers stopped; it clears retention deadlines for still-accepted artifacts and cannot restore previously erased content. Quota exhaustion blocks new uploads and preserves old evidence. Keep encrypted database backups and the artifact key together under the operational recovery policy. This change does not extend credential authority, grants or release approvals. Key rotation/re-encryption remains unimplemented.
 
 ## Single-file production release
 

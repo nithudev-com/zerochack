@@ -461,8 +461,11 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.get('/websites/:websiteId/chat', async (request) => {
     requirePermission(request, 'chat.read'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; await websiteForTenant(tenantId, websiteId);
-    const environment = z.enum(['PRODUCTION','STAGING']).parse((request.query as { environment?: string }).environment ?? 'PRODUCTION');
-    return database.chatMessage.findMany({ where: { tenantId, websiteId, environment }, orderBy: { createdAt: 'asc' }, take: 200, include: { author: { select: { displayName: true } } } });
+    const { environment, before } = parse(z.object({ environment: z.enum(['PRODUCTION','STAGING']).default('PRODUCTION'), before: z.string().uuid().optional() }), request.query);
+    const anchor = before ? await database.chatMessage.findFirst({ where: { id: before, tenantId, websiteId, environment }, select: { id: true, createdAt: true } }) : null;
+    if (before && !anchor) throw new ApiError(404, 'HISTORY_CURSOR_INVALID', 'The history cursor is outside this conversation.');
+    const messages = await database.chatMessage.findMany({ where: { tenantId, websiteId, environment, ...(anchor ? { OR: [{ createdAt: { lt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { lt: anchor.id } }] } : {}) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200, include: { author: { select: { displayName: true } } } });
+    return messages.reverse();
   });
 
   app.patch('/websites/:websiteId/findings/:findingId/status', async (request) => {

@@ -10,7 +10,7 @@ import { careEvent, claimCareWebsite } from './runtime.js';
 export const artifactMetadata = { id: true, jobId: true, environment: true, kind: true, filename: true, contentType: true, status: true, digest: true, sizeBytes: true, expiresAt: true, createdAt: true } as const;
 export const artifactKey = (env: Environment) => env.CARE_ARTIFACT_KEY ?? env.CARE_VAULT_KEY ?? env.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY;
 export function readArtifact(artifact: CareArtifact, env: Environment): Buffer {
-  if (artifact.status !== 'ACCEPTED' || artifact.expiresAt <= new Date()) throw new CareError('ARTIFACT_UNAVAILABLE', 'The artifact is unavailable or expired.');
+  if (artifact.status !== 'ACCEPTED' || (artifact.expiresAt && artifact.expiresAt <= new Date())) throw new CareError('ARTIFACT_UNAVAILABLE', 'The artifact is unavailable or expired.');
   const value = Buffer.from(openSecret(artifact.encryptedBody, { ...artifact, version: 1 }, { v1: artifactKey(env) }), 'base64');
   if (digestBytes(value) !== artifact.digest) throw new CareError('ARTIFACT_INTEGRITY', 'Artifact integrity validation failed.');
   return value;
@@ -19,9 +19,9 @@ export async function writeArtifact(tx: Prisma.TransactionClient, scope: { tenan
   if (bytes.length > 4_000_000) throw new CareError('ARTIFACT_LIMIT', 'Artifact size exceeds the storage limit.');
   await tx.$queryRaw`SELECT id FROM tenants WHERE id = ${scope.tenantId}::uuid FOR UPDATE`;
   const usage = await tx.careArtifact.aggregate({ where: { tenantId: scope.tenantId, status: 'ACCEPTED' }, _sum: { sizeBytes: true }, _count: true });
-  if (usage._count >= 200 || (usage._sum.sizeBytes ?? 0) + bytes.length > 50_000_000) throw new CareError('ARTIFACT_QUOTA', 'The tenant artifact allowance is exhausted.');
+  if (usage._count >= 200 || (usage._sum.sizeBytes ?? 0) + bytes.length > 50_000_000) throw new CareError('ARTIFACT_QUOTA', 'The tenant artifact allowance is exhausted. Existing history is preserved; contact support to arrange additional capacity.');
   const id = randomUUID();
-  return tx.careArtifact.create({ data: { id, ...scope, kind, filename, contentType, status: 'ACCEPTED', digest: digestBytes(bytes), sizeBytes: bytes.length, encryptedBody: sealSecret(bytes.toString('base64'), { ...scope, id, version: 1 }, artifactKey(env)), expiresAt: new Date(Date.now() + 7 * 86400000) } });
+  return tx.careArtifact.create({ data: { id, ...scope, kind, filename, contentType, status: 'ACCEPTED', digest: digestBytes(bytes), sizeBytes: bytes.length, encryptedBody: sealSecret(bytes.toString('base64'), { ...scope, id, version: 1 }, artifactKey(env)), expiresAt: null } });
 }
 export function repairConfiguration(configuration: AiProviderConfiguration) {
   return { providerId: configuration.providerId, modelId: configuration.modelId, model: configuration.model, maxOutputTokens: configuration.maxOutputTokens, inputPrice: configuration.inputCostMicrosPerMillion, outputPrice: configuration.outputCostMicrosPerMillion };

@@ -73,7 +73,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     requirePermission(request, 'chat.read'); const job = await jobFor(request);
     const [revisions, artifacts, releases] = await Promise.all([
       database.careRevision.findMany({ where: { jobId: job.id, tenantId: job.tenantId }, orderBy: { version: 'desc' } }),
-      database.careArtifact.findMany({ where: { jobId: job.id, tenantId: job.tenantId, status: 'ACCEPTED', expiresAt: { gt: new Date() } }, select: artifactMetadata, orderBy: { createdAt: 'desc' } }),
+      database.careArtifact.findMany({ where: { jobId: job.id, tenantId: job.tenantId, status: 'ACCEPTED', OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }, select: artifactMetadata, orderBy: { createdAt: 'desc' } }),
       database.careRelease.findMany({ where: { jobId: job.id, tenantId: job.tenantId }, orderBy: { createdAt: 'desc' } })
     ]); return { job, revisions, artifacts, releases, capabilities: { stack: 'STATIC_HTML', release: env.CARE_RELEASE_ENABLED, maximumBudgetMicros: env.CARE_JOB_BUDGET_MICROS } };
   });

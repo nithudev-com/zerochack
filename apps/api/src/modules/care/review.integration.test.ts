@@ -89,6 +89,19 @@ describe.sequential('durable approved multi-role source reviews with real authen
     const usage = await database.aiUsage.findMany({ where: { requestId: value.job.id } }); expect(usage).toHaveLength(24); expect(usage.every((item) => item.responseText === null)).toBe(true);
     expect(await database.careRelease.count({ where: { jobId: value.job.id } })).toBe(0);
   }, 90000);
+  it('preserves encrypted evidence and conversation across maintenance and API restart', async () => {
+    const value = await createReview(['A09']); await approve(value.revision); await runOneReview(env, ai);
+    const before = await database.careArtifact.findMany({ where: { jobId: value.job.id }, orderBy: { id: 'asc' } });
+    expect(before.every((artifact) => artifact.expiresAt === null)).toBe(true);
+    await maintainCareRecords(new Date(Date.now() + 365 * 86400000));
+    expect(await database.careArtifact.findMany({ where: { jobId: value.job.id }, orderBy: { id: 'asc' } })).toEqual(before);
+    await app.close(); app = await buildApp(env, { aiAdapters: [adapter] });
+    const reopened = await request('GET', `/jobs/${value.job.id}/review`);
+    expect(reopened.statusCode).toBe(200); expect(reopened.json().reports).toHaveLength(1);
+    expect(reopened.json().revision.verification.staticChecks).toHaveLength(4);
+    expect((await request('GET', `/websites/${siteId}/chat?environment=STAGING`)).body).toContain('A09 source review');
+    expect(calls).toHaveLength(1);
+  });
   it('rejects stale role scope and reuses identical preparation requests without duplicate jobs', async () => {
     const value = await createReview();
     expect((await request('POST', `/websites/${siteId}/reviews`, value.body)).json().jobId).toBe(value.job.id);

@@ -36,6 +36,13 @@ test('customer can navigate the workspace, store approved access, and persist a 
   await page.reload();
   await expect(page.getByLabel('Conversation history')).toContainText(message);
   await expect(page.getByLabel('Conversation history')).not.toContainText('synthetic-e2e-vault-marker');
+  const savedUrl = page.url(); const context = page.context();
+  await page.close(); page = await context.newPage(); await page.goto(savedUrl);
+  await expect(page.getByLabel('Conversation history')).toContainText(message);
+  await page.getByRole('button', { name: 'Recovery readiness', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Recovery readiness' })).toContainText('No retained, verified production backup record was found.');
+  await expect(page.getByRole('region', { name: 'Recovery readiness' })).toContainText('not verified');
+  await page.getByRole('button', { name: 'Recovery readiness', exact: true }).click();
   await page.getByRole('navigation', { name: 'Website workspace' }).getByRole('link', { name: 'Access or live help' }).click();
   await expect(page.getByLabel('Server host')).toHaveValue('example.com');
   await expect(page.getByLabel('SSH port')).toHaveValue('22');

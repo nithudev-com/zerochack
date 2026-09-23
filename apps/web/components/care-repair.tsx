@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 
-type Artifact = { id: string; kind: string; filename: string; digest: string; sizeBytes: number; expiresAt: string };
+type Artifact = { id: string; kind: string; filename: string; digest: string; sizeBytes: number; expiresAt: string | null };
 type Revision = { id: string; version: number; state: string; sourceId: string; sourceDigest: string; candidateId: string | null; candidateDigest: string | null; budgetMicros: number; chargedMicros: number; budgetState: string; plan: { issue: string; expectedBehavior: string; boundary: string; maximumEstimateMicros: number; configuration: { model: string } }; verification: { checks: string[]; limitations: string[] } | null };
 type Release = { id: string; state: string; revisionId: string; credentialId: string; credentialVersion: number; sourceDigest: string; candidateDigest: string; remotePath: string; errorCode: string | null };
 type Workflow = { job: { state: string; planVersion: number; errorCode: string | null }; artifacts: Artifact[]; revisions: Revision[]; releases: Release[]; capabilities: { release: boolean; maximumBudgetMicros: number } };

@@ -606,6 +606,7 @@ model CareJob {
   @@unique([tenantId, websiteId, requestKey])
   @@unique([tenantId, websiteId, id])
   @@index([tenantId, websiteId, state])
+  @@index([tenantId, websiteId, environment, createdAt(sort: Desc), id(sort: Desc)], map: "care_jobs_history_idx")
   @@map("care_jobs")
 }
 
@@ -1171,6 +1172,7 @@ model ChatMessage {
   aiUsage      AiUsage?         @relation("AiResponseMessage")
 
   @@index([tenantId, websiteId, createdAt])
+  @@index([tenantId, websiteId, environment, createdAt(sort: Desc), id(sort: Desc)], map: "chat_messages_history_idx")
   @@map("chat_messages")
 }
 
@@ -2093,7 +2095,7 @@ model CareArtifact {
   sizeBytes Int @map("size_bytes")
   encryptedBody String @map("encrypted_body") @db.Text
   createdBy String @map("created_by") @db.Uuid
-  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
   @@unique([tenantId, websiteId, id])

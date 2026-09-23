@@ -133,4 +133,44 @@ describe.sequential('care routes through actual authentication and database path
     } finally { clearTimeout(timeout); controller.abort(); }
   });
 
+  it('pages all saved messages and jobs with stable ties, latest-first windows and scoped cursors', async () => {
+    const savedSite = await database.website.create({ data: { tenantId: customer.tenantId, name: 'History fixture', url: 'https://history.example.test', normalizedHost: 'history.example.test' } });
+    const sameTime = new Date('2026-01-01T00:00:00Z');
+    const messageIds = Array.from({ length: 205 }, () => randomUUID()).sort();
+    await database.chatMessage.createMany({ data: messageIds.map((id, index) => ({ id, tenantId: customer.tenantId, websiteId: savedSite.id, type: 'SYSTEM', environment: 'PRODUCTION', content: `Saved entry ${index}`, createdAt: sameTime })) });
+    const staging = await database.chatMessage.create({ data: { tenantId: customer.tenantId, websiteId: savedSite.id, type: 'SYSTEM', environment: 'STAGING', content: 'Staging-only history' } });
+    const get = (suffix: string, cookie = customer.cookie) => app.inject({ method: 'GET', url: `/v1/websites/${savedSite.id}/${suffix}`, headers: { cookie } });
+    const latest = await get('chat'); expect(latest.json()).toHaveLength(200); expect(latest.json()[199].id).toBe(messageIds[204]);
+    const older = await get(`chat?before=${latest.json()[0].id}`);
+    expect(older.json().map((item: { id: string }) => item.id)).toEqual(messageIds.slice(0, 5));
+    expect((await get(`chat?before=${staging.id}`)).statusCode).toBe(404);
+    expect((await get('chat', other.cookie)).statusCode).toBe(404);
+    const jobIds = Array.from({ length: 32 }, () => randomUUID()).sort();
+    await database.careJob.createMany({ data: jobIds.map((id) => ({ id, tenantId: customer.tenantId, websiteId: savedSite.id, userId: customer.userId, requestKey: randomUUID(), kind: 'REPAIR', state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', summary: 'Saved job history', createdAt: sameTime })) });
+    const first = (await get('care?environment=PRODUCTION')).json(); expect(first.jobs).toHaveLength(30);
+    const next = (await get(`care?environment=PRODUCTION&before=${first.nextCursor}`)).json(); expect(next.jobs.map((job: { id: string }) => job.id)).toEqual(jobIds.slice(0, 2).reverse()); expect(next.nextCursor).toBeNull();
+    expect((await get(`care?environment=STAGING&before=${first.nextCursor}`)).statusCode).toBe(404);
+    expect((await get('care', other.cookie)).statusCode).toBe(404);
+  });
+
+  it('reports actual recovery gaps without treating configuration or staging as verified recovery', async () => {
+    const url = `/v1/websites/${siteId}/care/recovery`;
+    const result = await app.inject({ method: 'GET', url, headers: { cookie: customer.cookie } });
+    expect(result.statusCode).toBe(200);
+    expect(result.json().checks).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'Verified backup record', state: 'MISSING' }), expect.objectContaining({ name: 'Clean restore drill', state: 'NOT_VERIFIED' })]));
+    expect((await app.inject({ method: 'GET', url: `${url}?environment=STAGING`, headers: { cookie: customer.cookie } })).json().state).toBe('NOT_OBSERVED');
+    expect((await app.inject({ method: 'GET', url, headers: { cookie: other.cookie } })).statusCode).toBe(404);
+    await database.backupPolicy.create({ data: { tenantId: customer.tenantId, websiteId: siteId, enabled: true } });
+    const configured = (await app.inject({ method: 'GET', url, headers: { cookie: customer.cookie } })).json();
+    expect(configured.checks.find((check: { name: string }) => check.name === 'Scheduled backups').state).toBe('CONFIGURED');
+    expect(configured.checks.find((check: { name: string }) => check.name === 'Verified backup record').state).toBe('MISSING');
+    const backup = await database.backup.create({ data: { tenantId: customer.tenantId, websiteId: siteId, status: 'SUCCEEDED', verifiedAt: new Date(), integrityHash: 'a'.repeat(64), restoreReference: 'fixture://record-only', retentionUntil: new Date(0) } });
+    const expired = (await app.inject({ method: 'GET', url, headers: { cookie: customer.cookie } })).json();
+    expect(expired.checks.find((check: { name: string }) => check.name === 'Verified backup record').state).toBe('MISSING');
+    await database.backup.update({ where: { id: backup.id }, data: { retentionUntil: new Date(Date.now() + 86400000) } });
+    const retained = (await app.inject({ method: 'GET', url, headers: { cookie: customer.cookie } })).json();
+    expect(retained.checks.find((check: { name: string }) => check.name === 'Verified backup record').state).toBe('RECORDED');
+    expect(retained.checks.find((check: { name: string }) => check.name === 'Clean restore drill').state).toBe('NOT_VERIFIED');
+  });
+
 });

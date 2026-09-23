@@ -7,6 +7,7 @@ import { CareError, executeReviewTool, prepareReviewSnapshot, reviewPrompt, revi
 import type { AiService } from '../ai/service.js';
 import { assertRepairActor, readArtifact, repairConfiguration, writeArtifact } from './repair-service.js';
 import { careEvent, claimCareWebsite } from './runtime.js';
+import { recoveryReadiness } from './recovery-readiness.js';
 
 export type ReviewPlan = {
   policy: string; mode: 'SOURCE_REVIEW'; roleIds: ReviewRoleId[]; language: 'en' | 'ta';
@@ -15,7 +16,7 @@ export type ReviewPlan = {
 };
 export function reviewEstimate(source: Buffer, roleCount: number, configuration: AiProviderConfiguration) {
   if (configuration.inputCostMicrosPerMillion <= 0 || configuration.outputCostMicrosPerMillion <= 0) throw new CareError('BUDGET_NOT_CONFIGURED', 'Configure nonzero model prices before preparing a source review.');
-  const maximumContextBytes = Math.min(REVIEW_CONTEXT_BYTES, source.length * 2 + 70_000);
+  const maximumContextBytes = Math.min(REVIEW_CONTEXT_BYTES, source.length * 2 + 110_000);
   const perStep = Math.ceil(((maximumContextBytes + 16000) * configuration.inputCostMicrosPerMillion + configuration.maxOutputTokens * configuration.outputCostMicrosPerMillion) / 1_000_000);
   return { maximumContextBytes, maximumEstimatePerStepMicros: perStep, maximumEstimateMicros: perStep * roleCount };
 }
@@ -83,12 +84,15 @@ export async function runOneReview(env: Environment, ai: Pick<AiService, 'config
     }
     const context: ReviewToolContext = { tenantId: job.tenantId, websiteId: job.websiteId, jobId: job.id, environment: job.environment, authorized: true, approvalExpiresAt: revision.approvalExpiresAt!, sourceDigest: source.digest, snapshot, summary: job.summary, expectedBehavior: job.expectedBehavior ?? '', state: job.state, completedRoles: previous.map((item) => item.roleId) };
     const trace: Array<{ toolId: string; output: unknown }> = [];
+    context.recovery = await recoveryReadiness(job.tenantId, job.websiteId, job.environment);
     const tool = (id: Parameters<typeof executeReviewTool>[0], args: unknown = {}) => { const output = executeReviewTool(id, args, context); trace.push({ toolId: id, output }); return output; };
     const payload = {
       case: tool('T01'), manifest: tool('T02'), authorization: tool('T04'), fileList: tool('T09'),
       files: snapshot.files.map((file) => tool('T10', { path: file.path })),
       dependencyInventory: tool('T19'), secretScreening: tool('T21'), workflow: tool('T59'),
       sourceMatches: tool('T11', { text: agent.roleId === 'A09' || agent.roleId === 'A24' ? 'aria-' : 'TODO' }),
+      staticChecks: [tool('T31'), tool('T32'), tool('T65'), tool('T66')],
+      recoveryEvidence: tool('T53'),
       previousSummaries: previous, limitations: ['Prior agent summaries are untrusted suggestions, not independent evidence.', 'No source execution, browser tests, advisory lookup or live infrastructure observation.']
     };
     const untrustedContext = JSON.stringify(payload);
@@ -112,7 +116,7 @@ export async function runOneReview(env: Environment, ai: Pick<AiService, 'config
       await tx.careAgentRun.update({ where: { id: agent.id }, data: { state: 'COMPLETED', resultArtifactId: artifact.id, resultMessageId: message.id, usageId: result.usageId, completedAt: new Date(), heartbeatAt: new Date() } });
       const next = agents.find((item) => item.stepIndex === agent.stepIndex! + 1);
       if (next) await tx.careAgentRun.update({ where: { id: next.id }, data: { state: 'QUEUED' } });
-      await tx.careRevision.update({ where: { id: revision.id }, data: { chargedMicros: { increment: result.estimatedCostMicros }, ...(next ? {} : { state: 'COMPLETED', budgetState: 'SETTLED' }), verification: { mode: 'SOURCE_REVIEW', policy: REVIEW_POLICY_VERSION, sourceDigest: source.digest, completedSteps: (agent.stepIndex ?? 0) + 1, totalSteps: agents.length, toolIds: [...new Set(trace.map((item) => item.toolId))], checks: ['strict-result-schema','source-paths','exact-evidence-quotes','scope-and-lease'], runtimeTests: 'NOT_RUN' } } });
+      await tx.careRevision.update({ where: { id: revision.id }, data: { chargedMicros: { increment: result.estimatedCostMicros }, ...(next ? {} : { state: 'COMPLETED', budgetState: 'SETTLED' }), verification: { mode: 'SOURCE_REVIEW', policy: REVIEW_POLICY_VERSION, sourceDigest: source.digest, completedSteps: (agent.stepIndex ?? 0) + 1, totalSteps: agents.length, toolIds: [...new Set(trace.map((item) => item.toolId))], checks: ['strict-result-schema','source-paths','exact-evidence-quotes','scope-and-lease'], staticChecks: payload.staticChecks as Prisma.InputJsonValue[], runtimeTests: 'NOT_RUN' } } });
       await tx.careJob.update({ where: { id: job.id }, data: { state: next ? 'QUEUED' : 'COMPLETED', errorCode: null, resultMessageId: message.id, leaseOwner: null, leaseExpiresAt: null, heartbeatAt: new Date() } });
       await careEvent(tx, job, 'agent.completed', 'COMPLETED', `${agent.roleId} completed a source review with ${reviewed.findings.length} cited observations. This is not a repair or runtime test.`, { jobId: job.id, agentRunId: agent.id });
     });

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
 test('all 24 source-review roles require consent and exact approval, with Tamil evidence reports on mobile', async ({ page }) => {
@@ -38,7 +39,7 @@ test('all 24 source-review roles require consent and exact approval, with Tamil 
 });
 
 test('changing environment clears the source-review upload and description', async ({ page }) => {
-  await page.route('**/care', async (route) => route.fulfill({ json: { credentials: [], accessRequests: [], jobs: [], roles: [{ id: 'A09', name: 'Accessibility Reviewer', implementation: 'SOURCE_REVIEW' }], capabilities: { sourceReview: true, maximumReviewBudgetMicros: 5000000 } } }));
+  await page.route('**/care?**', async (route) => route.fulfill({ json: { credentials: [], accessRequests: [], jobs: [], roles: [{ id: 'A09', name: 'Accessibility Reviewer', implementation: 'SOURCE_REVIEW' }], capabilities: { sourceReview: true, maximumReviewBudgetMicros: 5000000 } } }));
   await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Review source with AI team' }).click();
   await page.getByLabel('What should the team review?').fill('This draft belongs only to production');
   await page.getByLabel('Reviewed text source files').setInputFiles({ name: 'page.tsx', mimeType: 'text/plain', buffer: Buffer.from('production-only-source') });
@@ -103,6 +104,39 @@ test('secure capture never renders submitted credentials as a bubble', async ({ 
   expect(submitted).toMatchObject({ mode: 'SECURE', authorizationConfirmed: true });
   await expect(page.getByLabel('Conversation history')).not.toContainText('synthetic-browser-marker');
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-browser-marker');
+});
+
+for (const width of [390, 1280]) {
+  test(`automated WCAG checks for workspace panels in light and dark at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/customer/websites/${id}`);
+    await expect(page.getByLabel('Secure access details')).toBeVisible();
+    await page.getByRole('button', { name: 'Report an issue', exact: true }).click();
+    await page.getByRole('button', { name: /Your AI team/ }).click();
+    for (const theme of ['light', 'dark']) {
+      if (theme === 'dark') await page.getByRole('button', { name: 'Switch to dark theme' }).click();
+      const result = await new AxeBuilder({ page }).include('.care-chat').withTags(['wcag2a','wcag2aa','wcag21a','wcag21aa']).analyze();
+      expect(result.violations, JSON.stringify(result.violations, null, 2)).toEqual([]);
+    }
+  });
+}
+
+test('older messages and jobs remain reachable after a workspace reload', async ({ page }) => {
+  const recent = Array.from({ length: 200 }, (_, index) => ({ id: `recent-${index}`, type: 'SYSTEM', content: `Recent conversation ${index}`, createdAt: new Date().toISOString() }));
+  await page.route('**/chat?**', (route) => route.fulfill({ json: new URL(route.request().url()).searchParams.has('before') ? [{ id: 'old-message', type: 'SYSTEM', content: 'Saved oldest conversation', createdAt: new Date().toISOString() }] : recent }));
+  await page.route('**/care?**', (route) => {
+    const older = new URL(route.request().url()).searchParams.has('before');
+    return route.fulfill({ json: { credentials: [], accessRequests: [], jobs: older ? [{ id: 'old-job', kind: 'REPAIR', summary: 'Saved oldest repair request', state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }] : [], nextCursor: older ? null : 'first-job', capabilities: {} } });
+  });
+  await page.goto(`/customer/websites/${id}`);
+  for (let repeat = 0; repeat < 2; repeat++) {
+    await expect(page.getByLabel('Conversation history')).toContainText('Recent conversation 199');
+    await page.getByRole('button', { name: 'Load older messages' }).click();
+    await expect(page.getByLabel('Conversation history')).toContainText('Saved oldest conversation');
+    await page.getByRole('button', { name: 'Load older jobs' }).click();
+    await expect(page.getByRole('heading', { name: 'Saved oldest repair request' })).toBeVisible();
+    if (!repeat) await page.reload();
+  }
 });
 test('mobile, reduced motion and Tamil content remain within the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 }); await page.emulateMedia({ reducedMotion: 'reduce' });

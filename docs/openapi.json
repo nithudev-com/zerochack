@@ -519,6 +519,25 @@
         }
       }
     },
+    "/websites/{websiteId}/care/recovery": {
+      "get": {
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "websiteId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      }
+    },
     "/websites/{websiteId}/credentials/{credentialId}": {
       "delete": {
         "parameters": [

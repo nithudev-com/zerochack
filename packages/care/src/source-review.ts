@@ -3,7 +3,7 @@ import { agentCatalogue } from './catalogue.js';
 import { CareError, looksSensitive } from './vault.js';
 import { digestBytes } from './static-html.js';
 
-export const REVIEW_POLICY_VERSION = 'source-review-v1';
+export const REVIEW_POLICY_VERSION = 'source-review-v2';
 export const REVIEW_MAX_BYTES = 200_000;
 export const REVIEW_CONTEXT_BYTES = 400_000;
 export const reviewRoleIds = agentCatalogue.map((role) => role.id);

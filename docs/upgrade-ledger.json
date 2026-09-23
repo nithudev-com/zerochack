@@ -1244,7 +1244,7 @@
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
-    "evidence": "All 64 interfaces remain registered. Nine scoped offline source-review handlers are implemented and tested; the remaining 55 stay disabled. Owner UI distinguishes implemented execution modes from wider planned scope.",
+    "evidence": "All 64 original interfaces remain registered, with two additional syntax/CSS tools (66 total). Fourteen scoped handlers are implemented and tested; the remaining 52 stay disabled. Owner UI distinguishes implemented execution modes from wider planned scope.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1270,10 +1270,10 @@
       "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "The other 55 proposed tools and generalized MCP schema/version negotiation are not implemented."
+      "The other 52 proposed tools and generalized MCP schema/version negotiation are not implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Nine offline source-review tools validate arguments, scope, approval expiry and output byte limits. Review model output uses strict Zod validation plus exact source path/line/quote checks.",
+    "evidence": "Fourteen bounded source-review tools validate arguments, scope, approval expiry and output byte limits. Review model output uses strict Zod validation plus exact source path/line/quote checks.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1804,7 +1804,7 @@
       "Pixel contents require customer privacy review; no OCR, asynchronous quarantine service, or dedicated artifact-object-store encryption lifecycle is implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Artifacts are encrypted with scoped authenticated envelopes, private no-store retrieval, bounded upload validation, image metadata stripping, expiry and deletion. Previews never return raw executable HTML responses.",
+    "evidence": "Artifacts are encrypted with scoped authenticated envelopes, private no-store retrieval, bounded upload validation, image metadata stripping and preserved encrypted case evidence. Credential expiry remains separate. Previews never return raw executable HTML responses.",
     "updatedAt": "2026-09-23"
   },
   {

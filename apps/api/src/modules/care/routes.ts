@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { recoveryReadiness } from './recovery-readiness.js';
 import { database } from '@zerochack/database';
 import { z } from 'zod';
 import type { Environment } from '@zerochack/config';
@@ -33,13 +34,24 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
     requirePermission(request, 'chat.read');
     const { websiteId } = parse(websiteParams, request.params); await careWebsite(request, websiteId);
     const tenantId = request.tenantId!;
+    const { environment, before } = parse(z.object({ environment: z.enum(environments).optional(), before: uuid.optional() }), request.query);
+    const scope = { tenantId, websiteId, ...(environment ? { environment } : {}) };
+    const anchor = before ? await database.careJob.findFirst({ where: { ...scope, id: before }, select: { id: true, createdAt: true } }) : null;
+    if (before && !anchor) throw new ApiError(404, 'HISTORY_CURSOR_INVALID', 'The history cursor is outside this workspace.');
     const [credentials, accessRequests, jobs] = await Promise.all([
       database.careCredential.findMany({ where: { tenantId, websiteId, status: 'STORED' }, select: credentialMetadata }),
       database.careAccessRequest.findMany({ where: { tenantId, websiteId }, select: safeGrant, orderBy: { createdAt: 'desc' }, take: 30 }),
-      database.careJob.findMany({ where: { tenantId, websiteId }, include: { agents: true }, orderBy: { createdAt: 'desc' }, take: 30 })
+      database.careJob.findMany({ where: { ...scope, ...(anchor ? { OR: [{ createdAt: { lt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { lt: anchor.id } }] } : {}) }, include: { agents: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 31 })
     ]);
     const staff = await database.user.findMany({ where: { id: { in: accessRequests.map((grant) => grant.specialistId) } }, select: { id: true, displayName: true } });
-    return { credentials, accessRequests: accessRequests.map((grant) => ({ ...grant, specialistName: staff.find((person) => person.id === grant.specialistId)?.displayName ?? 'Assigned specialist', status: ['PENDING','APPROVED'].includes(grant.status) && grant.expiresAt <= new Date() ? 'EXPIRED' : grant.status })), jobs: jobs.map((job) => ({ ...job, state: visibleAgentState(job.state, job.heartbeatAt), agents: job.agents.map((agent) => ({ ...agent, state: visibleAgentState(agent.state, agent.heartbeatAt), name: agentCatalogue.find((role) => role.id === agent.roleId)?.name ?? 'AI assistant' })) })), capabilities: { secureCapture: true, specialistDisclosure: true, trackedChat: true, sourceReview: options.environment.CARE_REVIEW_ENABLED, maximumReviewBudgetMicros: options.environment.CARE_REVIEW_BUDGET_MICROS, isolatedRepair: options.environment.CARE_REPAIR_ENABLED, deployment: options.environment.CARE_RELEASE_ENABLED, attachments: options.environment.CARE_REPAIR_ENABLED }, roles: agentCatalogue.map(({ id, name, enabled, implementation }) => ({ id, name, enabled, implementation })) };
+    return { nextCursor: jobs.length > 30 ? jobs[29]!.id : null, historyPolicy: 'PRESERVED', credentials, accessRequests: accessRequests.map((grant) => ({ ...grant, specialistName: staff.find((person) => person.id === grant.specialistId)?.displayName ?? 'Assigned specialist', status: ['PENDING','APPROVED'].includes(grant.status) && grant.expiresAt <= new Date() ? 'EXPIRED' : grant.status })), jobs: jobs.slice(0, 30).map((job) => ({ ...job, state: visibleAgentState(job.state, job.heartbeatAt), agents: job.agents.map((agent) => ({ ...agent, state: visibleAgentState(agent.state, agent.heartbeatAt), name: agentCatalogue.find((role) => role.id === agent.roleId)?.name ?? 'AI assistant' })) })), capabilities: { secureCapture: true, specialistDisclosure: true, trackedChat: true, sourceReview: options.environment.CARE_REVIEW_ENABLED, maximumReviewBudgetMicros: options.environment.CARE_REVIEW_BUDGET_MICROS, isolatedRepair: options.environment.CARE_REPAIR_ENABLED, deployment: options.environment.CARE_RELEASE_ENABLED, attachments: options.environment.CARE_REPAIR_ENABLED }, roles: agentCatalogue.map(({ id, name, enabled, implementation }) => ({ id, name, enabled, implementation })) };
+  });
+
+  app.get('/websites/:websiteId/care/recovery', async (request) => {
+    requirePermission(request, 'chat.read');
+    const { websiteId } = parse(websiteParams, request.params); await careWebsite(request, websiteId);
+    const { environment } = parse(z.object({ environment: z.enum(environments).default('PRODUCTION') }), request.query);
+    return recoveryReadiness(request.tenantId!, websiteId, environment);
   });
 
   app.delete('/websites/:websiteId/credentials/:credentialId', async (request, reply) => {
@@ -202,6 +214,6 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
   await app.register(reviewRoutes, options);
   app.get('/owner/care/capabilities', async (request) => {
     requireOwnerMfa(request);
-    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', sourceReview: options.environment.CARE_REVIEW_ENABLED ? 'APPROVED_TEXT_SOURCE' : 'DISABLED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['All 24 roles support source review; this does not implement the wider autonomous repair roadmap.', 'Nine offline source-review tools are implemented; the remaining tool contracts stay disabled.', 'Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
+    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', sourceReview: options.environment.CARE_REVIEW_ENABLED ? 'APPROVED_TEXT_SOURCE' : 'DISABLED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['All 24 roles support source review; this does not implement the wider autonomous repair roadmap.', 'Thirteen offline source checks and one scoped recovery-metadata tool are implemented; 52 wider contracts stay disabled.', 'Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
   });
 }

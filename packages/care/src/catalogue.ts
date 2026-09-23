@@ -318,6 +318,7 @@ export const agentCatalogue = agentDefinitions.map((role) => ({
   ...role,
   enabled: true,
   sourceReview: true,
+  sourceReviewLimits: { modelCallsPerStep: 1, modelSelectedToolCalls: 0, concurrentStepsPerWebsite: 1 },
   implementation: role.id === 'A02' ? 'CHAT_AND_SOURCE_REVIEW' : role.id === 'A08' ? 'STATIC_HTML_REPAIR_AND_SOURCE_REVIEW' : 'SOURCE_REVIEW',
   executionBoundary: 'Source review uses approved uploaded text only. No shell, network, credentials, source execution or production changes. Wider role capabilities remain unimplemented.'
 }));
@@ -771,7 +772,7 @@ const toolDefinitions = [
     "id": "T31",
     "name": "accessibility_run_checks",
     "executionClass": "R",
-    "purpose": "Run automated preview checks and mark manual assessment gaps.",
+    "purpose": "Check static HTML language, alt, iframe title and ID references; browser accessibility assessment is separate.",
     "version": 1,
     "enabled": false,
     "environments": [
@@ -786,7 +787,7 @@ const toolDefinitions = [
     "id": "T32",
     "name": "content_check_links",
     "executionClass": "R",
-    "purpose": "Review links/metadata within approved pages without broad crawling.",
+    "purpose": "Check local fragment links against IDs in supplied HTML; no fetching or route validation.",
     "version": 1,
     "enabled": false,
     "environments": [
@@ -1264,10 +1265,12 @@ const toolDefinitions = [
     "timeoutMs": 30000,
     "maxOutputBytes": 65536,
     "unavailableReason": "Implementation and capability evaluation required"
-  }
+  },
+  { id: 'T65', name: 'source_check_syntax', executionClass: 'R', purpose: 'Parse approved JSON and JS/TS/JSX/TSX text in memory; no imports, type checking or execution.', version: 1, enabled: false, environments: ['PRODUCTION','STAGING'], timeoutMs: 30000, maxOutputBytes: 65536, unavailableReason: 'Implementation and capability evaluation required' },
+  { id: 'T66', name: 'design_check_css', executionClass: 'R', purpose: 'Parse standalone CSS without plugins, source maps or rendering.', version: 1, enabled: false, environments: ['PRODUCTION','STAGING'], timeoutMs: 30000, maxOutputBytes: 65536, unavailableReason: 'Implementation and capability evaluation required' }
 ] as const;
 
 export const toolCatalogue = toolDefinitions.map((tool) => {
   const enabled = (implementedReviewTools as readonly string[]).includes(tool.id);
-  return { ...tool, enabled, maxOutputBytes: tool.id === 'T10' ? 250000 : tool.maxOutputBytes, implementation: enabled ? 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED', unavailableReason: enabled ? null : tool.unavailableReason };
+  return { ...tool, version: ['T31','T32','T53'].includes(tool.id) ? 2 : tool.version, enabled, maxOutputBytes: tool.id === 'T10' ? 250000 : tool.maxOutputBytes, implementation: enabled ? tool.id === 'T53' ? 'SCOPED_RECOVERY_METADATA' : 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED', unavailableReason: enabled ? null : tool.unavailableReason };
 });
