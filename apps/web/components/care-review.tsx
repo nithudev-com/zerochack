@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { CreateCareWorkspace } from './care-workspace';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { coreReviewRoleIds, technologyCoverage, technologyChecks } from '@zerochack/care/technology-coverage';
@@ -77,7 +78,7 @@ export function CareReviewForm({ websiteId, environment, roles, maximumBudgetMic
   </form>;
 }
 
-export function CareReview({ jobId, websiteId, roles }: { jobId: string; websiteId: string; roles: ReviewRole[] }) {
+export function CareReview({ jobId, websiteId, roles, environment }: { jobId: string; websiteId: string; roles: ReviewRole[]; environment: string }) {
   const client = useQueryClient(); const [open, setOpen] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const query = useQuery({ queryKey: ['care-review', websiteId, jobId], queryFn: () => api<ReviewState>(`/jobs/${jobId}/review`), enabled: open, refetchInterval: open ? 5000 : false, retry: false });
   async function approve() {
@@ -101,6 +102,7 @@ export function CareReview({ jobId, websiteId, roles }: { jobId: string; website
       {query.isLoading && <p role="status">Loading review plan and reports…</p>}
       {(error || query.error) && <p role="alert" className="care-alert">{error || query.error?.message}</p>}
       {data && <>
+        {environment === 'STAGING' && data.capabilities.enabled && <CreateCareWorkspace key={data.revision.sourceDigest} jobId={jobId} websiteId={websiteId} revisionId={data.revision.id} sourceDigest={data.revision.sourceDigest}/>}
         <h4>{data.totalSteps} roles · {data.completedSteps} completed reviews</h4>
         <p>{data.revision.plan.boundary}</p>
         <p>Model: {data.revision.plan.configuration.model}. Allowance: {dollars(data.revision.budgetMicros)}. Recorded model cost: {dollars(data.revision.chargedMicros)} · {stateLabel(data.revision.budgetState)}.</p>

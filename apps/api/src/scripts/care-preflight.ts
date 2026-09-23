@@ -1,6 +1,6 @@
 import { database } from '@zerochack/database';
 import { loadEnvironment } from '@zerochack/config';
-import { agentCatalogue, toolCatalogue } from '@zerochack/care';
+import { agentCatalogue, toolCatalogue, prepareReviewSnapshot, runSourceQuality } from '@zerochack/care';
 import Redis from 'ioredis';
 
 // Read-only deployment checks. This never invokes a model or connects to a customer website.
@@ -14,6 +14,12 @@ try {
   await database.$queryRaw`SELECT 1`;
   const columns = await database.$queryRaw<Array<{ column_name: string }>>`SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'care_agent_runs' AND column_name IN ('step_index','depends_on','result_artifact_id','usage_id')`;
   checks.push({ name: 'database_schema', state: columns.length === 4 ? 'PASS' : 'BLOCKED', detail: columns.length === 4 ? 'Care review columns are present.' : 'Apply all repository migrations.' });
+  const workspaceConstraint = await database.$queryRaw<Array<{ definition: string }>>`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid = 'care_revisions'::regclass AND conname = 'care_revision_budget'`;
+  checks.push({ name: 'text_workspace_schema', state: workspaceConstraint[0]?.definition.includes('source-workspace-v1') ? 'PASS' : 'BLOCKED', detail: 'Apply migration 20260923040000_care_text_workspace before enabling text workspaces.' });
+  try {
+    const result = await runSourceQuality('T34', prepareReviewSnapshot([{ path: 'readiness.ts', content: 'export const ready: boolean = true;' }]));
+    checks.push({ name: 'static_check_runtime', state: result.state === 'NO_ISSUES_DETECTED' ? 'PASS' : 'BLOCKED', detail: 'The pinned compiler worker checked a built-in synthetic snippet. This does not evaluate customer projects.' });
+  } catch { checks.push({ name: 'static_check_runtime', state: 'BLOCKED', detail: 'The fixed compiler profile could not run. Install the lockfile dependencies, including API runtime TypeScript 5.9.3, and verify worker-thread resource limits.' }); }
   const retention = await database.$queryRaw<Array<{ is_nullable: string }>>`SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'care_artifacts' AND column_name = 'expires_at'`;
   checks.push({ name: 'saved_history_schema', state: retention[0]?.is_nullable === 'YES' ? 'PASS' : 'BLOCKED', detail: 'The history-preservation migration must be applied and all old maintenance workers stopped.' });
   redis = new Redis(env.REDIS_URL, { lazyConnect: true, connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 0, retryStrategy: () => null });
@@ -36,5 +42,5 @@ try {
 } finally {
   redis?.disconnect(); await database.$disconnect();
 }
-process.stdout.write(JSON.stringify({ sourceReviewRoles: agentCatalogue.filter((role) => role.sourceReview).length, implementedTools: toolCatalogue.filter((tool) => tool.enabled).length, implementedOfflineTools: toolCatalogue.filter((tool) => tool.implementation === 'OFFLINE_SOURCE_REVIEW').length, savedEvidenceTools: toolCatalogue.filter((tool) => tool.implementation === 'SCOPED_SAVED_EVIDENCE').length, dedicatedWorkflowBindings: toolCatalogue.filter((tool) => tool.implementation === 'DEDICATED_APPROVAL_WORKFLOW').length, unavailableTools: toolCatalogue.filter((tool) => !tool.enabled).map(({ id, name, unavailableReason }) => ({ id, name, reason: unavailableReason })), checks, productionCertified: false }, null, 2) + '\n');
+process.stdout.write(JSON.stringify({ sourceReviewRoles: agentCatalogue.filter((role) => role.sourceReview).length, implementedTools: toolCatalogue.filter((tool) => tool.enabled).length, implementedOfflineTools: toolCatalogue.filter((tool) => tool.implementation === 'OFFLINE_SOURCE_REVIEW').length, savedEvidenceTools: toolCatalogue.filter((tool) => tool.implementation === 'SCOPED_SAVED_EVIDENCE').length, storedImageTools: toolCatalogue.filter((tool) => tool.implementation === 'STORED_IMAGE_COMPARISON').length, dedicatedWorkflowBindings: toolCatalogue.filter((tool) => tool.implementation === 'DEDICATED_APPROVAL_WORKFLOW').length, unavailableTools: toolCatalogue.filter((tool) => !tool.enabled).map(({ id, name, unavailableReason }) => ({ id, name, reason: unavailableReason })), checks, productionCertified: false }, null, 2) + '\n');
 process.exitCode = checks.some((check) => check.state === 'BLOCKED') ? 1 : 0;

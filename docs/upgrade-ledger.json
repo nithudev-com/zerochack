@@ -1244,7 +1244,7 @@
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
-    "evidence": "All 67 contracts are accounted for: 24 bounded source/policy tools, 9 saved-evidence tools and 11 dedicated workflow bindings. The remaining 23 stay unavailable with specific prerequisites. Owner UI distinguishes implemented scope, deployment flags and setup requirements. See docs/CARE-TOOL-CONTRACTS.md.",
+    "evidence": "All 67 contracts are accounted for: 24 source/policy tools, 9 saved-evidence tools, 1 stored-image comparator and 15 dedicated workflow bindings. The remaining 18 stay unavailable with specific requirements. T13/T14 retain scoped text versions; T33/T34 run bounded fixed static checks. Owner UI distinguishes scope and deployment readiness. See docs/CARE-TOOL-CONTRACTS.md.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1374,7 +1374,9 @@
       "apps/api/src/modules/care/repair-routes.ts",
       "apps/api/src/modules/care/release-service.ts",
       "packages/care/src/static-html.ts",
-      "apps/web/components/care-repair.tsx"
+      "apps/web/components/care-repair.tsx",
+      "apps/api/src/modules/care/workspace-routes.ts",
+      "packages/care/src/source-workspace.ts"
     ],
     "tests": [
       "apps/api/src/modules/care/repair.integration.test.ts",
@@ -1386,7 +1388,7 @@
       "Only standalone HTML/inline CSS is supported; repository cloning and multi-file source snapshots are unavailable."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Reviewed UTF-8 HTML is encrypted as a scoped snapshot; unique-anchor patches are bounded and revalidated independently.",
+    "evidence": "Static HTML repair plus T13/T14 encrypted staging text snapshots with exact-digest literal patches, explicit consent, retained versions, quotas, stale/conflict handling and idempotency. No executable general repository workspace or deployment is claimed.",
     "updatedAt": "2026-09-23"
   },
   {

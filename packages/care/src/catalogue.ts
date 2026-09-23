@@ -1281,7 +1281,7 @@ export const toolCatalogue = toolDefinitions.map((tool) => {
   return { ...tool, version: boundary || ['T31','T32','T53'].includes(tool.id) ? 2 : tool.version, enabled,
     purpose: boundary ?? tool.purpose, proposedPurpose: tool.purpose,
     maxOutputBytes: tool.id === 'T50' ? 6_000_000 : tool.id === 'T52' ? 1_300_000 : tool.id === 'T10' ? 250000 : tool.maxOutputBytes,
-    implementation: binding ? 'DEDICATED_APPROVAL_WORKFLOW' : records ? 'SCOPED_SAVED_EVIDENCE' : review ? tool.id === 'T53' ? 'SCOPED_RECOVERY_METADATA' : 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED',
+    implementation: binding ? 'DEDICATED_APPROVAL_WORKFLOW' : records ? tool.id === 'T29' ? 'STORED_IMAGE_COMPARISON' : 'SCOPED_SAVED_EVIDENCE' : review ? tool.id === 'T53' ? 'SCOPED_RECOVERY_METADATA' : 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED',
     entrypoint: binding?.entrypoint ?? (enabled ? `POST /jobs/:id/tools/${tool.id}` : null),
     requirements: binding?.requirements ?? (review ? ['Current exact source-review approval', 'CARE_REVIEW_ENABLED', 'Authorized sanitized source'] : records ? ['Authenticated tenant/site access', 'Recorded evidence in this job or environment'] : []),
     unavailableReason: enabled ? null : unavailableToolRequirements[tool.id] ?? tool.unavailableReason

@@ -51,7 +51,7 @@ describe('truthful activity and release policy', () => {
     expect(new Set(toolCatalogue.map((tool) => tool.id)).size).toBe(67);
     expect(agentCatalogue.filter((role) => role.enabled && role.sourceReview)).toHaveLength(24);
     expect(agentCatalogue.filter((role) => role.implementation !== 'SOURCE_REVIEW').map((role) => role.id)).toEqual(['A02','A08']);
-    expect(toolCatalogue.filter((tool) => tool.enabled)).toHaveLength(44);
+    expect(toolCatalogue.filter((tool) => tool.enabled)).toHaveLength(49);
     expect(toolCatalogue.filter((tool) => !tool.enabled).every((tool) => tool.unavailableReason && !tool.entrypoint)).toBe(true);
   });
 });

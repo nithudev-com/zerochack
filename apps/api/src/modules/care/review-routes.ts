@@ -72,6 +72,7 @@ export async function reviewRoutes(app: FastifyInstance, options: { environment:
     const revision = await database.careRevision.findFirst({ where: { id, tenantId: request.tenantId! } });
     if (!revision) throw new ApiError(404, 'NOT_FOUND', 'Review plan was not found.'); await careWebsite(request, revision.websiteId);
     const plan = revision.plan as unknown as ReviewPlan;
+    if (plan.policy !== REVIEW_POLICY_VERSION || !plan.configuration) throw new ApiError(409, 'APPROVAL_STALE', 'Only a current source-review plan can be approved here.');
     const configuration = await options.ai.configuration(revision.tenantId, { providerId: plan.configuration.providerId, modelId: plan.configuration.modelId });
     return database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${revision.websiteId}::uuid FOR UPDATE`;

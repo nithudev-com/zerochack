@@ -102,7 +102,7 @@ Deployment configuration loaded ஆன சூழலில் `npm run care:prefl
 
 இந்த bounded source-review flow-க்கு கூடுதல் agent framework அல்லது vector database சேர்க்கப்படவில்லை. தற்போதைய stack போதுமானது. Accuracy/reliability-ஐ உறுதிசெய்ய real provider-ல் representative cases, மனித மதிப்பீடு, failure/recovery drills மற்றும் deployment verification தேவை.
 
-24 review roles செயல்படுத்தப்பட்டுள்ளன; proposed tool catalogue-ல் 44 bounded implementations/workflow bindings உள்ளன; 23 wider tools இன்னும் unavailable. General application repair-க்கு isolated execution/browser workers, supported build/test profiles, target-specific connectors, independent verification மற்றும் operational recovery வேலைகள் மீதமுள்ளன. இவை முடியும் வரை “அனைத்து agents/tools-ம் 100% production working” என்று இந்த project-ஐக் கூற முடியாது.
+24 review roles செயல்படுத்தப்பட்டுள்ளன; proposed tool catalogue-ல் 49 bounded implementations/workflow bindings உள்ளன; 18 wider tools இன்னும் unavailable. General application repair-க்கு isolated execution/browser workers, supported build/test profiles, target-specific connectors, independent verification மற்றும் operational recovery வேலைகள் மீதமுள்ளன. இவை முடியும் வரை “அனைத்து agents/tools-ம் 100% production working” என்று இந்த project-ஐக் கூற முடியாது.
 
 
 ## Browser மூடிய பிறகு தொடர்வது
@@ -113,12 +113,12 @@ Deployment configuration loaded ஆன சூழலில் `npm run care:prefl
 
 Review report-ல் **Deterministic source checks** திறந்தால் HTML accessibility attributes, local links, JSON/JS/TS syntax மற்றும் CSS parsing முடிவுகள் தெரியும். இவை source-ஐ execute செய்வதில்லை; முழு build/test அல்லது WCAG certification அல்ல. **Recovery readiness** திறந்தால் production backup record, backup schedule, monitoring record, unresolved release ஆகியவற்றின் உண்மையான சேமிக்கப்பட்ட நிலை தெரியும். “Configured” என்பது restore செய்து நிரூபிக்கப்பட்டது என்று அர்த்தமில்லை. Staging-க்கு ஆதாரம் இல்லாவிட்டால் “not observed” எனத் தெரியும்.
 
-தற்போது 24 review roles, 44 bounded tool implementations/workflow bindings உள்ளன; 23 wider tool contracts unavailable. Figma போன்ற ChatGPT connector இணைப்பு உங்கள் application-க்கு MCP server அல்லது account credential தானாக அமைக்காது. Account-specific configuration, live-provider evaluation மற்றும் தனியான restore drill இன்னும் தேவை.
+தற்போது 24 review roles, 49 bounded tool implementations/workflow bindings உள்ளன; 18 wider tool contracts unavailable. Figma போன்ற ChatGPT connector இணைப்பு உங்கள் application-க்கு MCP server அல்லது account credential தானாக அமைக்காது. Account-specific configuration, live-provider evaluation மற்றும் தனியான restore drill இன்னும் தேவை.
 
 
 ## புதிய “All technologies” பயன்பாடு
 
-Homepage-ல் **All technologies** தேர்ந்தெடுத்து technology பெயர் அல்லது file பெயரைத் தேடுங்கள். 12 பகுதிகளிலும் **Review team & file support** திறந்தால் பரிந்துரைக்கப்படும் agents, ஏற்கப்படும் file எடுத்துக்காட்டுகள், கிடைக்கும் automatic checks தெரியும். மேலே காட்டப்படும் எண்ணிக்கை application registry-இலிருந்து வருகிறது: 24 source-review roles, 44 bounded tool implementations/workflow bindings; 23 விரிவான tools இன்னும் கிடைக்கவில்லை. இந்த எண்ணிக்கை உங்கள் live server இணைக்கப்பட்டுவிட்டது என்பதைக் குறிக்காது.
+Homepage-ல் **All technologies** தேர்ந்தெடுத்து technology பெயர் அல்லது file பெயரைத் தேடுங்கள். 12 பகுதிகளிலும் **Review team & file support** திறந்தால் பரிந்துரைக்கப்படும் agents, ஏற்கப்படும் file எடுத்துக்காட்டுகள், கிடைக்கும் automatic checks தெரியும். மேலே காட்டப்படும் எண்ணிக்கை application registry-இலிருந்து வருகிறது: 24 source-review roles, 49 bounded tool implementations/workflow bindings; 18 விரிவான tools இன்னும் கிடைக்கவில்லை. இந்த எண்ணிக்கை உங்கள் live server இணைக்கப்பட்டுவிட்டது என்பதைக் குறிக்காது.
 
 Website → **Review source with AI team** → **Technology area · suggested team** மூலம் அதே பகுதியைத் தேர்ந்தெடுக்கலாம். கிடைக்கும் roles மட்டும் தேர்வாகும்; தேவையெனில் மாற்றலாம். C#, Razor, Astro, Shopify Liquid, GraphQL, protobuf, Terraform/HCL, server .conf/.service, Caddyfile, Jenkinsfile போன்ற source text-கள் இப்போது ஏற்கப்படும். **Accepted source formats** முழுப் பட்டியலைக் காட்டும். Passwords, private data, .env, secrets, Terraform state, private keys, archives அனுப்ப வேண்டாம்.
 
@@ -134,4 +134,18 @@ Production-ல் பக்கம் “Loading ZeroRoot” நிலையி�
 
 Production job-ல் **Propose a monitoring schedule** மூலம் interval கொடுத்து proposal-ஐ சேமிக்கலாம். இது monitoring-ஐ activate செய்யாது. Customer review முடிந்ததும் authorized operator monitoring policy/scheduler-ஐ தனியாக அமைக்க வேண்டும். Proposal history tab மூடியபிறகும் இருக்கும்; cancel செய்தாலும் பதிவை அழிக்காது.
 
-Owner **Care capabilities**-ல் ஒவ்வொரு tool-க்கும் implemented scope, deployment setting, execution route, setup requirements கிடைக்கும். 52-ல் 19 புதிய bounded handlers/proposal implementation, 10 existing workflow bindings சேர்க்கப்பட்டுள்ளன. மீதமுள்ள 23-க்கு isolated workers அல்லது provider-specific connectors தேவை; அவை செயல்படுவதாக காட்டப்படவில்லை. முழு பட்டியல்: [Tool contract matrix](CARE-TOOL-CONTRACTS.md).
+Owner **Care capabilities**-ல் ஒவ்வொரு tool-க்கும் implemented scope, deployment setting, execution route, setup requirements கிடைக்கும். 52-ல் 19 புதிய bounded handlers/proposal implementation, 10 existing workflow bindings சேர்க்கப்பட்டுள்ளன. அடுத்த increment-க்கு முன் மீதமிருந்த 23-க்கு isolated workers அல்லது provider-specific connectors தேவை; அவை செயல்படுவதாக காட்டப்படவில்லை. முழு பட்டியல்: [Tool contract matrix](CARE-TOOL-CONTRACTS.md).
+
+
+### Text workspace, patch, lint மற்றும் type check
+
+இப்போது T13, T14, T29, T33, T34 ஆகிய மேலும் 5 tools செயல்படுத்தப்பட்டுள்ளன. மொத்தம் **49 bounded implementations/bindings; 18 contracts இன்னும் unavailable**. இவை அனைத்தும் live production-ல் சோதிக்கப்பட்டுவிட்டன என்று பொருள் இல்லை.
+
+1. Website → **STAGING** → source review திறந்து **Create a text workspace** தேர்வு செய்யவும். அந்த exact source copy-க்கு consent கொடுக்கவும். Model approval அல்லது AI செலவு தேவையில்லை.
+2. **Open text workspace** → file தேர்வு → மாற்ற வேண்டிய original text, replacement text உள்ளிடவும். Original text ஒரே இடத்தில் மட்டுமே இருக்க வேண்டும். Consent கொடுத்து **Save text version** அழுத்தவும்.
+3. **Run fixed lint** அல்லது **Run snapshot type check** மூலம் actual static report பெறலாம். TypeScript snapshot-க்குள் இருக்கும் relative imports மட்டும் resolve செய்யப்படும்; package SDK types, customer config, runtime tests சேராது.
+4. **Saved versions** மூலம் பழைய version JSON download; **Saved static checks** மூலம் பழைய report பார்க்கலாம். Page மூடி மீண்டும் திறந்தாலும் saved work இருக்கும். Submit செய்யாத form draft சேமிக்கப்படாது.
+5. **Close workspace and keep history** edits-ஐ நிறுத்தும்; saved files/reports அழியாது. Workspace source live website-க்கு deploy ஆகாது.
+6. Screenshot comparison-க்கு அதே job-ல் upload செய்யப்பட்ட இரண்டு sanitized screenshot artifact IDs பயன்படுத்தவும். Pixel differences கிடைக்கும்; browser rendering அல்லது capture provenance சோதிக்கப்பட்டதாகக் கருத வேண்டாம்.
+
+Deployment-க்கு `20260923040000_care_text_workspace` migration, matching API/web, persistent encryption keys, CARE_ENABLED/CARE_REVIEW_ENABLED மற்றும் pinned TypeScript runtime தேவை. மீதமுள்ள 18 tools-ன் code/service/account தேவைகள் [முழு contract matrix](CARE-TOOL-CONTRACTS.md)-ல் உள்ளன.

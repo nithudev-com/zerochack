@@ -112,3 +112,10 @@ A production-mode check found that the existing `script-src self` policy blocked
 ## Tool contract implementation pass
 
 The current matrix is [CARE-TOOL-CONTRACTS.md](CARE-TOOL-CONTRACTS.md), which supersedes counts in earlier dated implementation entries. Of the previously unavailable 52 contracts, 19 now have new bounded handlers/proposal code and 10 are explicitly bound to existing dedicated application workflows. Total: 44 bounded implementations/bindings and 23 unavailable contracts. The narrower v2 boundaries are explicit; this does not fulfill the general execution roadmap. Policy v4 approvals include the expanded deterministic source context. Customer evidence tools and saved monitoring proposals are accessible from each job; owner capabilities show deployment flags, entrypoints and missing dependencies. No generic source execution, offensive automation, external MCP server or live-provider configuration is introduced.
+
+
+## Retained text-workspace increment
+
+Current total: **49 bounded implementations/workflow bindings; 18 unavailable contracts**. T13 creates a scoped staging text copy with explicit customer consent. T14 appends exact-digest literal patches and retains all prior versions. T33/T34 run fixed lint and semantic TypeScript snapshot checks with worker resource limits, retain reports and never execute customer code. T29 compares actual sanitized same-job PNG pixels without claiming renderer/capture provenance. These narrower v2 modes are explicit in the registry; original proposed purposes remain visible.
+
+Workspace history, authenticated downloads, stale-source conflicts, idempotency, concurrency, closed-workspace fencing, quotas and artifact integrity are covered by tests. Apply migration 20260923040000_care_text_workspace before rollout. It admits zero-cost unapproved manual text drafts only; model budget constraints remain. TypeScript 5.9.3 is explicitly pinned as an API runtime dependency. Source-review policy remains v4 because model context and model approval scope are unchanged.

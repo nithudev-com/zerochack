@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import sharp from 'sharp';
 import { database } from '@zerochack/database';
 import { encryptSecret, hashOpaqueToken } from '@zerochack/auth';
 import { loadEnvironment } from '@zerochack/config';
@@ -50,6 +51,113 @@ beforeEach(async () => { testAddress++; calls = []; invalidEvidence = false; dur
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('durable approved multi-role source reviews with real authentication and fixture model', () => {
+  async function createWorkspace(overrides: Record<string, unknown> = {}) {
+    const review = await createReview(['A01'], 1000000, { files: [{ path: 'src/value.ts', content: 'export const count: number = 1;' }], ...overrides });
+    const args = { requestKey: randomUUID(), revisionId: review.revision.id, sourceDigest: review.revision.sourceDigest, authorizeTextWorkspace: true };
+    const response = await request('POST', `/jobs/${review.job.id}/workspaces`, args);
+    expect(response.statusCode, response.body).toBe(201);
+    const id = response.json().jobId;
+    const state = (await request('GET', `/workspaces/${id}`)).json();
+    return { id, review, args, state };
+  }
+  it('creates durable text copies, retries idempotently, preserves original versions and survives reload and close', async () => {
+    const { id, review, args, state } = await createWorkspace();
+    expect(state).toMatchObject({ execution: 'NEVER_EXECUTED', releaseEligible: false });
+    expect((await request('POST', `/jobs/${review.job.id}/workspaces`, args)).statusCode).toBe(200);
+    expect((await request('POST', `/jobs/${review.job.id}/workspaces`, { ...args, sourceDigest: '0'.repeat(64) })).statusCode).toBe(409);
+    const patch = { requestKey: randomUUID(), version: 1, sourceDigest: state.revision.sourceDigest, authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: '= 1', after: '= 2' }] };
+    const saved = await request('POST', `/workspaces/${id}/patches`, patch);
+    expect(saved.statusCode, saved.body).toBe(201); expect(saved.json().revision.version).toBe(2);
+    expect((await request('POST', `/workspaces/${id}/patches`, patch)).json().revision.id).toBe(saved.json().revision.id);
+    expect((await request('POST', `/workspaces/${id}/patches`, { ...patch, patches: [{ path: 'src/value.ts', before: '= 1', after: '= 3' }] })).statusCode).toBe(409);
+    expect((await request('GET', `/workspaces/${id}/versions/1`)).json().files[0].content).toContain('= 1');
+    expect((await request('GET', `/workspaces/${id}/versions/2`)).json().files[0].content).toContain('= 2');
+    const reloaded = (await request('GET', `/workspaces/${id}`)).json();
+    expect(reloaded.history).toHaveLength(2); expect(reloaded.revision.version).toBe(2);
+    expect((await request('POST', `/jobs/${id}/cancel`)).statusCode).toBe(200);
+    expect((await request('GET', `/workspaces/${id}`)).json().history).toHaveLength(2);
+    expect((await request('POST', `/workspaces/${id}/patches`, { ...patch, requestKey: randomUUID(), version: 2, sourceDigest: reloaded.revision.sourceDigest })).json().error.code).toBe('WORKSPACE_CLOSED');
+    expect(await database.careRelease.count({ where: { jobId: id } })).toBe(0); expect(calls).toHaveLength(0);
+  });
+  it('requires explicit exact staging source consent and rejects stale or out-of-scope patch requests', async () => {
+    const { id, state, review, args } = await createWorkspace();
+    expect((await request('POST', `/jobs/${review.job.id}/workspaces`, { ...args, requestKey: randomUUID(), authorizeTextWorkspace: false })).statusCode).toBe(400);
+    expect((await request('POST', `/jobs/${review.job.id}/workspaces`, { ...args, requestKey: randomUUID(), sourceDigest: '0'.repeat(64) })).statusCode).toBe(409);
+    const prod = await createReview(['A01'], 1000000, { environment: 'PRODUCTION' });
+    expect((await request('POST', `/jobs/${prod.job.id}/workspaces`, { ...args, requestKey: randomUUID(), revisionId: prod.revision.id, sourceDigest: prod.revision.sourceDigest })).statusCode).toBe(404);
+    const patch = { requestKey: randomUUID(), version: 1, sourceDigest: state.revision.sourceDigest, authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: '= 1', after: '= 2' }] };
+    expect((await request('POST', `/workspaces/${id}/patches`, { ...patch, sourceDigest: '0'.repeat(64) })).json().error.code).toBe('WORKSPACE_STALE');
+    expect((await request('POST', `/workspaces/${id}/patches`, { ...patch, tenantId: randomUUID() })).statusCode).toBe(400);
+    expect((await request('POST', `/workspaces/${id}/patches`, { ...patch, patches: [{ path: '../outside.ts', before: '1', after: '2' }] })).statusCode).toBe(400);
+    expect((await request('POST', `/workspaces/${id}/patches`, { ...patch, authorizeTextPatch: false })).statusCode).toBe(400);
+    expect((await request('GET', `/workspaces/${randomUUID()}`)).statusCode).toBe(404);
+    expect((await request('GET', `/workspaces/${id}`)).json().history).toHaveLength(1);
+  });
+  it('serializes concurrent patches so only one exact base version can advance', async () => {
+    const { id, state } = await createWorkspace();
+    const patches = [2,3].map((next) => ({ requestKey: randomUUID(), version: 1, sourceDigest: state.revision.sourceDigest, authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: '= 1', after: `= ${next}` }] }));
+    const results = await Promise.all(patches.map((patch) => request('POST', `/workspaces/${id}/patches`, patch)));
+    expect(results.map((result) => result.statusCode).sort()).toEqual([201,409]);
+    expect((await request('GET', `/workspaces/${id}`)).json().history).toHaveLength(2);
+  });
+  it('persists real lint/type results, binds them to revisions and retains them after a later edit', async () => {
+    const { id, state } = await createWorkspace({ files: [{ path: 'src/value.ts', content: 'export var count: number = "wrong";' }] });
+    const args = { requestKey: randomUUID(), version: 1, sourceDigest: state.revision.sourceDigest };
+    const lint = await request('POST', `/workspaces/${id}/checks/T33`, args);
+    expect(lint.statusCode, lint.body).toBe(201); expect(lint.json().output.diagnostics[0].code).toBe('NO_VAR');
+    const checked = await request('POST', `/workspaces/${id}/checks/T34`, { ...args, requestKey: randomUUID() });
+    expect(checked.statusCode, checked.body).toBe(201); expect(checked.json().output.diagnostics[0].code).toBe('TS2322');
+    expect((await request('POST', `/workspaces/${id}/checks/T33`, args)).json().artifactId).toBe(lint.json().artifactId);
+    expect((await request('POST', `/workspaces/${id}/checks/T33`, { ...args, sourceDigest: '0'.repeat(64) })).statusCode).toBe(409);
+    expect((await request('POST', `/workspaces/${id}/checks/T35`, args)).statusCode).toBe(400);
+    const patch = { ...args, requestKey: randomUUID(), authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: '"wrong"', after: '2' }] };
+    expect((await request('POST', `/workspaces/${id}/patches`, patch)).statusCode).toBe(201);
+    const history = (await request('GET', `/workspaces/${id}`)).json(); expect(history.checks).toHaveLength(2);
+    expect((await request('GET', `/workspaces/${id}/check-results/${checked.json().artifactId}`)).json()).toMatchObject({ version: 1, sourceDigest: args.sourceDigest, releaseEligible: false });
+    expect((await request('GET', `/workspaces/${id}/check-results/${state.revision.sourceId}`)).statusCode).toBe(404);
+    expect((await request('POST', `/workspaces/${id}/checks/T34`, { ...args, requestKey: randomUUID() })).json().error.code).toBe('WORKSPACE_STALE');
+    expect(calls).toHaveLength(0);
+  });
+  it('fails closed on source tampering and preserves old history when a version quota is reached', async () => {
+    const { id, state } = await createWorkspace();
+    const original = await database.careArtifact.findUniqueOrThrow({ where: { id: state.revision.sourceId } });
+    await database.careArtifact.update({ where: { id: original.id }, data: { digest: '0'.repeat(64) } });
+    expect((await request('GET', `/workspaces/${id}`)).json().error.code).toBe('WORKSPACE_INTEGRITY');
+    await database.careArtifact.update({ where: { id: original.id }, data: { digest: original.digest } });
+    await database.careRevision.update({ where: { id: state.revision.id }, data: { version: 50 } });
+    await database.careJob.update({ where: { id }, data: { planVersion: 50 } });
+    const patch = { requestKey: randomUUID(), version: 50, sourceDigest: original.digest, authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: '= 1', after: '= 2' }] };
+    expect((await request('POST', `/workspaces/${id}/patches`, patch)).statusCode).toBe(429);
+    expect((await request('GET', `/workspaces/${id}/versions/50`)).json().files[0].content).toContain('= 1');
+  });
+  it('compares actual same-job screenshots and rejects foreign job artifacts or corrupted content', async () => {
+    const first = await createReview(['A01']); const second = await createReview(['A01']);
+    const save = async (jobId: string, background: string) => {
+      const bytes = await sharp({ create: { width: 2, height: 2, channels: 3, background } }).png().toBuffer();
+      return database.$transaction((tx) => writeArtifact(tx, { tenantId, websiteId: siteId, environment: 'STAGING', jobId, createdBy: userId }, bytes, 'SCREENSHOT', 'sanitized.png', 'image/png', env));
+    };
+    const baseline = await save(first.job.id, '#ffffff'); const candidate = await save(first.job.id, '#000000'); const foreign = await save(second.job.id, '#000000');
+    const url = `/jobs/${first.job.id}/tools/T29`;
+    expect((await request('POST', url, { baselineArtifactId: baseline.id, candidateArtifactId: candidate.id })).json().output).toMatchObject({ changedPixels: 4, changedRatio: 1 });
+    expect((await request('POST', url, { baselineArtifactId: baseline.id, candidateArtifactId: foreign.id })).statusCode).toBe(404);
+    await database.careArtifact.update({ where: { id: candidate.id }, data: { digest: '0'.repeat(64) } });
+    expect((await request('POST', url, { baselineArtifactId: baseline.id, candidateArtifactId: candidate.id })).json().error.code).toBe('ARTIFACT_INTEGRITY');
+  });
+  it('confines workspace reads and mutations to the authenticated tenant and enforces zero-cost draft constraints', async () => {
+    const { id, state } = await createWorkspace();
+    const foreignTenant = await database.tenant.create({ data: { name: 'Foreign workspace fixture', slug: `foreign-workspace-${randomUUID()}` } });
+    const foreignSite = await database.website.create({ data: { tenantId: foreignTenant.id, name: 'Foreign fixture', url: 'https://example.com/', normalizedHost: 'example.com' } });
+    const foreign = await database.careJob.create({ data: { tenantId: foreignTenant.id, websiteId: foreignSite.id, userId, requestKey: randomUUID(), kind: 'WORKSPACE', environment: 'STAGING', state: 'WAITING_FOR_INPUT', summary: 'Private foreign source' } });
+    expect((await request('GET', `/workspaces/${foreign.id}`)).statusCode).toBe(404);
+    expect((await request('GET', `/workspaces/${foreign.id}/versions/1`)).statusCode).toBe(404);
+    const patch = { requestKey: randomUUID(), version: 1, sourceDigest: state.revision.sourceDigest, authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: '= 1', after: '= 2' }] };
+    expect((await request('POST', `/workspaces/${foreign.id}/patches`, patch)).statusCode).toBe(404);
+    // The migration must not allow a zero-budget draft to become an approved model plan.
+    await expect(database.careRevision.update({ where: { id: state.revision.id }, data: { state: 'APPROVED' } })).rejects.toThrow();
+    await expect(database.careRevision.update({ where: { id: state.revision.id }, data: { plan: {} } })).rejects.toThrow();
+    expect((await request('POST', `/review-plans/${state.revision.id}/approve`, { sourceDigest: state.revision.sourceDigest, version: 1, budgetMicros: 1, planFingerprint: '0'.repeat(64), authorizeSourceReview: true })).statusCode).toBe(409);
+    expect((await request('GET', `/workspaces/${id}`)).json().revision.state).toBe('DRAFT');
+  });
   it('dispatches bounded tools only with exact current source approval and strict arguments', async () => {
     const value = await createReview(['A01'], 1000000, { files: [...files, { path: 'before.css', content: ':root { --color: blue; }' }, { path: 'after.css', content: ':root { --color: green; }' }] });
     const url = `/jobs/${value.job.id}/tools/`;

@@ -1,6 +1,10 @@
 /** Browser-safe bindings. A binding is implementation evidence, not deployment activation. */
 export const workflowToolBindings: Record<string, { entrypoint: string; boundary: string; requirements: string[] }> = {
   T08: { entrypoint: 'POST /jobs/:id/change-plan; POST /websites/:websiteId/reviews', boundary: 'Persist a static HTML or uploaded-source plan; customer approval starts work.', requirements: ['CARE_REPAIR_ENABLED or CARE_REVIEW_ENABLED', 'Configured model and prices', 'Authorized source and budget'] },
+  T13: { entrypoint: 'POST /jobs/:id/workspaces', boundary: 'Create a customer-authorized staging text snapshot with encrypted, retained versions. No filesystem checkout or executable sandbox.', requirements: ['CARE_REVIEW_ENABLED', 'Exact current staging source selection', 'websites.manage and explicit text-copy consent'] },
+  T14: { entrypoint: 'POST /workspaces/:id/patches', boundary: 'Apply bounded literal edits to existing approved paths with exact revision/digest checks; append a retained version. No code execution or live change.', requirements: ['CARE_REVIEW_ENABLED', 'Open staging text workspace', 'Exact source digest and explicit patch consent'] },
+  T33: { entrypoint: 'POST /workspaces/:id/checks/T33', boundary: 'Run three fixed TypeScript AST lint rules in a bounded worker and retain the report. No ESLint configs or customer plugins.', requirements: ['CARE_REVIEW_ENABLED', 'Open staging text workspace', 'Pinned TypeScript 5.9.3 runtime'] },
+  T34: { entrypoint: 'POST /workspaces/:id/checks/T34', boundary: 'Strict in-memory ES2022 source type checking with bundled standard libraries and relative snapshot imports; retain the report. No package SDKs, tsconfig or source execution.', requirements: ['CARE_REVIEW_ENABLED', 'Open staging text workspace', 'Pinned TypeScript 5.9.3 runtime'] },
   T15: { entrypoint: 'Approved static HTML repair worker → runOneRepair', boundary: 'Package one validated index.html candidate as an encrypted artifact. No general repository commits.', requirements: ['CARE_REPAIR_ENABLED', 'Exact approved static HTML plan', 'Configured provider'] },
   T49: { entrypoint: 'Static HTML repair worker → writeArtifact', boundary: 'Register the validated candidate with SHA-256, creator, job and environment provenance.', requirements: ['CARE_REPAIR_ENABLED', 'Artifact encryption key and quota', 'Validated candidate'] },
   T50: { entrypoint: 'GET /artifacts/:id/content', boundary: 'Authorized retained artifact bytes with integrity validation; no public download URL.', requirements: ['CARE_REPAIR_ENABLED', 'Authorized artifact', 'Artifact decryption key'] },
@@ -22,6 +26,7 @@ export const limitedToolBoundaries: Record<string, string> = {
   T17: 'Reviewed JS/TS AST patterns for dynamic evaluation and raw HTML sinks; no data-flow or exploit analysis.',
   T18: 'Versioned defensive configuration line patterns; observations require contextual review.',
   T22: 'Inventory top-level CycloneDX/SPDX JSON declarations; no image extraction or advisory feed.',
+  T29: 'Compare pixels of two same-job sanitized PNG artifacts with a fixed threshold and dimension checks. Capture provenance and renderer reproducibility remain unverified.',
   T30: 'Compare custom-property declarations in two supplied CSS files; no rendering or computed cascade.',
   T38: 'Basic OpenAPI 3 JSON structure and reference existence; no full schema or compatibility validation.',
   T45: 'Inventory supplied Prisma declaration names; no live schema connection or customer rows.',
@@ -33,8 +38,6 @@ export const limitedToolBoundaries: Record<string, string> = {
   T62: 'Prepare a summary from actual retained source reports with artifact references.'
 };
 export const unavailableToolRequirements: Record<string, string> = {
-  T13: 'No disposable multi-file workspace service is provisioned. Needs tenant isolation, quotas, lifecycle cleanup and evaluated execution profiles.',
-  T14: 'No general patch workspace exists. Needs approved paths, base digest, conflict checks and isolated candidate storage; static HTML repair is separate.',
   T20: 'No approved advisory dataset/feed adapter is connected. Needs ecosystem/version normalization, freshness, provenance and applicability tests.',
   T23: 'No Care-bound HTTP observation adapter is implemented. Needs fixed verified targets, DNS/redirect/response limits and consent; no arbitrary URL tool.',
   T24: 'No Care-bound TLS adapter is implemented. Needs a fixed verified host, certificate-chain validation and timestamped evaluation.',
@@ -42,9 +45,6 @@ export const unavailableToolRequirements: Record<string, string> = {
   T26: 'Needs T25 plus sanitized browser accessibility-tree extraction and privacy tests.',
   T27: 'Needs T25 plus approved viewports, reliable private-region masking, retention and screenshot evidence tests.',
   T28: 'Needs T25 plus a reviewed journey registry, synthetic fixtures and bounded execution. Customer scripts are not executed.',
-  T29: 'Needs approved baseline/candidate screenshots from a reproducible renderer and an evaluated image comparison profile.',
-  T33: 'No disposable lint worker/profile registry is provisioned. Needs pinned rules without customer plugins, resource limits and isolation tests.',
-  T34: 'No isolated project type-check profile is provisioned. T65 supplies syntax checks only.',
   T35: 'No isolated registered unit-test worker is provisioned. Application CI tests this product; it does not execute uploaded customer tests.',
   T36: 'No isolated integration-test worker with disposable test services is provisioned.',
   T37: 'No isolated reproducible build worker with pinned dependencies and restricted package scripts is provisioned.',

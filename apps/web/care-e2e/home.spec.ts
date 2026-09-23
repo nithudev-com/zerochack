@@ -27,7 +27,7 @@ test('technology search, filters and file-support details describe the implement
   await page.goto('/');
   const directory = page.locator('.zr-tech-directory');
   await expect(directory.getByRole('status')).toHaveText('12 of 12 technology areas');
-  await expect(directory.getByText('24 source-review roles · 44 bounded tool implementations', { exact: true })).toBeVisible();
+  await expect(directory.getByText('24 source-review roles · 49 bounded tool implementations', { exact: true })).toBeVisible();
   await directory.getByRole('button', { name: 'Servers & DevOps', exact: true }).click();
   await expect(directory.getByRole('status')).toHaveText('5 of 12 technology areas');
   const search = directory.getByRole('searchbox', { name: 'Search technologies or issues' });

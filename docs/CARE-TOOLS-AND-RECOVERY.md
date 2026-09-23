@@ -57,3 +57,8 @@ Primary references reviewed for the implementation:
 - [PostCSS parser API](https://postcss.org/api/)
 - [parse5 source locations](https://parse5.js.org/interfaces/parse5.ParserOptions.html)
 - [MCP authorization specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-11-25/basic/authorization.mdx)
+
+
+## Retained text workspace
+
+T13/T14 create customer-authorized staging text copies and append literal patches. T33/T34 save real fixed static lint/type-check results bound to exact versions. Saved versions/reports survive reload and closure; unsent edits do not. No workspace code executes or deploys. T29 compares sanitized same-job screenshot pixels; capture provenance remains unverified. See [tool contract matrix](CARE-TOOL-CONTRACTS.md) for all 49 implemented/bound modes, 18 unavailable contracts and exact limits. Apply migration `20260923040000_care_text_workspace` before deploying this increment.

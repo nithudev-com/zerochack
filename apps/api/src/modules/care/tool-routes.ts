@@ -3,7 +3,7 @@ import type { CareJob } from '@prisma/client';
 import { z } from 'zod';
 import { database } from '@zerochack/database';
 import type { Environment } from '@zerochack/config';
-import { digestBytes, executeReviewTool, implementedReviewTools, implementedRecordTools, prepareReviewSnapshot, reviewResultSchema, toolCatalogue, REVIEW_POLICY_VERSION } from '@zerochack/care';
+import { compareStoredScreenshots, digestBytes, executeReviewTool, implementedReviewTools, implementedRecordTools, prepareReviewSnapshot, reviewResultSchema, toolCatalogue, REVIEW_POLICY_VERSION } from '@zerochack/care';
 import { ApiError } from '../../errors.js';
 import { requirePermission } from '../auth/security.js';
 import { careEvent, careWebsite } from './service.js';
@@ -16,6 +16,7 @@ const recordSchemas = {
   T03: empty, T05: empty,
   T12: z.object({ baselineArtifactId: uuid, candidateArtifactId: uuid }).strict(),
   T16: z.object({ revisionId: uuid, sourceDigest: z.string().regex(/^[a-f0-9]{64}$/) }).strict(),
+  T29: z.object({ baselineArtifactId: uuid, candidateArtifactId: uuid }).strict(),
   T51: empty, T56: empty, T57: empty, T58: empty, T62: empty
 };
 function input<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -66,6 +67,16 @@ async function recordOutput(id: typeof implementedRecordTools[number], args: unk
       const revision = await database.careRevision.findFirst({ where: { ...jobScope, id: value.revisionId } });
       if (!revision) throw new ApiError(404, 'REVISION_UNAVAILABLE', 'This revision is unavailable in the current job.');
       return { conflict: revision.version !== job.planVersion || revision.sourceDigest !== value.sourceDigest, planVersion: job.planVersion, revisionVersion: revision.version, sourceDigest: revision.sourceDigest, limitation: 'Persisted plan/source binding only. No live checkout, merge-conflict detection or file ownership evaluation.' };
+    }
+    case 'T29': {
+      const value = recordSchemas.T29.parse(args);
+      if (value.baselineArtifactId === value.candidateArtifactId) throw new ApiError(400, 'TOOL_INPUT_INVALID', 'Choose two distinct screenshot artifacts.');
+      const images = await Promise.all([value.baselineArtifactId, value.candidateArtifactId].map(async (id) => {
+        const artifact = await database.careArtifact.findFirst({ where: { id, ...jobScope, environment: job.environment, kind: 'SCREENSHOT' } });
+        if (!artifact) throw new ApiError(404, 'ARTIFACT_UNAVAILABLE', 'The screenshot is unavailable in this job and environment.');
+        return { artifact, bytes: readArtifact(artifact, env) };
+      }));
+      return { baselineDigest: images[0]!.artifact.digest, candidateDigest: images[1]!.artifact.digest, ...await compareStoredScreenshots(images[0]!.bytes, images[1]!.bytes) };
     }
     case 'T51': {
       const revision = await database.careRevision.findFirst({ where: { ...jobScope, version: job.planVersion } });

@@ -40,7 +40,8 @@
     "pino": "^9.9.0",
     "ssh2": "^1.17.0",
     "zod": "^4.1.0",
-    "@zerochack/care": "*"
+    "@zerochack/care": "*",
+    "typescript": "5.9.3"
   },
   "devDependencies": {
     "@types/node": "^22.15.0"

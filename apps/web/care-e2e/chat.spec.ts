@@ -2,6 +2,58 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
+test('staging text workspace requires consent, saves versions and static checks, and retains history after reload and closure', async ({ page }) => {
+  const reviewId = 'a13690a6-6d5e-4f7b-9e86-5f8f7913d2ea'; const workspaceId = 'b13690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
+  let created = false; let version = 1; let closed = false; let checked = false;
+  const revision = { id: 'c13690a6-6d5e-4f7b-9e86-5f8f7913d2ea', version: 1, sourceDigest: 'a'.repeat(64), state: 'COMPLETED', budgetMicros: 1000, chargedMicros: 0, budgetState: 'SETTLED', plan: { roleIds: ['A01'], language: 'en', boundary: 'Review supplied source only.', requestFingerprint: 'b'.repeat(64), configuration: { model: 'Fixture' } } };
+  const timestamp = new Date().toISOString();
+  const result = { version: 2, sourceDigest: 'b'.repeat(64), output: { state: 'NO_ISSUES_DETECTED', check: 'snapshot-typescript-types', limitation: 'No runtime tests were run.' } };
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const reviewJob = { id: reviewId, kind: 'REVIEW', summary: 'Source selected for text edits', environment: 'STAGING', state: 'COMPLETED', agents: [], createdAt: timestamp, errorCode: null };
+    if (path.endsWith('/care')) return route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [reviewJob, ...(created ? [{ id: workspaceId, kind: 'WORKSPACE', summary: 'Text workspace: source changes', environment: 'STAGING', state: closed ? 'CANCELLED' : 'WAITING_FOR_INPUT', agents: [], createdAt: timestamp }] : [])], capabilities: { sourceReview: true } } });
+    if (path.endsWith('/review')) return route.fulfill({ json: { job: reviewJob, revision, reports: [], agents: [], totalSteps: 1, completedSteps: 0, capabilities: { enabled: true } } });
+    if (path.endsWith(`/jobs/${reviewId}/workspaces`)) { expect(route.request().postDataJSON()).toMatchObject({ revisionId: revision.id, sourceDigest: revision.sourceDigest, authorizeTextWorkspace: true }); created = true; return route.fulfill({ status: 201, json: { jobId: workspaceId } }); }
+    if (path.endsWith(`/workspaces/${workspaceId}`)) return route.fulfill({ json: { job: { id: workspaceId, state: closed ? 'CANCELLED' : 'WAITING_FOR_INPUT' }, revision: { id: `revision-${version}`, version, sourceDigest: (version === 1 ? 'a' : 'b').repeat(64) }, files: [{ path: 'src/value.ts', content: `export const count = ${version};` }], history: Array.from({ length: version }, (_, i) => ({ id: `revision-${i + 1}`, version: i + 1, createdAt: timestamp })), checks: checked ? [{ id: 'check-1', filename: 'T34-check.json', createdAt: timestamp }] : [] } });
+    if (path.endsWith('/patches')) { expect(route.request().postDataJSON()).toMatchObject({ version: 1, sourceDigest: 'a'.repeat(64), authorizeTextPatch: true, patches: [{ path: 'src/value.ts', before: 'count = 1', after: 'count = 2' }] }); version = 2; return route.fulfill({ status: 201, json: { revision: { version: 2 } } }); }
+    if (path.endsWith('/checks/T34')) { expect(route.request().postDataJSON()).toMatchObject({ version: 2, sourceDigest: 'b'.repeat(64) }); checked = true; return route.fulfill({ status: 201, json: result }); }
+    if (path.endsWith('/check-results/check-1')) return route.fulfill({ json: result });
+    if (path.endsWith(`/jobs/${workspaceId}/cancel`)) { closed = true; return route.fulfill({ json: { state: 'CANCELLED' } }); }
+    if (path.endsWith('/versions/1')) return route.fulfill({ json: { files: [{ path: 'src/value.ts', content: 'export const count = 1;' }] } });
+    return route.fallback();
+  });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${id}`);
+  await page.getByLabel('Environment', { exact: true }).selectOption('STAGING');
+  await page.getByRole('button', { name: 'Open team review' }).click();
+  await page.getByText('Create a text workspace', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Create text workspace', exact: true })).toBeDisabled();
+  await page.getByLabel('I authorize copying this exact source selection into a text workspace.').check();
+  await page.getByRole('button', { name: 'Create text workspace', exact: true }).click();
+  await page.getByRole('button', { name: 'Open text workspace' }).click();
+  const panel = page.getByRole('region', { name: 'Text workspace', exact: true });
+  await panel.getByLabel('Workspace file').selectOption('src/value.ts');
+  await panel.getByLabel('Original text to replace').fill('count = 1'); await panel.getByLabel('Replacement text').fill('count = 2');
+  await expect(panel.getByRole('button', { name: 'Save text version' })).toBeDisabled();
+  await panel.getByLabel('I reviewed this exact text change and authorize saving a new version.').check();
+  await panel.getByRole('button', { name: 'Save text version' }).click();
+  await expect(panel.getByRole('heading', { name: 'Saved version 2 · Open for text edits' })).toBeVisible();
+  await panel.getByRole('button', { name: 'Run snapshot type check' }).click(); await expect(panel.getByText(/No runtime tests were run/)).toBeVisible();
+  const accessibility = await new AxeBuilder({ page }).include('[aria-label="Text workspace"]').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze(); expect(accessibility.violations).toEqual([]);
+  await page.reload(); await page.getByLabel('Environment', { exact: true }).selectOption('STAGING'); await page.getByRole('button', { name: 'Open text workspace' }).click();
+  await expect(panel.getByRole('heading', { name: 'Saved version 2 · Open for text edits' })).toBeVisible();
+  await panel.getByText('Saved static checks · 1', { exact: true }).click(); await panel.getByRole('button', { name: /^T34 ·/ }).click(); await expect(panel.getByText(/No runtime tests were run/)).toBeVisible();
+  await panel.getByRole('button', { name: 'Close workspace and keep history' }).click(); await expect(panel.getByRole('heading', { name: 'Saved version 2 · Closed; history retained' })).toBeVisible();
+  await panel.getByText('Saved versions · 2', { exact: true }).click();
+  const download = page.waitForEvent('download'); await panel.getByRole('button', { name: 'Download version 1' }).click(); expect((await download).suggestedFilename()).toBe('workspace-v1.json');
+});
+test('stored screenshot comparison sends only selected artifact IDs and displays measurement limitations', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const baseline = 'a13690a6-6d5e-4f7b-9e86-5f8f7913d2ea'; const candidate = 'b13690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
+  await page.route('**/care?**', (route) => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REPAIR', summary: 'Compare stored screenshots', state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/tools/T29', (route) => { expect(route.request().postDataJSON()).toEqual({ baselineArtifactId: baseline, candidateArtifactId: candidate }); return route.fulfill({ json: { output: { state: 'PIXEL_DIFFERENCES', changedPixels: 20, limitation: 'Renderer provenance is not verified.' } } }); });
+  await page.goto(`/customer/websites/${id}`); await page.getByText('Saved evidence & source tools', { exact: true }).click(); await page.getByLabel('Evidence to read').selectOption('T29');
+  await page.getByLabel('Baseline screenshot artifact ID').fill(baseline); await page.getByLabel('Candidate screenshot artifact ID').fill(candidate); await page.getByRole('button', { name: 'Read evidence', exact: true }).click();
+  await expect(page.getByText(/Renderer provenance is not verified/)).toBeVisible();
+});
 test('saved evidence tools show real states and retain monitoring proposals without activating them', async ({ page }) => {
   const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5';
   const proposalId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b';
