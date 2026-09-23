@@ -11,12 +11,14 @@ The application has 24 source-review roles and 66 registered tool contracts. Fou
 | PostCSS 8.5.27 | T66 parses standalone CSS | No plugins, source-map loading, external imports or browser rendering |
 | parse5 8.0.1 | T31 static HTML language/alt/title/ID references; T32 local fragments | Not accessible-name computation, link crawling or WCAG certification |
 | @axe-core/playwright | Automated WCAG-tagged checks of the Care UI in mobile/desktop and light/dark states | UI fixture tests; manual keyboard, screen-reader and inclusive-user evaluation still required |
-| Vitest, Playwright, PostgreSQL/Prisma, Redis | Application contracts, browser journeys, persisted steps and CI | Provider and SFTP adapters in automated Care tests are fixtures |
+| Vitest 4.1.11, Playwright, PostgreSQL/Prisma, Redis | Application contracts, browser journeys, persisted steps and CI | Provider and SFTP adapters in automated Care tests are fixtures |
 | T53 recovery metadata | Retained verified-backup records, schedules, recorded monitoring and unresolved releases | No backup-byte revalidation, clean-state determination, live health check or restore |
 
 All diagnostic outputs are bounded. Unsupported files return `NOT_APPLICABLE`; a parser problem returns an observation rather than a fabricated success. Every tool remains bound to the approved tenant, website, environment and source. Source-review policy v2 fences old unfinished v1 plans; saved results remain available, but further model work needs a newly approved plan.
 
 Run the ordinary CI gates and `npm run test:accessibility`. In an actual configured deployment, run `npm run care:preflight -- TENANT_UUID`. The command reports database schema, preserved-history migration, worker heartbeat, Redis, model pricing/configuration and missing live-validation evidence. It does not make a model call or operate a customer host.
+
+CI now audits production and development dependencies with `npm audit --audit-level=moderate`. The previous Vitest 3 test dependency and its mocker carried a moderate advisory; the test stack is pinned to the patched 4.1.11 release. A clean advisory report describes the checked dependency graph at that time, not the absence of all possible application vulnerabilities.
 
 ## Saved work and history
 

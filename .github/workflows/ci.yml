@@ -46,7 +46,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=moderate
       - run: npm run db:migrate:deploy
       - run: npm run lint
       - run: npm run typecheck
