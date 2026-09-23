@@ -4,20 +4,21 @@ import { Providers } from './providers';
 import './globals.css';
 import '@fontsource/noto-sans-tamil/400.css';
 import './care.css';
+import './home.css';
 
 const siteUrl = process.env.APP_URL ?? 'http://localhost:3000';
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: { default: 'ZeroRoot | Website Security & Monitoring', template: '%s | ZeroRoot' },
-  description: 'Protect websites with continuous security monitoring, vulnerability scanning, verified backups, actionable reports, and accountable expert remediation.',
+  title: { default: 'ZeroRoot | AI Website, API & DevOps Care', template: '%s | ZeroRoot' },
+  description: 'AI-assisted care for websites, web apps, APIs, servers and DevOps. Source reviews, supported repairs, security guidance and specialist-led recovery.',
   applicationName: 'ZeroRoot',
   generator: 'Next.js',
   authors: [{ name: 'ZeroRoot' }],
   creator: 'ZeroRoot',
   publisher: 'ZeroRoot',
-  category: 'Cybersecurity',
-  keywords: ['website security platform', 'cybersecurity platform', 'continuous website monitoring', 'website vulnerability scanner', 'secure website backups', 'website malware protection', 'expert security remediation', 'agency website security'],
+  category: 'Website care and cybersecurity',
+  keywords: ['AI website redesign review', 'website repair', 'website security assessment', 'hacked website recovery', 'HTML repair', 'website source review', 'agency website care', 'DevOps troubleshooting', 'API source review', 'server configuration review'],
   alternates: { canonical: '/' },
   formatDetection: { email: false, address: false, telephone: false },
   referrer: 'origin-when-cross-origin',
@@ -29,14 +30,14 @@ export const metadata: Metadata = {
     url: '/',
     siteName: 'ZeroRoot',
     locale: 'en_US',
-    title: 'ZeroRoot | Website Security & Monitoring',
-    description: 'Continuous monitoring, vulnerability scanning, verified backups, and accountable remediation for websites and agencies.',
+    title: 'ZeroRoot | AI Website, API & DevOps Care',
+    description: 'Website, app, API, server and DevOps reviews, supported repairs and security guidance, with you in control.',
     images: [{ url: '/opengraph-image', width: 1200, height: 630, alt: 'ZeroRoot website security platform' }]
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ZeroRoot | Website Security & Monitoring',
-    description: 'Continuous monitoring, vulnerability scanning, verified backups, and accountable remediation for websites and agencies.',
+    title: 'ZeroRoot | AI Website, API & DevOps Care',
+    description: 'Website, app, API, server and DevOps reviews, supported repairs and security guidance, with you in control.',
     images: ['/opengraph-image']
   }
 };

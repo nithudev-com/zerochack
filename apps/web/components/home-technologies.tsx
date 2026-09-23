@@ -1,0 +1,33 @@
+'use client';
+
+import { useState } from 'react';
+
+const groups = ['All technologies', 'Frontend & apps', 'Backend & data', 'Servers & DevOps', 'Security & reliability'] as const;
+const technologies = [
+  { title: 'Frontend & user experience', group: 'Frontend & apps', symbol: '◧', description: 'Review broken layouts, responsive behavior, accessibility, rendering logic and user journeys.', tags: ['HTML / CSS / SCSS', 'JavaScript / TypeScript', 'React / Next.js', 'Vue / Nuxt', 'Svelte / SvelteKit', 'Angular / Astro'] },
+  { title: 'CMS, commerce & web platforms', group: 'Frontend & apps', symbol: '▦', description: 'Review supplied theme, plugin and storefront source; plan content, SEO and integration improvements.', tags: ['WordPress / WooCommerce', 'Shopify theme excerpts', 'Drupal / Joomla', 'Magento / Adobe Commerce', 'Headless CMS', 'Custom web applications'] },
+  { title: 'Backend & application frameworks', group: 'Backend & data', symbol: '⌘', description: 'Trace application logic, validation and error handling in supplied code. Plan changes for a developer to implement.', tags: ['Node.js / Express / NestJS', 'PHP / Laravel / Symfony', 'Python / Django / FastAPI', 'Java / Spring', '.NET / C# excerpts', 'Go / Rust / Ruby on Rails'] },
+  { title: 'APIs, identity & integrations', group: 'Backend & data', symbol: '⇄', description: 'Review endpoint logic, authorization, webhooks, integration failures, retry behavior and timeout handling.', tags: ['REST / OpenAPI', 'GraphQL', 'gRPC / WebSockets', 'OAuth / OIDC / JWT', 'Webhooks / payment integrations', 'Third-party API clients'] },
+  { title: 'Databases & data systems', group: 'Backend & data', symbol: '▤', description: 'Review schema and migration text, query patterns, data handling and plans for safer changes.', tags: ['PostgreSQL / MySQL / MariaDB', 'SQL Server / SQLite', 'MongoDB', 'Redis', 'Prisma / ORM schemas', 'Elasticsearch / OpenSearch'] },
+  { title: 'Servers & operating systems', group: 'Servers & DevOps', symbol: '▣', description: 'Review redacted configuration and incident context for service failures, permissions and maintenance planning.', tags: ['Linux / Ubuntu / Debian', 'RHEL / Rocky / AlmaLinux', 'Windows Server', 'VPS / dedicated servers', 'systemd / service configuration', 'SSH / SFTP access planning'] },
+  { title: 'Web servers & traffic routing', group: 'Servers & DevOps', symbol: '↗', description: 'Review configuration excerpts for routing, redirects, proxy behavior, TLS settings and availability concerns.', tags: ['Nginx / Apache', 'IIS / Caddy', 'HAProxy / Traefik', 'Reverse proxies / load balancers', 'DNS / SSL / TLS', 'CDN / Cloudflare configuration'] },
+  { title: 'Cloud & hosting infrastructure', group: 'Servers & DevOps', symbol: '☁', description: 'Review supplied infrastructure definitions, access policies and deployment context for reliability and security.', tags: ['AWS', 'Microsoft Azure', 'Google Cloud', 'DigitalOcean / Hetzner', 'Vercel / Netlify', 'cPanel / Plesk / managed hosting'] },
+  { title: 'Containers & infrastructure as code', group: 'Servers & DevOps', symbol: '⬡', description: 'Review images, manifests and configuration excerpts for isolation, dependencies, readiness and deployment risks.', tags: ['Docker / Compose', 'Kubernetes / Helm', 'Terraform excerpts', 'Ansible configuration', 'YAML / JSON / TOML', 'Container registries'] },
+  { title: 'DevOps, CI/CD & releases', group: 'Servers & DevOps', symbol: '⟳', description: 'Review pipeline definitions for build failures, permissions, test gates, release steps and rollback prerequisites.', tags: ['GitHub Actions / GitLab CI', 'Jenkins / CircleCI', 'Azure DevOps', 'Argo CD / GitOps', 'Build & package configuration', 'Release / rollback planning'] },
+  { title: 'Security hardening & recovery', group: 'Security & reliability', symbol: '◇', description: 'Review defensive controls and supplied incident evidence; prioritize improvements and specialist-led recovery.', tags: ['Authentication / authorization', 'IAM / least privilege', 'Firewall / WAF configuration', 'Dependency & secret-handling review', 'Incident triage / recovery planning', 'Backup / restore prerequisites'] },
+  { title: 'Performance, queues & observability', group: 'Security & reliability', symbol: '⌁', description: 'Find source-level performance hypotheses, review retry patterns and use supplied logs to plan measurements.', tags: ['Caching / CDN strategy', 'RabbitMQ / Kafka / BullMQ', 'Prometheus / Grafana', 'OpenTelemetry / Sentry', 'Logs / metrics / alerting', 'Query / memory / latency review'] }
+];
+
+export function HomeTechnologies() {
+  const [group, setGroup] = useState<string>(groups[0]);
+  const [query, setQuery] = useState('');
+  const normalized = query.trim().toLowerCase();
+  const filtered = technologies.filter(item => (group === groups[0] || item.group === group) && `${item.title} ${item.description} ${item.tags.join(' ')}`.toLowerCase().includes(normalized));
+  return <div className="zr-tech-directory">
+    <div className="zr-tech-toolbar"><div className="zr-tech-filters" aria-label="Filter technology areas">{groups.map(item => <button type="button" key={item} aria-pressed={group === item} onClick={() => setGroup(item)}>{item}</button>)}</div><label className="zr-tech-search"><span className="sr-only">Search technologies or issues</span><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Try Docker, API, WordPress…"/></label></div>
+    <p className="zr-tech-result-count" role="status">{filtered.length} of {technologies.length} technology areas{query ? ` matching “${query}”` : ''}</p>
+    <div className="zr-tech-directory-grid">{filtered.map(item => <article key={item.title}><div className="zr-tech-card-title"><span aria-hidden="true">{item.symbol}</span><h3>{item.title}</h3></div><p>{item.description}</p><ul>{item.tags.map(tag => <li key={tag}>{tag}</li>)}</ul></article>)}</div>
+    {filtered.length === 0 && <div className="zr-tech-empty"><h3>No matching area in this view.</h3><p>Try a technology name, a related issue, or browse all areas. Your team can assess the scope of an unlisted stack.</p><button type="button" onClick={() => { setQuery(''); setGroup(groups[0]); }}>Show all technology areas</button></div>}
+    <div className="zr-tech-scope"><span aria-hidden="true">↳</span><p><strong>Your technology doesn’t need to fit in one box.</strong> Share the project context and relevant source or redacted configuration in a supported text format. Coverage depends on the evidence provided. These are review areas, not a claim of certified integrations, live diagnostics or automatic fixes for every platform.</p></div>
+  </div>;
+}
