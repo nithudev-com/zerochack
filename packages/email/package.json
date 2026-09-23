@@ -1,0 +1,1 @@
+{ "name": "@zerochack/email", "version": "0.0.0", "private": true, "type": "module", "exports": "./src/index.ts", "scripts": { "typecheck": "tsc --noEmit" }, "dependencies": { "nodemailer": "^9.1.1" }, "devDependencies": { "@types/nodemailer": "^7.0.0" } }

@@ -1,0 +1,4 @@
+export const communicationEventTypes = ['REGISTRATION','EMAIL_VERIFICATION','APPROVAL','SUSPENSION','SCAN_STARTED','SCAN_COMPLETED','CRITICAL_FINDING','MONITORING_ALERT','BACKUP_SUCCESS','BACKUP_FAILURE','TICKET_CREATED','SPECIALIST_ASSIGNED','AUTHORIZATION_REQUESTED','REMEDIATION_STARTED','REMEDIATION_COMPLETED','POST_SCAN','WARRANTY','SUBSCRIPTION','PAYMENT','INVOICE','AFFILIATE_COMMISSION','PAYOUT'] as const;
+export type CommunicationEventType = typeof communicationEventTypes[number];
+export interface NotificationRequest { tenantId: string; recipientId: string; eventType: CommunicationEventType; deduplicationKey: string; title: string; message: string; actionUrl: string; data?: Record<string, string | number | boolean>; }
+export interface NotificationGateway { enqueue(request: NotificationRequest): Promise<{ eventId: string; duplicate: boolean }>; }

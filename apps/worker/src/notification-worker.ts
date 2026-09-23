@@ -1,0 +1,16 @@
+import { Queue, Worker, type Job } from 'bullmq';
+import IORedis from 'ioredis';
+import type { Logger } from 'pino';
+import { database } from '@zerochack/database';
+
+const text=(payload:unknown,key:string,fallback:string):string=>typeof payload==='object'&&payload!==null&&!Array.isArray(payload)&&typeof (payload as Record<string,unknown>)[key]==='string'?String((payload as Record<string,unknown>)[key]).slice(0,key==='title'?240:10_000):fallback;
+
+export async function processCommunicationEvent(eventId:string,emailQueue:Pick<Queue,'add'>):Promise<void>{
+  const event=await database.communicationEvent.findUnique({where:{id:eventId},include:{recipient:{select:{email:true}},notification:true,emailDelivery:true}});if(!event||event.processedAt)return;
+  const preference=await database.notificationPreference.findUnique({where:{tenantId_userId_eventType:{tenantId:event.tenantId,userId:event.recipientUserId,eventType:event.eventType}}});const inApp=preference?.inAppEnabled??true;const byEmail=preference?.emailEnabled??true;
+  if(inApp&&!event.notification)await database.notification.create({data:{tenantId:event.tenantId,recipientUserId:event.recipientUserId,eventId:event.id,eventType:event.eventType,title:text(event.payload,'title',event.eventType.replaceAll('_',' ')),body:text(event.payload,'message','A ZeroRoot event occurred.')}}).catch((error:unknown)=>{if(!(typeof error==='object'&&error!==null&&'code'in error&&error.code==='P2002'))throw error;});
+  if(byEmail&&!event.emailDelivery){const template=await database.emailTemplateVersion.findFirst({where:{eventType:event.eventType,enabled:true},orderBy:{version:'desc'}});if(template){const delivery=await database.emailDelivery.create({data:{tenantId:event.tenantId,recipientUserId:event.recipientUserId,eventId:event.id,templateVersionId:template.id,recipientEmail:event.recipient.email,idempotencyKey:`event:${event.id}`}}).catch(async(error:unknown)=>{if(typeof error==='object'&&error!==null&&'code'in error&&error.code==='P2002')return database.emailDelivery.findUniqueOrThrow({where:{eventId:event.id}});throw error;});await emailQueue.add('email.deliver',{deliveryId:delivery.id},{jobId:delivery.id,attempts:5,backoff:{type:'exponential',delay:2_000},removeOnComplete:1000,removeOnFail:5000});}}
+  await database.$transaction([database.communicationEvent.update({where:{id:event.id},data:{processedAt:new Date()}}),database.auditLog.create({data:{tenantId:event.tenantId,requestId:`communication:${event.id}`.slice(0,100),action:'communication.event_processed',resourceType:'communication_event',resourceId:event.id,metadata:{eventType:event.eventType,inApp,email:byEmail}}})]);
+}
+
+export function createNotificationWorker(redisUrl:string,logger:Logger):{worker:Worker;emailQueue:Queue}{const connection=new IORedis(redisUrl,{maxRetriesPerRequest:null});const emailQueue=new Queue('email',{connection});const worker=new Worker('notifications',async(job:Job<{eventId:string}>)=>processCommunicationEvent(job.data.eventId,emailQueue),{connection,concurrency:10});worker.on('failed',(job,error)=>logger.error({jobId:job?.id,err:error,errorCode:'NOTIFICATION_JOB_FAILED'},'notification.job_failed'));return{worker,emailQueue};}

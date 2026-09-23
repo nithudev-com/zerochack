@@ -1,0 +1,47 @@
+{
+  "name": "@zerochack/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsup",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "owner:create": "tsx src/scripts/create-owner.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.1.0",
+    "@fastify/helmet": "^13.0.1",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/swagger": "^9.5.0",
+    "@fastify/swagger-ui": "^6.1.1",
+    "@node-rs/argon2": "^2.0.2",
+    "@prisma/client": "6.12.0",
+    "@types/ssh2": "^1.15.6",
+    "@zerochack/ai-gateway": "*",
+    "@zerochack/auth": "*",
+    "@zerochack/config": "*",
+    "@zerochack/database": "*",
+    "@zerochack/email": "*",
+    "@zerochack/notifications": "*",
+    "@zerochack/payments": "*",
+    "@zerochack/reports": "*",
+    "@zerochack/scanner": "*",
+    "@zerochack/security": "*",
+    "@zerochack/types": "*",
+    "@zerochack/validation": "*",
+    "bullmq": "^5.58.0",
+    "dotenv": "^17.2.0",
+    "fastify": "^5.5.0",
+    "ioredis": "^5.7.0",
+    "nodemailer": "^9.1.1",
+    "pino": "^9.9.0",
+    "ssh2": "^1.17.0",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0"
+  }
+}

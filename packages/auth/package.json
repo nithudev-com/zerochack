@@ -1,0 +1,5 @@
+{
+  "name": "@zerochack/auth", "version": "0.0.0", "private": true, "type": "module", "exports": "./src/index.ts",
+  "scripts": { "typecheck": "tsc --noEmit" }, "dependencies": { "@node-rs/argon2": "^2.0.2", "@zerochack/security": "*", "@zerochack/types": "*" },
+  "devDependencies": { "@types/node": "^22.15.0" }
+}

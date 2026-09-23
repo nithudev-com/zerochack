@@ -1,0 +1,1 @@
+import { StatusPage } from '../../components/status-page'; export default function Page() { return <StatusPage title="Approval pending" description="Your email is verified. An Owner must approve this account before it can sign in." />; }

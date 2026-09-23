@@ -1,0 +1,7 @@
+ALTER TABLE "tickets"
+  ADD COLUMN "progress_stage" VARCHAR(40) NOT NULL DEFAULT 'REQUESTED',
+  ADD COLUMN "progress_note" VARCHAR(500),
+  ADD COLUMN "progress_updated_at" TIMESTAMPTZ(6);
+
+ALTER TABLE "tickets" ADD CONSTRAINT "tickets_progress_stage_check"
+  CHECK ("progress_stage" IN ('REQUESTED','ACCEPTED','ASSESSING','AWAITING_APPROVAL','BACKUP','REMEDIATING','VERIFYING','DELIVERED'));

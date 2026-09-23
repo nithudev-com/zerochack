@@ -1,0 +1,50 @@
+{
+  "name": "zerochack",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n web,api,worker -c cyan,green,yellow \"npm run dev -w @zerochack/web\" \"npm run dev -w @zerochack/api\" \"npm run dev -w @zerochack/worker\"",
+    "build": "npm run db:generate && npm run build --workspaces --if-present",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "npm run db:generate && npm run typecheck --workspaces --if-present",
+    "test": "npm run db:generate && vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:e2e": "playwright test",
+    "test:load": "node infrastructure/load/api-load.mjs",
+    "openapi:generate": "tsx apps/api/src/generate-openapi.ts",
+    "db:generate": "prisma generate --schema packages/database/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema packages/database/prisma/schema.prisma",
+    "db:migrate:deploy": "prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "db:studio": "prisma studio --schema packages/database/prisma/schema.prisma",
+    "docker:up": "docker compose -f infrastructure/docker/docker-compose.yml up --build",
+    "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^22.15.0",
+    "@typescript-eslint/eslint-plugin": "^8.40.0",
+    "@typescript-eslint/parser": "^8.40.0",
+    "concurrently": "^9.2.0",
+    "eslint": "^9.34.0",
+    "eslint-config-next": "^15.5.0",
+    "prisma": "6.12.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vitest": "^3.2.0"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.12.0"
+  }
+}

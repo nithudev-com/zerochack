@@ -1,0 +1,43 @@
+import Redis from 'ioredis';
+import { database } from '@zerochack/database';
+import { decryptSecret } from '@zerochack/auth';
+import { AI_ADAPTER_KEYS, AiGatewayError, CentralAiGateway, isProviderHealthFailure, OpenAiResponsesAdapter, type AiLimitStore, type AiProviderAdapter, type AiProviderConfiguration, type AiRequest, type AiUsageStore, type ProviderCompletion, type UsageFinish, type UsageStart } from '@zerochack/ai-gateway';
+import type { Environment } from '@zerochack/config';
+import { ApiError } from '../../errors.js';
+
+class MemoryLimitStore implements AiLimitStore {
+  private rates = new Map<string, { count: number; expires: number }>();
+  private concurrent = new Map<string, number>();
+  async consume(key: string, limit: number, windowSeconds: number): Promise<boolean> { const now = Date.now(); const current = this.rates.get(key); const next = !current || current.expires <= now ? { count: 1, expires: now + windowSeconds * 1000 } : { ...current, count: current.count + 1 }; this.rates.set(key, next); return next.count <= limit; }
+  async acquire(key: string, limit: number): Promise<(() => Promise<void>) | undefined> { const count = this.concurrent.get(key) ?? 0; if (count >= limit) return undefined; this.concurrent.set(key, count + 1); return async () => { const next = (this.concurrent.get(key) ?? 1) - 1; if (next <= 0) this.concurrent.delete(key); else this.concurrent.set(key, next); }; }
+}
+
+class RedisLimitStore implements AiLimitStore {
+  constructor(private readonly redis: Redis) {}
+  async consume(key: string, limit: number, windowSeconds: number): Promise<boolean> { const count = await this.redis.eval("local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n", 1, key, windowSeconds) as number; return count <= limit; }
+  async acquire(key: string, limit: number, ttlSeconds: number): Promise<(() => Promise<void>) | undefined> { const accepted = await this.redis.eval("local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[2]) end; if n>tonumber(ARGV[1]) then redis.call('DECR',KEYS[1]); return 0 end; return 1", 1, key, limit, ttlSeconds) as number; if (!accepted) return undefined; return async () => { await this.redis.eval("local n=redis.call('DECR',KEYS[1]); if n<=0 then redis.call('DEL',KEYS[1]) end; return n", 1, key); }; }
+}
+
+class PrismaUsageStore implements AiUsageStore {
+  async findCompleted(request: AiRequest) { const usage = await database.aiUsage.findUnique({ where: { tenantId_userId_idempotencyKey: { tenantId: request.tenantId, userId: request.userId, idempotencyKey: request.idempotencyKey } } }); if (usage?.status !== 'SUCCEEDED' || !usage.responseText || usage.inputTokens === null || usage.outputTokens === null) return undefined; return { text: usage.responseText, inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...(usage.providerRequestId ? { providerRequestId: usage.providerRequestId } : {}), usageId: usage.id, estimatedCostMicros: usage.estimatedCostMicros ?? 0 }; }
+  async dailyCostMicros(tenantId: string) { const day = new Date(); day.setUTCHours(0, 0, 0, 0); const result = await database.aiUsage.aggregate({ where: { tenantId, status: 'SUCCEEDED', createdAt: { gte: day } }, _sum: { estimatedCostMicros: true } }); return result._sum.estimatedCostMicros ?? 0; }
+  async start(input: UsageStart) { try { const usage = await database.aiUsage.create({ data: { tenantId: input.tenantId, userId: input.userId, providerId: input.configuration.providerId, credentialId: input.configuration.credentialId, modelId: input.configuration.modelId, requestId: input.requestId, idempotencyKey: input.idempotencyKey, promptHash: input.promptHash } }); await database.aiCredential.update({ where: { id: input.configuration.credentialId }, data: { lastUsedAt: new Date() } }); return usage.id; } catch (error) { if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') throw new AiGatewayError('AI_REQUEST_IN_PROGRESS', 'An identical AI request is already being processed', 409); throw error; } }
+  async succeed(usageId: string, result: UsageFinish) { await database.aiUsage.update({ where: { id: usageId }, data: { status: 'SUCCEEDED', inputTokens: result.inputTokens, outputTokens: result.outputTokens, latencyMs: result.latencyMs, estimatedCostMicros: result.estimatedCostMicros, responseText: result.text, ...(result.providerRequestId ? { providerRequestId: result.providerRequestId } : {}), completedAt: new Date() } }); }
+  async fail(usageId: string, errorCode: string, latencyMs: number) { await database.aiUsage.update({ where: { id: usageId }, data: { status: 'FAILED', errorCode, latencyMs, completedAt: new Date() } }); }
+}
+
+export class AiService {
+  private readonly gateway: CentralAiGateway;
+  readonly adapters: AiProviderAdapter[];
+  constructor(environment: Environment, redis?: Redis, adapters?: AiProviderAdapter[]) { this.adapters = adapters ?? [new OpenAiResponsesAdapter()]; this.gateway = new CentralAiGateway({ adapters: this.adapters, limits: redis ? new RedisLimitStore(redis) : new MemoryLimitStore(), usage: new PrismaUsageStore(), decryptCredential: (encrypted) => decryptSecret(encrypted, environment.AI_CREDENTIAL_ENCRYPTION_KEY) }); }
+
+  async configuration(tenantId: string, requested?: { providerId?: string; modelId?: string }): Promise<AiProviderConfiguration> {
+    const policy = await database.aiTenantPolicy.findUnique({ where: { tenantId } });
+    if (!policy) throw new ApiError(403, 'AI_TENANT_DISABLED', 'AI has not been enabled for this tenant');
+    const provider = await database.aiProvider.findFirst({ where: { ...(requested?.providerId ? { id: requested.providerId } : {}), enabled: true, healthStatus: { not: 'UNAVAILABLE' } }, orderBy: { createdAt: 'asc' }, include: { credentials: { where: { enabled: true, healthStatus: { not: 'UNAVAILABLE' } }, orderBy: { createdAt: 'asc' }, take: 1 }, models: { where: { ...(requested?.modelId ? { id: requested.modelId } : {}), enabled: true }, orderBy: { createdAt: 'asc' }, take: 1 } } });
+    if (!provider || provider.credentials.length === 0 || provider.models.length === 0 || !AI_ADAPTER_KEYS.includes(provider.adapterKey as typeof AI_ADAPTER_KEYS[number])) throw new ApiError(503, 'AI_CONFIGURATION_UNAVAILABLE', 'No enabled AI provider, credential, and model configuration is available');
+    const credential = provider.credentials[0]!; const model = provider.models[0]!;
+    return { providerId: provider.id, providerName: provider.name, adapterKey: provider.adapterKey as typeof AI_ADAPTER_KEYS[number], providerEnabled: provider.enabled, providerHealth: provider.healthStatus, providerRequestsPerMinute: provider.requestsPerMinute, providerMaxConcurrent: provider.maxConcurrent, credentialId: credential.id, encryptedCredential: credential.encryptedSecret, credentialEnabled: credential.enabled, credentialHealth: credential.healthStatus, modelId: model.id, model: model.providerModel, modelEnabled: model.enabled, maxOutputTokens: model.maxOutputTokens, modelRequestsPerMinute: model.requestsPerMinute, modelMaxConcurrent: model.maxConcurrent, inputCostMicrosPerMillion: model.inputCostMicrosPerM, outputCostMicrosPerMillion: model.outputCostMicrosPerM, tenantEnabled: policy.enabled, tenantRequestsPerMinute: policy.requestsPerMinute, userRequestsPerMinute: policy.requestsPerUserMinute, tenantMaxConcurrent: policy.maxConcurrent, dailyCostLimitMicros: policy.dailyCostLimitMicros };
+  }
+  async execute(request: AiRequest, requested?: { providerId?: string; modelId?: string }): Promise<ProviderCompletion & { usageId: string; estimatedCostMicros: number; duplicate: boolean }> { const configuration = await this.configuration(request.tenantId, requested); try { const result = await this.gateway.execute(request, configuration); await database.$transaction([database.aiProvider.update({ where: { id: configuration.providerId }, data: { healthStatus: 'HEALTHY', lastHealthCheckAt: new Date() } }), database.aiCredential.update({ where: { id: configuration.credentialId }, data: { healthStatus: 'HEALTHY' } })]); return result; } catch (error) { if (typeof error === 'object' && error && 'code' in error && isProviderHealthFailure(String(error.code))) await database.$transaction([database.aiProvider.update({ where: { id: configuration.providerId }, data: { healthStatus: 'DEGRADED', lastHealthCheckAt: new Date() } }), database.aiCredential.update({ where: { id: configuration.credentialId }, data: { healthStatus: 'DEGRADED' } })]); throw error; } }
+}

@@ -1,0 +1,1 @@
+import { StatusPage } from '../../components/status-page'; export default function Page() { return <StatusPage title="Account deactivated" description="This account and all sessions have been deactivated. Contact your ZeroRoot administrator." tone="warning" />; }

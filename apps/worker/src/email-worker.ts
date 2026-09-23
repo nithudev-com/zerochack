@@ -1,0 +1,16 @@
+import { Worker, type Job } from 'bullmq';
+import IORedis from 'ioredis';
+import type { Logger } from 'pino';
+import { database } from '@zerochack/database';
+import { renderEmailTemplate, type EmailProvider } from '@zerochack/email';
+
+const code=(error:unknown):string=>error instanceof Error&&/^[A-Z][A-Z0-9_:-]{2,119}$/u.test(error.message)?error.message.slice(0,120):'EMAIL_PROVIDER_FAILED';
+
+export async function processEmailDelivery(job:Pick<Job<{deliveryId:string}>,'data'|'attemptsMade'|'opts'>,provider:EmailProvider):Promise<void>{
+  const delivery=await database.emailDelivery.findUnique({where:{id:job.data.deliveryId},include:{event:true,templateVersion:true}});if(!delivery||delivery.status==='DELIVERED'||delivery.status==='SUPPRESSED')return;const staleBefore=new Date(Date.now()-120_000);if(delivery.status==='SENDING'&&delivery.attemptStartedAt&&delivery.attemptStartedAt>staleBefore)return;
+  const claimed=await database.emailDelivery.updateMany({where:{id:delivery.id,OR:[{status:{in:['QUEUED','RETRYING','FAILED']}},{status:'SENDING',attemptStartedAt:{lte:staleBefore}}]},data:{status:'SENDING',attempts:{increment:1},nextAttemptAt:null,attemptStartedAt:new Date()}});if(!claimed.count)return;
+  try{const payload=typeof delivery.event.payload==='object'&&delivery.event.payload!==null&&!Array.isArray(delivery.event.payload)?delivery.event.payload as Record<string,unknown>:{};const subject=renderEmailTemplate(delivery.templateVersion.subjectTemplate,payload,240);const text=renderEmailTemplate(delivery.templateVersion.bodyTemplate,payload);const result=await provider.send({to:delivery.recipientEmail,subject,text,idempotencyKey:delivery.idempotencyKey});await database.$transaction([database.emailDelivery.update({where:{id:delivery.id},data:{status:'DELIVERED',providerMessageId:result.providerMessageId,deliveredAt:new Date(),lastErrorCode:null,attemptStartedAt:null}}),database.auditLog.create({data:{tenantId:delivery.tenantId,requestId:`email:${delivery.id}`.slice(0,100),action:'email.delivered',resourceType:'email_delivery',resourceId:delivery.id,metadata:{eventType:delivery.event.eventType,attempt:job.attemptsMade+1}}})]);}
+  catch(error){const attempts=typeof job.opts.attempts==='number'?job.opts.attempts:1;const final=job.attemptsMade+1>=attempts;const delay=2_000*(2**job.attemptsMade);await database.$transaction([database.emailDelivery.update({where:{id:delivery.id},data:{status:final?'FAILED':'RETRYING',lastErrorCode:code(error),nextAttemptAt:final?null:new Date(Date.now()+delay),attemptStartedAt:null}}),database.auditLog.create({data:{tenantId:delivery.tenantId,requestId:`email:${delivery.id}:${job.attemptsMade+1}`.slice(0,100),action:final?'email.failed':'email.retry_scheduled',resourceType:'email_delivery',resourceId:delivery.id,metadata:{attempt:job.attemptsMade+1,errorCode:code(error)}}})]);throw error;}
+}
+
+export function createEmailWorker(redisUrl:string,logger:Logger,provider:EmailProvider):Worker{const worker=new Worker('email',(job:Job<{deliveryId:string}>)=>processEmailDelivery(job,provider),{connection:new IORedis(redisUrl,{maxRetriesPerRequest:null}),concurrency:5});worker.on('failed',(job,error)=>logger.error({jobId:job?.id,err:error,errorCode:'EMAIL_JOB_FAILED'},'email.job_failed'));return worker;}

@@ -1,0 +1,1 @@
+import { StatusPage } from '../../components/status-page'; export default function Page() { return <StatusPage title="Account suspended" description="Access and active sessions have been disabled. Contact your ZeroRoot administrator." tone="warning" />; }

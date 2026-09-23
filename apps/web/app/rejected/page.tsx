@@ -1,0 +1,1 @@
+import { StatusPage } from '../../components/status-page'; export default function Page() { return <StatusPage title="Registration rejected" description="This registration was not approved. Contact your ZeroRoot administrator if you believe this is incorrect." tone="danger" />; }
