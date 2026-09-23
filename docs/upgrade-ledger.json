@@ -9,7 +9,7 @@
       "docs/ZEROROOT-UPGRADE-PLAN.md"
     ],
     "tests": [
-      "npm test (baseline: 89; current: 113)"
+      "npm test (baseline: 89; current: 131)"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
@@ -26,7 +26,7 @@
       "docs/ZEROROOT-UPGRADE-PLAN.md"
     ],
     "tests": [
-      "npm test (baseline: 89; current: 113)"
+      "npm test (baseline: 89; current: 131)"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
@@ -43,7 +43,7 @@
       "docs/ZEROROOT-UPGRADE-PLAN.md"
     ],
     "tests": [
-      "npm test (baseline: 89; current: 113)"
+      "npm test (baseline: 89; current: 131)"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
@@ -513,10 +513,10 @@
       "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Inter-agent dependency execution and broader role state machines remain unavailable."
+      "General engineering role state machines and complete accessibility evaluation remain unfinished."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Actual chat and repair runs, queued repair approval, independent candidate checks, release completion/recovery and unknown-outcome states are persisted and displayed.",
+    "evidence": "Actual chat, static repair, release and selected source-review roles expose persisted queued/running/dependency/completion/failure states. The team view paginates beyond twelve roles and distinguishes working from waiting.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1087,36 +1087,52 @@
       "apps/api/src/modules/care/repair-routes.ts",
       "apps/api/src/modules/care/release-service.ts",
       "packages/care/src/static-html.ts",
-      "apps/web/components/care-repair.tsx"
+      "apps/web/components/care-repair.tsx",
+      "packages/care/src/source-review.ts",
+      "packages/care/src/review-tools.ts",
+      "apps/api/src/modules/care/review-service.ts",
+      "apps/api/src/modules/care/review-routes.ts",
+      "apps/web/components/care-review.tsx"
     ],
     "tests": [
       "packages/care/src/care.test.ts",
       "apps/api/src/modules/care/repair.integration.test.ts",
       "packages/care/src/static-html.test.ts",
       "apps/api/src/modules/care/static-target.test.ts",
-      "apps/web/care-e2e/chat.spec.ts"
+      "apps/web/care-e2e/chat.spec.ts",
+      "packages/care/src/source-review.test.ts",
+      "apps/api/src/modules/care/review.integration.test.ts"
     ],
     "limitations": [
-      "Twenty-two proposed roles and multi-agent collaboration remain disabled."
+      "This is a source-review implementation. General repair, test execution, browser observation, live provider quality evaluation and role-specific model promotion remain incomplete."
     ],
     "coverage": "PARTIAL",
-    "evidence": "A02 chat and A08 bounded static HTML generation execute through real gateway calls; role catalogue records narrow A08 inputs, outputs and limits.",
+    "evidence": "All 24 roles execute approved text-source reviews through the AI gateway with versioned role focus, strict output schemas, exact source-quote checks, bounded context, dependency order and durable reports. All 24 were exercised with a fixture model.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-056",
     "requirement": "Implement coordinator task dependencies and artifact-based collaboration.",
     "acceptance": "No uncontrolled inter-agent instruction loop.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "packages/care/src/source-review.ts",
+      "packages/care/src/review-tools.ts",
+      "apps/api/src/modules/care/review-service.ts",
+      "apps/api/src/modules/care/review-routes.ts",
+      "apps/web/components/care-review.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "packages/care/src/source-review.test.ts",
+      "apps/api/src/modules/care/review.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Coordinator dependency graph and artifact-based multi-agent collaboration are not implemented."
+      "Dynamic task graph planning, parallel branch execution and general engineering artifact collaboration are not implemented."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Coordinator dependency graph and artifact-based multi-agent collaboration are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "A deterministic persisted dependency chain runs selected source-review roles once, passes bounded prior summaries as untrusted context, requires predecessor report artifacts, and checkpoints after each role.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1132,7 +1148,12 @@
       "apps/api/src/modules/care/repair-routes.ts",
       "apps/api/src/modules/care/release-service.ts",
       "packages/care/src/static-html.ts",
-      "apps/web/components/care-repair.tsx"
+      "apps/web/components/care-repair.tsx",
+      "packages/care/src/source-review.ts",
+      "packages/care/src/review-tools.ts",
+      "apps/api/src/modules/care/review-service.ts",
+      "apps/api/src/modules/care/review-routes.ts",
+      "apps/web/components/care-review.tsx"
     ],
     "tests": [
       "packages/ai-gateway/src/anthropic.test.ts",
@@ -1140,13 +1161,15 @@
       "apps/api/src/modules/care/repair.integration.test.ts",
       "packages/care/src/static-html.test.ts",
       "apps/api/src/modules/care/static-target.test.ts",
-      "apps/web/care-e2e/chat.spec.ts"
+      "apps/web/care-e2e/chat.spec.ts",
+      "packages/care/src/source-review.test.ts",
+      "apps/api/src/modules/care/review.integration.test.ts"
     ],
     "limitations": [
       "Infrastructure costs, provider billing reconciliation, and simultaneous legacy chat budget reservation remain outside this allowance."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Static repairs reserve a model allowance, allow one provider attempt, have a 120-second cancellation deadline, and serialize one running repair per website.",
+    "evidence": "Source reviews and static repairs use a shared website claim lock, one model attempt per step, bounded context/output, explicit model allowances and cancellation deadlines. Known usage settles; unknown usage keeps its reservation.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1212,14 +1235,16 @@
     "status": "VERIFIED",
     "files": [
       "packages/care/src/catalogue.ts",
-      "apps/web/components/care-capabilities.tsx"
+      "apps/web/components/care-capabilities.tsx",
+      "packages/care/src/review-tools.ts"
     ],
     "tests": [
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "packages/care/src/source-review.test.ts"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
-    "evidence": "All 64 proposed entries are registered and explicitly disabled; owner UI does not advertise them as executable.",
+    "evidence": "All 64 interfaces remain registered. Nine scoped offline source-review handlers are implemented and tested; the remaining 55 stay disabled. Owner UI distinguishes implemented execution modes from wider planned scope.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1230,17 +1255,25 @@
     "files": [
       "packages/ai-gateway/src/anthropic.ts",
       "packages/ai-gateway/src/index.ts",
-      "apps/web/components/owner-ai-gateway.tsx"
+      "apps/web/components/owner-ai-gateway.tsx",
+      "packages/care/src/source-review.ts",
+      "packages/care/src/review-tools.ts",
+      "apps/api/src/modules/care/review-service.ts",
+      "apps/api/src/modules/care/review-routes.ts",
+      "apps/web/components/care-review.tsx"
     ],
     "tests": [
       "packages/ai-gateway/src/anthropic.test.ts",
-      "packages/ai-gateway/src/index.test.ts"
+      "packages/ai-gateway/src/index.test.ts",
+      "packages/care/src/source-review.test.ts",
+      "apps/api/src/modules/care/review.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Enabled provider tool arguments use JSON Schema validation; full output schemas/version negotiation for proposed tools are unfinished."
+      "The other 55 proposed tools and generalized MCP schema/version negotiation are not implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Enabled provider tool arguments use JSON Schema validation; full output schemas/version negotiation for proposed tools are unfinished.",
+    "evidence": "Nine offline source-review tools validate arguments, scope, approval expiry and output byte limits. Review model output uses strict Zod validation plus exact source path/line/quote checks.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1279,7 +1312,7 @@
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
-    "evidence": "Credential reveal is a narrow authenticated human endpoint; deployment is unavailable and is not exposed as an unrestricted model tool.",
+    "evidence": "Credential reveal and production release remain separate authenticated deterministic services. Source-review models cannot execute tools, grant access, approve release or mutate live targets.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -2011,7 +2044,12 @@
       "apps/api/src/modules/care/repair-routes.ts",
       "apps/api/src/modules/care/release-service.ts",
       "packages/care/src/static-html.ts",
-      "apps/web/components/care-repair.tsx"
+      "apps/web/components/care-repair.tsx",
+      "packages/care/src/source-review.ts",
+      "packages/care/src/review-tools.ts",
+      "apps/api/src/modules/care/review-service.ts",
+      "apps/api/src/modules/care/review-routes.ts",
+      "apps/web/components/care-review.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
@@ -2019,13 +2057,15 @@
       "apps/api/src/modules/care/repair.integration.test.ts",
       "packages/care/src/static-html.test.ts",
       "apps/api/src/modules/care/static-target.test.ts",
-      "apps/web/care-e2e/chat.spec.ts"
+      "apps/web/care-e2e/chat.spec.ts",
+      "packages/care/src/source-review.test.ts",
+      "apps/api/src/modules/care/review.integration.test.ts"
     ],
     "limitations": [
-      "Multi-host crashes, DB failover, lost-heartbeat fencing under network partitions and load/race drills remain open."
+      "Full process-kill, distributed PostgreSQL/Redis crash/race, failover and production recovery drills remain required."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Integration tests cover duplicate approvals, cancellation during a model call, source drift, changed credential versions, budget reservations, rollback and unknown outcome reconciliation without write replay.",
+    "evidence": "Care tests cover duplicate approvals, stale workers, scope changes, cancellation during a model call, dependency failure, no uncertain replay, and a second worker blocked by a running website review.",
     "updatedAt": "2026-09-23"
   },
   {

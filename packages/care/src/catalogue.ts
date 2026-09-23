@@ -1,5 +1,6 @@
-// Versioned roadmap catalogue. Disabled entries are never exposed as runnable tools.
-export const agentCatalogue = [
+import { implementedReviewTools } from './review-tools.js';
+// Role descriptions preserve the wider roadmap; implemented execution modes are explicit below.
+const agentDefinitions = [
   {
     "id": "A01",
     "name": "Coordinator",
@@ -313,7 +314,14 @@ export const agentCatalogue = [
     "maxConcurrentPerWebsite": 3
   }
 ] as const;
-export const toolCatalogue = [
+export const agentCatalogue = agentDefinitions.map((role) => ({
+  ...role,
+  enabled: true,
+  sourceReview: true,
+  implementation: role.id === 'A02' ? 'CHAT_AND_SOURCE_REVIEW' : role.id === 'A08' ? 'STATIC_HTML_REPAIR_AND_SOURCE_REVIEW' : 'SOURCE_REVIEW',
+  executionBoundary: 'Source review uses approved uploaded text only. No shell, network, credentials, source execution or production changes. Wider role capabilities remain unimplemented.'
+}));
+const toolDefinitions = [
   {
     "id": "T01",
     "name": "case_get_summary",
@@ -1258,3 +1266,8 @@ export const toolCatalogue = [
     "unavailableReason": "Implementation and capability evaluation required"
   }
 ] as const;
+
+export const toolCatalogue = toolDefinitions.map((tool) => {
+  const enabled = (implementedReviewTools as readonly string[]).includes(tool.id);
+  return { ...tool, enabled, maxOutputBytes: tool.id === 'T10' ? 250000 : tool.maxOutputBytes, implementation: enabled ? 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED', unavailableReason: enabled ? null : tool.unavailableReason };
+});

@@ -86,6 +86,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     const configuration = await options.ai.configuration(job.tenantId); const maximumEstimate = reserveEstimate(bytes, configuration);
     if (maximumEstimate > body.budgetMicros) throw new ApiError(400, 'BUDGET_EXCEEDED', 'The conservative model allowance exceeds this budget. Configure a smaller model/token limit or approve a larger allowance.');
     return database.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${job.websiteId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${job.id}::uuid FOR UPDATE`;
       const current = await tx.careJob.findUniqueOrThrow({ where: { id: job.id } });
       if (['RUNNING','VERIFYING','QUEUED'].includes(current.state) || await tx.careRevision.findUnique({ where: { jobId_version: { jobId: job.id, version: current.planVersion } } })) throw new ApiError(409, 'PLAN_EXISTS', 'Review the current plan or add feedback to create a new version.');
@@ -103,6 +104,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     if (!revision) throw new ApiError(404, 'NOT_FOUND', 'Plan was not found.'); await careWebsite(request, revision.websiteId);
     const policy = await options.ai.configuration(revision.tenantId);
     return database.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${revision.websiteId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${revision.jobId}::uuid FOR UPDATE`;
       const job = await tx.careJob.findUniqueOrThrow({ where: { id: revision.jobId } });
       const current = await tx.careRevision.findUniqueOrThrow({ where: { id } });

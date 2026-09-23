@@ -6,6 +6,8 @@ import { agentCatalogue, toolCatalogue, environments, assertDisclosure, CareErro
 import { authenticate, requirePermission, requireOwnerMfa } from '../auth/security.js';
 import { ApiError } from '../../errors.js';
 import type { AiService } from '../ai/service.js';
+import { reviewRoutes } from './review-routes.js';
+import { stopReview } from './review-service.js';
 import { repairRoutes } from './repair-routes.js';
 import { invalidateRepair } from './repair-service.js';
 import { careEvent, careWebsite, credentialMetadata, vaultKey } from './service.js';
@@ -37,7 +39,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       database.careJob.findMany({ where: { tenantId, websiteId }, include: { agents: true }, orderBy: { createdAt: 'desc' }, take: 30 })
     ]);
     const staff = await database.user.findMany({ where: { id: { in: accessRequests.map((grant) => grant.specialistId) } }, select: { id: true, displayName: true } });
-    return { credentials, accessRequests: accessRequests.map((grant) => ({ ...grant, specialistName: staff.find((person) => person.id === grant.specialistId)?.displayName ?? 'Assigned specialist', status: ['PENDING','APPROVED'].includes(grant.status) && grant.expiresAt <= new Date() ? 'EXPIRED' : grant.status })), jobs: jobs.map((job) => ({ ...job, state: visibleAgentState(job.state, job.heartbeatAt), agents: job.agents.map((agent) => ({ ...agent, state: visibleAgentState(agent.state, agent.heartbeatAt), name: agentCatalogue.find((role) => role.id === agent.roleId)?.name ?? 'AI assistant' })) })), capabilities: { secureCapture: true, specialistDisclosure: true, trackedChat: true, isolatedRepair: options.environment.CARE_REPAIR_ENABLED, deployment: options.environment.CARE_RELEASE_ENABLED, attachments: options.environment.CARE_REPAIR_ENABLED }, roles: agentCatalogue.map(({ id, name, enabled }) => ({ id, name, enabled })) };
+    return { credentials, accessRequests: accessRequests.map((grant) => ({ ...grant, specialistName: staff.find((person) => person.id === grant.specialistId)?.displayName ?? 'Assigned specialist', status: ['PENDING','APPROVED'].includes(grant.status) && grant.expiresAt <= new Date() ? 'EXPIRED' : grant.status })), jobs: jobs.map((job) => ({ ...job, state: visibleAgentState(job.state, job.heartbeatAt), agents: job.agents.map((agent) => ({ ...agent, state: visibleAgentState(agent.state, agent.heartbeatAt), name: agentCatalogue.find((role) => role.id === agent.roleId)?.name ?? 'AI assistant' })) })), capabilities: { secureCapture: true, specialistDisclosure: true, trackedChat: true, sourceReview: options.environment.CARE_REVIEW_ENABLED, maximumReviewBudgetMicros: options.environment.CARE_REVIEW_BUDGET_MICROS, isolatedRepair: options.environment.CARE_REPAIR_ENABLED, deployment: options.environment.CARE_RELEASE_ENABLED, attachments: options.environment.CARE_REPAIR_ENABLED }, roles: agentCatalogue.map(({ id, name, enabled, implementation }) => ({ id, name, enabled, implementation })) };
   });
 
   app.delete('/websites/:websiteId/credentials/:credentialId', async (request, reply) => {
@@ -164,9 +166,10 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
     const state = action === 'cancel' ? 'CANCELLED' : 'WAITING_FOR_INPUT';
     await database.$transaction(async (tx) => {
       await invalidateRepair(tx, job);
+      await stopReview(tx, job);
       const changed = await tx.careJob.updateMany({ where: { id, state: { notIn: ['COMPLETED','FAILED','CANCELLED'] } }, data: { state, leaseVersion: { increment: 1 }, ...(job.kind === 'REPAIR' ? { planVersion: { increment: 1 }, approvedVersion: null, approvedBy: null, approvalExpiresAt: null } : {}) } });
       if (!changed.count) throw new ApiError(409, 'JOB_TERMINAL', 'This task has already finished.');
-      await tx.careAgentRun.updateMany({ where: { jobId: id, state: { in: ['RUNNING','QUEUED','VERIFYING'] } }, data: { state, completedAt: action === 'cancel' ? new Date() : null } });
+      await tx.careAgentRun.updateMany({ where: { jobId: id, state: { in: ['RUNNING','QUEUED','VERIFYING','WAITING_FOR_DEPENDENCY'] } }, data: { state, completedAt: action === 'cancel' ? new Date() : null } });
       await careEvent(tx, job, `job.${action === 'cancel' ? 'cancelled' : 'paused'}`, state, 'Future steps stopped. Any observation already in progress may finish; this does not undo changes.', { jobId: id });
     }); return { state };
   });
@@ -194,8 +197,9 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
     request.raw.on('close', () => { closed = true; clearInterval(timer); });
   });
   await app.register(repairRoutes, options);
+  await app.register(reviewRoutes, options);
   app.get('/owner/care/capabilities', async (request) => {
     requireOwnerMfa(request);
-    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
+    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', sourceReview: options.environment.CARE_REVIEW_ENABLED ? 'APPROVED_TEXT_SOURCE' : 'DISABLED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['All 24 roles support source review; this does not implement the wider autonomous repair roadmap.', 'Nine offline source-review tools are implemented; the remaining tool contracts stay disabled.', 'Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
   });
 }

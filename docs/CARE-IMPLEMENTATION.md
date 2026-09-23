@@ -1,6 +1,6 @@
 # Chat and secure-access upgrade — implementation record
 
-This branch implements the secure connection and specialist disclosure journey, a chat-first workspace, the Claude adapter, durable activity for actual chat execution, and a bounded standalone HTML repair workflow. **It does not complete the entire 100-item upgrade plan and does not provide general autonomous application repair.** The ledger currently marks 23 narrow acceptance items verified, 69 partially implemented, and 8 without implementation or verification. The item-by-item record is [upgrade-ledger.json](upgrade-ledger.json); the supplied requirements remain in [ZEROROOT-UPGRADE-PLAN.md](ZEROROOT-UPGRADE-PLAN.md).
+This branch implements the secure connection and specialist disclosure journey, a chat-first workspace, the Claude adapter, durable activity for actual chat execution, a bounded standalone HTML repair workflow, and approved text-source reviews across all 24 roles. **It does not complete the entire 100-item upgrade plan and does not provide general autonomous application repair.** The ledger currently marks 23 narrow acceptance items verified, 70 partially implemented, and 7 without implementation or verification. The item-by-item record is [upgrade-ledger.json](upgrade-ledger.json); the supplied requirements remain in [ZEROROOT-UPGRADE-PLAN.md](ZEROROOT-UPGRADE-PLAN.md).
 
 Baseline: `e82be579fdcca3e6139cc74f74bc0e980ab69dab`. The original unit suite passed 89 tests in 16 files. Existing release-readiness documents are historical evidence; this branch does not convert their outstanding production gates into passes.
 
@@ -27,33 +27,39 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 | Existing production SSH observation connector | Reused through scoped broker references; fingerprint required |
 | Other stored account types / staging connectors | Storage only; connection execution unavailable |
 | Claude provider | Adapter and contract tests implemented; live smoke test outstanding |
-| AI role catalogue | All 24 definitions retained; A02 chat and A08 static HTML repair are implemented |
-| Proposed tool catalogue | All 64 entries retained and disabled pending implementation/evaluation |
+| AI role catalogue | All 24 roles execute bounded source reviews; A02 chat and A08 static HTML repair remain separate modes |
+| Proposed tool catalogue | Nine offline source-review handlers implemented; 55 wider interfaces remain disabled |
 | Existing assessment tools | Existing scoped tools remain separate from the proposed catalogue |
 | Repair execution and source patches | Static HTML data-only runner implemented; disposable execution workers unavailable |
 | Attachments | Validated encrypted HTML, screenshots and redacted logs; privacy review required |
 | Protected previews and independent verification | Opaque sandbox previews and fixed structural checks implemented; visual/behavior review remains human |
 | Exact candidate release | Single-file SFTP service implemented; real-host validation outstanding |
 | Cost reservation | Repair model allowance implemented; infrastructure/legacy concurrency accounting remains |
-| Knowledge retrieval and inter-agent dependency graph | Not implemented |
+| Knowledge retrieval and inter-agent dependency graph | Persisted sequential source-review dependencies implemented; reviewed retrieval and dynamic scheduling remain unavailable |
 | Backup/recovery and production readiness | Existing gates remain outstanding |
 
 ## Verification recorded on 23 September 2026
 
 | Check | Result and scope |
 | --- | --- |
-| `npm test` | 113 passing tests in 20 files, including Anthropic contracts, care policy/vault checks, static candidate validation and SFTP transport contracts |
+| `npm test` | 131 passing tests in 21 files, including Anthropic contracts, care policy/vault checks, static candidate validation and SFTP transport contracts |
 | `npm run lint` | Passed |
 | `npm run typecheck` | Passed across workspaces |
 | `npm run build` | API, web, and worker production builds passed |
-| Care API integration suite | 22 passing tests using actual authentication/routes and a disposable PGlite PostgreSQL-compatible database; all repository migrations applied |
-| Care browser suite | 11 passing API-fixture browser journeys; protected repair previews, exact plan approval, secure intake, responsive widths, environment clearing, Markdown isolation, Tamil input, IME, navigation, themes, and disclosure clearing |
+| Care API integration suite | 31 passing tests using actual authentication/routes and a disposable PGlite PostgreSQL-compatible database; all repository migrations applied |
+| Care browser suite | 13 passing API-fixture browser journeys; protected repair previews, exact plan approval, secure intake, responsive widths, environment clearing, Markdown isolation, Tamil input, IME, navigation, themes, and disclosure clearing |
 | `npm audit --omit=dev --audit-level=high` | Zero reported vulnerabilities in the checked dependency graph |
 | OpenAPI generation | Passed using `node --import tsx apps/api/src/generate-openapi.ts`; generated specification updated |
 
 The browser suite is not a live provider test and does not validate production secrets, DNS, SSH, billing, or deployment. The care integration suite verifies duplicate capture, staging/production history separation, cross-tenant denial, grants, real TOTP enrollment/step-up, reassignment denial, reveal/revocation, legacy replacement, expiry cleanup, stale worker handling, and real authenticated resumable SSE.
 
 The complete integration suite was also attempted through PGlite: 15 tests passed, 4 failed, and 1 was skipped in that earlier run. The four failures included socket/protocol/connection errors after database operations in the PostgreSQL compatibility adapter. **The complete integration suite is not recorded as passing.** It must pass against the real PostgreSQL 16/Redis CI services. Production migration rollback, load, crash/race, accessibility assistive-technology, live provider, and recovery drills remain open. The normal Playwright browser installer could not complete in this workspace; local browser checks used an npm-distributed Chromium binary. The optional `CARE_CHROMIUM_EXECUTABLE` path exists only in the test runner.
+
+## Approved multi-role source review
+
+All 24 roles can run customer-approved text-source reviews through the real gateway integration. Source snapshots and reports are encrypted, approvals bind exact scope/model/allowance, and each step is checkpointed in PostgreSQL. Nine bounded offline tools supply authorized source and workflow context. Strict result schemas reject fabricated file/line quotations. Later roles receive prior summaries as untrusted context and must cite source independently. Reports expose missing evidence and do not certify model conclusions, tests or repairs.
+
+The customer can choose all roles or a smaller team and request Tamil or English reports. The team panel no longer truncates the assigned team at twelve roles. Worker claims serialize reviews and static repairs per website. A source-screening expression was bounded to avoid excessive processing on long text. A read-only `care:preflight` command reports missing deployment configuration. See [CARE-SOURCE-REVIEWS.md](CARE-SOURCE-REVIEWS.md) for usage, limits and rollout.
 
 ## Supported static HTML repair workflow
 
@@ -69,7 +75,7 @@ Failed candidate health triggers the specifically approved conditional restore, 
 
 ## Remaining implementation and external gates
 
-General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. Twenty-two proposed AI roles, the 64 proposed general tool interfaces, coordinator dependencies, reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
+General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 55 proposed general tool interfaces, dynamic coordinator graphs, reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
 
 Before enabling production release, run the full integration suite against PostgreSQL 16/Redis, use a real provider account with configured prices, test a disposable SFTP/static-host target and rollback, establish an exclusive deployment window, verify key/backup retention, and complete crash/failover and authorization-expiry drills. A separate external writer can race SFTP; it must be excluded operationally because ordinary SFTP cannot atomically compare and swap against unrelated writers. Neither static checks nor this branch certify production readiness.
 

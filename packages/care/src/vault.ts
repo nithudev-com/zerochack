@@ -56,7 +56,7 @@ export function parseSecureCapture(content: string): CapturedCredential[] {
 }
 
 export function looksSensitive(value: string): boolean {
-  return /-----BEGIN .*PRIVATE KEY-----|\b(?:password|passwd|pwd|secret|token|api[_ -]?key|private[_ -]?key)\s*[:=]\s*\S+|\bBearer\s+\S+|\bsk-[a-zA-Z0-9_-]{12,}|\w+:\/\/[^\s/@]+:[^\s/@]+@/iu.test(value);
+  return /-----BEGIN .*PRIVATE KEY-----|\b(?:password|passwd|pwd|secret|token|api[_ -]?key|private[_ -]?key)\s*[:=]\s*\S+|\bBearer\s+\S+|\bsk-[a-zA-Z0-9_-]{12,}|\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/@:]{1,1024}:[^\s/@]{1,4096}@/iu.test(value);
 }
 export type VaultContext = { tenantId: string; websiteId: string; environment: string; id: string; version: number };
 const aad = (scope: VaultContext, keyVersion: string) => Buffer.from(JSON.stringify([scope.tenantId, scope.websiteId, scope.environment, scope.id, scope.version, keyVersion]));

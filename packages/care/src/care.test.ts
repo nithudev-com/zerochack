@@ -42,9 +42,15 @@ describe('truthful activity and release policy', () => {
     expect(() => assertReleaseBinding(binding, binding, expiry, now)).not.toThrow();
     for (const change of [{ digest: 'b'.repeat(64) }, { sourceRevision: 'new' }, { environment: 'STAGING' }, { planVersion: 2 }]) expect(() => assertReleaseBinding(binding, { ...binding, ...change }, expiry, now)).toThrow();
   });
-  it('retains all planned roles and tool interfaces without advertising unevaluated execution', () => {
+  it('screens long plain text without unbounded URI-scheme backtracking', () => {
+    expect(looksSensitive('a'.repeat(200000))).toBe(false);
+    expect(looksSensitive('postgresql://user:synthetic-password@example.test/db')).toBe(true);
+  });
+  it('retains all planned roles and tool interfaces with explicit implemented modes', () => {
     expect(agentCatalogue).toHaveLength(24); expect(toolCatalogue).toHaveLength(64);
     expect(new Set(toolCatalogue.map((tool) => tool.id)).size).toBe(64);
-    expect(agentCatalogue.filter((role) => role.enabled).map((role) => role.id)).toEqual(['A02', 'A08']);
+    expect(agentCatalogue.filter((role) => role.enabled && role.sourceReview)).toHaveLength(24);
+    expect(agentCatalogue.filter((role) => role.implementation !== 'SOURCE_REVIEW').map((role) => role.id)).toEqual(['A02','A08']);
+    expect(toolCatalogue.filter((tool) => tool.enabled).map((tool) => tool.id)).toEqual(['T01','T02','T04','T09','T10','T11','T19','T21','T59']);
   });
 });

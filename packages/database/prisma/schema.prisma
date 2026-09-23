@@ -619,11 +619,17 @@ model CareAgentRun {
   task String @db.VarChar(1000)
   state String @default("QUEUED") @db.VarChar(32)
   resultMessageId String? @map("result_message_id") @db.Uuid
+  resultArtifactId String? @map("result_artifact_id") @db.Uuid
+  usageId String? @map("usage_id") @db.Uuid
+  errorCode String? @map("error_code") @db.VarChar(100)
+  stepIndex Int? @map("step_index")
+  dependsOn String[] @default([]) @map("depends_on")
   heartbeatAt DateTime @default(now()) @map("heartbeat_at") @db.Timestamptz(6)
   startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
   completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
   job CareJob @relation(fields: [tenantId, websiteId, jobId], references: [tenantId, websiteId, id], onDelete: Cascade)
   @@index([tenantId, websiteId, jobId])
+  @@unique([jobId, stepIndex])
   @@map("care_agent_runs")
 }
 

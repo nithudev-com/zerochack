@@ -5,7 +5,7 @@ import type { Environment } from '@zerochack/config';
 import { applyStaticProposal, digestBytes, inspectStaticHtml, openSecret, sealSecret, CareError, STATIC_POLICY_VERSION } from '@zerochack/care';
 import type { AiProviderConfiguration } from '@zerochack/ai-gateway';
 import type { AiService } from '../ai/service.js';
-import { careEvent } from './runtime.js';
+import { careEvent, claimCareWebsite } from './runtime.js';
 
 export const artifactMetadata = { id: true, jobId: true, environment: true, kind: true, filename: true, contentType: true, status: true, digest: true, sizeBytes: true, expiresAt: true, createdAt: true } as const;
 export const artifactKey = (env: Environment) => env.CARE_ARTIFACT_KEY ?? env.CARE_VAULT_KEY ?? env.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY;
@@ -59,7 +59,9 @@ export async function runOneRepair(env: Environment, ai: RepairAi): Promise<bool
   if (!env.CARE_ENABLED || !env.CARE_REPAIR_ENABLED) return false;
   const owner = randomUUID();
   const claimed = await database.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM care_jobs AS candidate WHERE kind = 'REPAIR' AND state = 'QUEUED' AND NOT EXISTS (SELECT 1 FROM care_jobs AS active WHERE active.website_id = candidate.website_id AND active.kind = 'REPAIR' AND active.state IN ('RUNNING','VERIFYING')) ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`;
+    const websiteId = await claimCareWebsite(tx, 'REPAIR');
+    if (!websiteId) return null;
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM care_jobs WHERE website_id = ${websiteId}::uuid AND kind = 'REPAIR' AND state = 'QUEUED' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`;
     if (!rows[0]) return null;
     const job = await tx.careJob.update({ where: { id: rows[0].id }, data: { state: 'RUNNING', leaseOwner: owner, leaseVersion: { increment: 1 }, heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + 90000) } });
     const revision = await tx.careRevision.findUnique({ where: { jobId_version: { jobId: job.id, version: job.planVersion } } });
@@ -90,6 +92,7 @@ export async function runOneRepair(env: Environment, ai: RepairAi): Promise<bool
     const verified = applyStaticProposal(bytes.toString('utf8'), result.text);
     if (result.estimatedCostMicros > revision.budgetMicros) throw new CareError('BUDGET_EXCEEDED', 'Reported usage exceeded the approved budget.');
     await database.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${job.websiteId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${job.id}::uuid FOR UPDATE`;
       const current = await tx.careJob.findUniqueOrThrow({ where: { id: job.id } });
       await assertRepairActor(tx, job);

@@ -18,3 +18,15 @@
 @media(max-width:1023px){.customer-menu-toggle{display:block;margin-left:auto;min-height:44px;border:1px solid #6f9380;border-radius:8px;background:transparent;color:#effaf4;padding:8px 12px;cursor:pointer}.customer-premium-sidebar[data-expanded=false]>nav,.customer-premium-sidebar[data-expanded=false]>.customer-sidebar-session,.customer-premium-sidebar[data-expanded=false]>.ui-button{display:none}.customer-premium-sidebar nav{flex-wrap:wrap}.customer-premium-sidebar{gap:8px;padding:8px}.customer-premium-sidebar .customer-sidebar-title{padding:4px 8px}.customer-premium-sidebar .customer-sidebar-title>span{display:none}.app-shell--care .app-header{min-height:54px;padding:4px 16px}.app-shell--care .brand-logo{width:80px}.app-shell--care .app-header nav{display:none}.app-shell--care .app-footer{display:none}.app-shell--care .customer-layout{gap:12px;margin-block:0}.app-shell--care .app-main{padding-block:8px}.app-shell--care .customer-main{padding-bottom:8px}.care-page-heading{margin-bottom:8px}.care-page-heading nav{display:none}.care-conversation{height:30dvh;min-height:180px}.care-welcome{margin-block:10px}.care-welcome-icon{display:none}.care-welcome h3{font-size:20px}.care-composer{position:sticky;bottom:0;z-index:2}.care-context{padding-block:12px}.care-context h2{font-size:19px}.care-context p{font-size:11px}}
 
 .care-options-toggle{display:none}@media(max-width:1023px){.care-options-toggle{display:block;min-height:44px;border:1px solid #cbd5e1;border-radius:8px;padding:8px 12px;background:white;color:#334155;font:inherit;font-size:12px}.care-page-heading[data-options-open=true] nav{display:flex;flex-basis:100%}}
+
+.care-review-roles { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; margin-top: 12px; }
+.care-review-roles label { display: flex; align-items: flex-start; gap: 8px; padding: 8px; min-height: 44px; }
+.care-review-roles input { width: auto; margin-top: 4px; flex-shrink: 0; }
+.care-review-quote { white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px; background: var(--care-canvas, #f1f5f9); color: var(--care-text, #0f172a); border-radius: 8px; }
+.care-review-progress { line-height: 1.8; padding-left: 24px; }
+.care-review-workspace details { margin: 12px 0; }
+.care-review-workspace summary { cursor: pointer; padding: 8px 0; }
+
+.care-review-workspace .care-panel, .care-review-workspace .care-agent { padding: 12px; }
+.care-review-workspace figure { margin: 12px 0; }
+.care-theme-dark .care-review-quote { background: #0b1020; color: #f1f5f9; }

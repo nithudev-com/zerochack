@@ -1,6 +1,53 @@
 import { expect, test } from '@playwright/test';
 const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
+test('all 24 source-review roles require consent and exact approval, with Tamil evidence reports on mobile', async ({ page }) => {
+  const roles = Array.from({ length: 24 }, (_, index) => ({ id: `A${String(index + 1).padStart(2,'0')}`, name: `Review role ${index + 1}`, implementation: 'SOURCE_REVIEW' }));
+  const jobId = '71d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; let phase = 0; let prepared: Record<string, unknown> | undefined; let approval: unknown;
+  const revision = { id: 'b855909b-f762-40a2-b474-2d69206b752c', version: 1, state: 'AWAITING_APPROVAL', sourceDigest: 'a'.repeat(64), budgetMicros: 5000000, chargedMicros: 0, budgetState: 'UNRESERVED', plan: { roleIds: roles.map((role) => role.id), language: 'ta', boundary: 'Review approved source; no live changes or runtime tests.', requestFingerprint: 'b'.repeat(64), configuration: { model: 'Fixture model' } } };
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const job = { id: jobId, kind: 'REVIEW', summary: 'Review this source with all roles', state: phase < 2 ? 'AWAITING_APPROVAL' : 'COMPLETED', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString(), errorCode: null };
+    if (path.endsWith('/care')) return route.fulfill({ json: { credentials: [], accessRequests: [], jobs: phase ? [job] : [], roles, capabilities: { sourceReview: true, maximumReviewBudgetMicros: 5000000 } } });
+    if (path.endsWith('/reviews')) { prepared = route.request().postDataJSON(); phase = 1; return route.fulfill({ status: 201, json: { jobId, state: 'AWAITING_APPROVAL' } }); }
+    if (path.endsWith('/review')) return route.fulfill({ json: { job, revision, completedSteps: phase === 2 ? 24 : 0, totalSteps: 24, capabilities: { enabled: true }, agents: phase === 2 ? roles.map((role) => ({ id: role.id, roleId: role.id, state: 'COMPLETED' })) : [], reports: phase === 2 ? [{ agentRunId: 'r1', roleId: 'A09', status: 'REVIEWED', summary: 'பக்கத்தில் உள்ள பொத்தானை விசைப்பலகை மூலம் சோதிக்க வேண்டும்.', findings: [{ title: 'Button interaction review', priority: 'LOW', explanation: 'The supplied source contains a Save button.', recommendation: 'Run a separate keyboard interaction test.', evidence: [{ path: 'page.tsx', startLine: 1, endLine: 1, quote: '<button>Save</button>' }] }], limitations: ['Runtime and browser tests were not run.'], nextSteps: ['Review the suggested interaction checks.'] }] : [] } });
+    if (path.includes('/review-plans/') && path.endsWith('/approve')) { approval = route.request().postDataJSON(); phase = 2; return route.fulfill({ json: { state: 'QUEUED' } }); }
+    return route.fallback();
+  });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${id}`);
+  await page.getByRole('button', { name: 'Review source with AI team' }).click();
+  const form = page.getByRole('form', { name: 'New source review' });
+  await expect(form.getByRole('checkbox', { checked: true })).toHaveCount(24);
+  await form.getByLabel('What should the team review?').fill('Review this source with all roles');
+  await form.getByLabel('Expected outcome').fill('Return cited source observations and missing checks');
+  await form.getByLabel('Report language').selectOption('ta');
+  await form.getByLabel('Reviewed text source files').setInputFiles({ name: 'page.tsx', mimeType: 'text/plain', buffer: Buffer.from('<button>Save</button>') });
+  await expect(form.getByRole('button', { name: 'Prepare team review plan' })).toBeDisabled();
+  await form.getByLabel('I reviewed these files').check(); await form.getByRole('button', { name: 'Prepare team review plan' }).click();
+  await expect(page.getByRole('button', { name: 'Open team review' })).toBeVisible();
+  expect(prepared).toMatchObject({ roleIds: roles.map((role) => role.id), language: 'ta', privacyReviewed: true }); expect(approval).toBeUndefined();
+  await page.getByRole('button', { name: 'Open team review' }).click();
+  await page.getByRole('button', { name: /Approve source review/ }).click();
+  expect(approval).toEqual({ sourceDigest: revision.sourceDigest, planFingerprint: revision.plan.requestFingerprint, version: 1, budgetMicros: 5000000, authorizeSourceReview: true });
+  await expect(page.getByText('பக்கத்தில் உள்ள பொத்தானை விசைப்பலகை மூலம் சோதிக்க வேண்டும்.')).toBeVisible();
+  await page.getByText('LOW · Button interaction review').click();
+  await expect(page.locator('.care-review-quote')).toHaveText('<button>Save</button>');
+  await expect(page.locator('.care-review-quote button')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: 'test-results/care-team-review-mobile.png', fullPage: true });
+});
+
+test('changing environment clears the source-review upload and description', async ({ page }) => {
+  await page.route('**/care', async (route) => route.fulfill({ json: { credentials: [], accessRequests: [], jobs: [], roles: [{ id: 'A09', name: 'Accessibility Reviewer', implementation: 'SOURCE_REVIEW' }], capabilities: { sourceReview: true, maximumReviewBudgetMicros: 5000000 } } }));
+  await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Review source with AI team' }).click();
+  await page.getByLabel('What should the team review?').fill('This draft belongs only to production');
+  await page.getByLabel('Reviewed text source files').setInputFiles({ name: 'page.tsx', mimeType: 'text/plain', buffer: Buffer.from('production-only-source') });
+  await page.getByLabel('Environment', { exact: true }).selectOption('STAGING');
+  await expect(page.getByRole('form', { name: 'New source review' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Review source with AI team' }).click();
+  await expect(page.getByLabel('What should the team review?')).toHaveValue('');
+  await expect(page.getByLabel('Source path 1', { exact: true })).toHaveCount(0);
+});
 test('repair requires file consent and exact plan approval, then shows opaque protected previews', async ({ page }) => {
   const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const artifactId = 'eb334a71-5cff-448c-a5ce-e6ae286a5f40';
   const sourceDigest = 'a'.repeat(64); const candidateDigest = 'b'.repeat(64); let phase = 0; let approved: unknown;

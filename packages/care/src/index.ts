@@ -3,3 +3,5 @@ export * from './policy.js';
 export * from './catalogue.js';
 
 export * from "./static-html.js";
+export * from './source-review.js';
+export * from './review-tools.js';
