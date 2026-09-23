@@ -903,3 +903,15 @@ html { scroll-behavior: smooth; }
 .support-error { padding:0 1rem 1rem; }
 @media (max-width:48rem) { .support-center__bar { align-items:flex-start; flex-wrap:wrap; }.support-center__title { width:calc(100% - 3.5rem); }.support-availability { margin-left:3.3rem; }.support-center__body { grid-template-columns:1fr; }.support-inbox { border-right:0; border-bottom:1px solid #e0e6e2; }.support-inbox nav { grid-template-columns:repeat(2,minmax(0,1fr)); max-height:10rem; }.support-thread { min-height:27rem; } }
 @media (max-width:34rem) { .support-center__bar .ui-button { width:100%; }.support-availability { margin-left:0; margin-right:auto; }.support-inbox nav { grid-template-columns:1fr; }.support-thread__header { align-items:flex-start; flex-wrap:wrap; }.support-thread__header>div:nth-child(2) { width:calc(100% - 3rem); }.support-message { width:92%; }.support-composer__footer { align-items:flex-end; flex-direction:column; }.support-actions { width:100%; }.support-actions .ui-button { flex:1; } }
+
+.care-repair-workflow fieldset { border: 1px solid #94a3b8; border-radius: 12px; padding: 1rem; margin: 1rem 0; min-width: 0; }
+.care-repair-workflow label { display: flex; flex-direction: column; gap: .4rem; margin: .6rem 0; }
+.care-repair-workflow .care-consent { flex-direction: row; align-items: flex-start; }
+.care-repair-workflow input:not([type=checkbox]), .care-repair-workflow select { max-width: 100%; min-width: 0; padding: .65rem; border: 1px solid #94a3b8; border-radius: 8px; color: inherit; background: transparent; }
+.care-repair-workflow button { min-height: 44px; margin: .3rem .3rem .3rem 0; }
+.care-artifact-list { padding-left: 1rem; overflow-wrap: anywhere; }
+.care-digest { display: block; overflow-wrap: anywhere; white-space: normal; font-size: .8rem; }
+.care-preview-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: .75rem; margin: 1rem 0; }
+.care-preview-grid figure { margin: 0; min-width: 0; }
+.care-preview-grid iframe { width: 100%; height: 350px; background: white; border: 1px solid #94a3b8; border-radius: 8px; }
+@media (max-width: 700px) { .care-preview-grid { grid-template-columns: minmax(0,1fr); } }

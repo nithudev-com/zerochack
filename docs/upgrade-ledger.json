@@ -9,7 +9,7 @@
       "docs/ZEROROOT-UPGRADE-PLAN.md"
     ],
     "tests": [
-      "npm test (baseline: 89; current: 103)"
+      "npm test (baseline: 89; current: 113)"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
@@ -1046,16 +1046,25 @@
     "status": "IN_PROGRESS",
     "files": [
       "packages/care/src/catalogue.ts",
-      "apps/web/components/care-capabilities.tsx"
+      "apps/web/components/care-capabilities.tsx",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "All 24 role definitions are retained; only A02 is enabled. Narrow executable schemas and evaluations for the remaining roles are unfinished."
+      "Twenty-two proposed roles and multi-agent collaboration remain disabled."
     ],
     "coverage": "PARTIAL",
-    "evidence": "All 24 role definitions are retained; only A02 is enabled. Narrow executable schemas and evaluations for the remaining roles are unfinished.",
+    "evidence": "A02 chat and A08 bounded static HTML generation execute through real gateway calls; role catalogue records narrow A08 inputs, outputs and limits.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1082,17 +1091,26 @@
     "files": [
       "packages/ai-gateway/src/anthropic.ts",
       "packages/ai-gateway/src/index.ts",
-      "apps/web/components/owner-ai-gateway.tsx"
+      "apps/web/components/owner-ai-gateway.tsx",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "packages/ai-gateway/src/anthropic.test.ts",
-      "packages/ai-gateway/src/index.test.ts"
+      "packages/ai-gateway/src/index.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Existing rate/concurrency limits plus site chat concurrency and bounded tool turns/calls apply; whole-job token/infrastructure budget reservation is unfinished."
+      "Infrastructure costs, provider billing reconciliation, and simultaneous legacy chat budget reservation remain outside this allowance."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Existing rate/concurrency limits plus site chat concurrency and bounded tool turns/calls apply; whole-job token/infrastructure budget reservation is unfinished.",
+    "evidence": "Static repairs reserve a model allowance, allow one provider attempt, have a 120-second cancellation deadline, and serialize one running repair per website.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1280,32 +1298,52 @@
     "id": "ZR-068",
     "requirement": "Implement controlled source snapshots and narrow patch application.",
     "acceptance": "Secret files and out-of-scope paths are excluded.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Controlled customer source snapshots and path-constrained patch application are not implemented."
+      "Only standalone HTML/inline CSS is supported; repository cloning and multi-file source snapshots are unavailable."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Controlled customer source snapshots and path-constrained patch application are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Reviewed UTF-8 HTML is encrypted as a scoped snapshot; unique-anchor patches are bounded and revalidated independently.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-069",
     "requirement": "Provide protected previews and stable browser evidence.",
     "acceptance": "Preview origin and cookies are separated from the platform.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Protected preview origins, artifact access, isolated cookies, and durable browser evidence storage are not implemented."
+      "No disposable browser worker or persistent automated visual baseline capture is provisioned."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Protected preview origins, artifact access, isolated cookies, and durable browser evidence storage are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Authenticated previews use sandboxed opaque-origin iframes, CSP network restrictions, and disabled navigation; browser checks verify isolation.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1316,17 +1354,26 @@
     "files": [
       "apps/api/src/modules/care/service.ts",
       "apps/api/src/modules/care/routes.ts",
-      "apps/worker/src/care-maintenance.ts"
+      "apps/worker/src/care-maintenance.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Capture uses row locks/idempotency and cancellation invalidates job fences; isolated write leases and remote outcome reconciliation are not implemented."
+      "An unrelated external writer does not honor this lock; operators must ensure an exclusive release window. Distributed crash/failover drills remain open."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Capture uses row locks/idempotency and cancellation invalidates job fences; isolated write leases and remote outcome reconciliation are not implemented.",
+    "evidence": "Job versions fence stale candidates; database uniqueness serializes website releases; remote exclusive locks and immediate source hashes guard single-file replacement. Unknown results are reconciled without replay.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1337,17 +1384,26 @@
     "files": [
       "apps/api/src/modules/care/service.ts",
       "apps/api/src/modules/care/routes.ts",
-      "apps/worker/src/care-maintenance.ts"
+      "apps/worker/src/care-maintenance.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Issue summaries and expected behavior are persisted; versioned source/visual baselines and engineering coverage evidence are missing."
+      "General application reproduction, runtime fixtures and full functional baselines are not implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Issue summaries and expected behavior are persisted; versioned source/visual baselines and engineering coverage evidence are missing.",
+    "evidence": "Expected behavior, additive corrections, source digest and static baseline checks are versioned with the repair approval.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1375,64 +1431,104 @@
     "id": "ZR-073",
     "requirement": "Present a scoped repair plan with cost and validation boundaries.",
     "acceptance": "Customer approval does not authorize unrelated changes.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Scoped repair plan, customer repair approval, cost estimate, and validation-boundary enforcement are not implemented."
+      "Coverage is limited to standalone HTML; supported source must be deliberately reviewed and selected."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Scoped repair plan, customer repair approval, cost estimate, and validation-boundary enforcement are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "The customer reviews the selected source, model, bounded allowance, supported file, expected result and fixed checks before exact plan approval.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-074",
     "requirement": "Prepare changes in staging with synthetic/sanitized data.",
     "acceptance": "No real payments, messages, or uncontrolled side effects.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Staging patch preparation with synthetic/sanitized data and controlled side effects is not implemented."
+      "There is no disposable execution sandbox, test database, or general staging environment."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Staging patch preparation with synthetic/sanitized data and controlled side effects is not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Candidate preparation treats validated source as data, sends no server credentials to AI, and performs no source execution or live writes.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-075",
     "requirement": "Independently verify the exact candidate.",
     "acceptance": "Actual lint/build/test/browser evidence is attached.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Independent verification of an exact customer-site candidate is not implemented."
+      "No general project build, functional browser suite, visual regression audit or full WCAG assessment runs on customer source."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Independent verification of an exact customer-site candidate is not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "The exact candidate is checked for structural, static-content, resource and accessibility-basics violations independently of the model.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-076",
     "requirement": "Protect tests and visual baselines from acceptance manipulation.",
     "acceptance": "Deleting checks or silently replacing baselines blocks acceptance.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Candidate test/baseline integrity protection against acceptance manipulation is not implemented."
+      "General repository test integrity and reviewed visual-baseline controls are not implemented."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Candidate test/baseline integrity protection against acceptance manipulation is not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Fixed server-side policy checks cannot be changed by the patch; source anchors and digests are validated. Unsafe candidate integration tests fail closed.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1443,33 +1539,52 @@
     "files": [
       "apps/api/src/modules/care/service.ts",
       "apps/api/src/modules/care/routes.ts",
-      "apps/worker/src/care-maintenance.ts"
+      "apps/worker/src/care-maintenance.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Corrections reopen repair requests and invalidate approval fields; actual candidate previews and request-changes revision loops are not implemented."
+      "Requested visual/behavioral correctness still requires human review; no screenshot-diff score is claimed."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Corrections reopen repair requests and invalidate approval fields; actual candidate previews and request-changes revision loops are not implemented.",
+    "evidence": "The UI compares before/after protected previews; corrections retain previous requirements, increment the plan version and invalidate old approval.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-078",
     "requirement": "Verify applicable backup and recovery readiness.",
     "acceptance": "Missing or invalid recovery evidence blocks protected release.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Existing backup code is retained; no applicable backup validation tied to the new repair/release lifecycle is implemented."
+      "This is not a complete server/database backup. Live host recovery drills remain required."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Existing backup code is retained; no applicable backup validation tied to the new repair/release lifecycle is implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Single-file release first encrypts the observed original, reads it back, checks its digest, and ties it to the release before mutation.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1478,32 +1593,51 @@
     "acceptance": "Stale approvals and incompatible environments are rejected.",
     "status": "IN_PROGRESS",
     "files": [
-      "packages/care/src/policy.ts"
+      "packages/care/src/policy.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Unit tests reject changed digest/revision/environment/plan/expiry; no production approval service or immediate drift check is implemented."
+      "Only production single-file SFTP is supported; live account revocation/timeout/race drills remain open."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Unit tests reject changed digest/revision/environment/plan/expiry; no production approval service or immediate drift check is implemented.",
+    "evidence": "Fresh MFA approval binds exact source/candidate hashes, plan version, credential identity/version and absolute index.html target; worker rechecks authority and immediate source drift.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-080",
     "requirement": "Deploy through the deterministic service and verify health.",
     "acceptance": "Recovery and closure states reflect authoritative outcomes.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Deterministic new deployment, health verification, recovery, and closure services are not implemented."
+      "Database/API tests use a simulated remote transport; actual SFTP/HTTP production or staging release has not been exercised."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Deterministic new deployment, health verification, recovery, and closure services are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "A deterministic SFTP worker verifies baseline HTTP/source hashes, uses atomic overwrite, verifies candidate health, conditionally restores the original, and records uncertain outcomes without replay.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1514,16 +1648,25 @@
     "files": [
       "packages/database/prisma/schema.prisma",
       "packages/database/prisma/migrations/20260923000000_chat_care/migration.sql",
-      "apps/api/src/modules/care/routes.ts"
+      "apps/api/src/modules/care/routes.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "apps/api/src/modules/care/care.integration.test.ts"
+      "apps/api/src/modules/care/care.integration.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Fresh schema plus all migrations apply in disposable PGlite and care integration tests pass; production upgrade/backfill/rollback drills and PostgreSQL CI remain gates."
+      "Production migration restore and full PostgreSQL CI validation remain required."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Fresh schema plus all migrations apply in disposable PGlite and care integration tests pass; production upgrade/backfill/rollback drills and PostgreSQL CI remain gates.",
+    "evidence": "Additive care and repair migrations provide composite tenant/site references, lease fields, scoped artifacts/revisions/releases, and unique active-release/running-repair constraints.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1574,16 +1717,25 @@
     "files": [
       "packages/database/prisma/schema.prisma",
       "packages/database/prisma/migrations/20260923000000_chat_care/migration.sql",
-      "apps/api/src/modules/care/routes.ts"
+      "apps/api/src/modules/care/routes.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "apps/api/src/modules/care/care.integration.test.ts"
+      "apps/api/src/modules/care/care.integration.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Care snapshots/grants are scoped and non-cacheable; new artifact/log/report/preview access services do not yet exist."
+      "Pixel contents require customer privacy review; no OCR, asynchronous quarantine service, or dedicated artifact-object-store encryption lifecycle is implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Care snapshots/grants are scoped and non-cacheable; new artifact/log/report/preview access services do not yet exist.",
+    "evidence": "Artifacts are encrypted with scoped authenticated envelopes, private no-store retrieval, bounded upload validation, image metadata stripping, expiry and deletion. Previews never return raw executable HTML responses.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1610,16 +1762,26 @@
     "id": "ZR-086",
     "requirement": "Reserve and reconcile full job cost.",
     "acceptance": "Failures/retries and infrastructure usage count toward ceilings.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Full-job model/tool/infrastructure cost reservation and reconciliation are not implemented."
+      "Unknown provider costs remain reserved for operator reconciliation. This does not account for infrastructure costs or reserve concurrent legacy chat requests."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Full-job model/tool/infrastructure cost reservation and reconciliation are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Repair approval atomically reserves model allowance against completed daily usage and outstanding repair reservations. Known usage settles even on verification failure; unstarted cancellation releases it.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1670,16 +1832,25 @@
     "files": [
       "docs/CARE-OPERATIONS.md",
       ".env.example",
-      "packages/config/src/index.ts"
+      "packages/config/src/index.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "packages/config/src/config.test.ts"
+      "packages/config/src/config.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Active vault ciphertext expires and is wiped by maintenance; comprehensive message/artifact/backup retention and historical-secret response are unfinished."
+      "Database backup retention is separate; expired source/recovery authority may require operator intervention. Artifact key rotation and full archival workflows remain unfinished."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Active vault ciphertext expires and is wiped by maintenance; comprehensive message/artifact/backup retention and historical-secret response are unfinished.",
+    "evidence": "Maintenance expires credential/grant material and expired artifacts, retaining recovery ciphertext while a release is unresolved. Explicit artifact removal is blocked during an active release.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1710,7 +1881,12 @@
     "files": [
       "docs/CARE-IMPLEMENTATION.md",
       ".github/workflows/ci.yml",
-      "playwright.care.config.ts"
+      "playwright.care.config.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "npm test",
@@ -1718,13 +1894,17 @@
       "npm run typecheck",
       "npm run build",
       "care integration suite",
-      "care browser suite"
+      "care browser suite",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Commands and actual outcomes are recorded. Unit/build/lint/typecheck and care suites pass; full real PostgreSQL integration and live provider suites are outstanding."
+      "API integration uses PGlite compatibility mode; the full suite still requires real PostgreSQL/Redis CI. Live provider tests remain open."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Commands and actual outcomes are recorded. Unit/build/lint/typecheck and care suites pass; full real PostgreSQL integration and live provider suites are outstanding.",
+    "evidence": "113 unit tests, 22 scoped API integration tests, 11 API-fixture browser journeys, lint, typecheck, production builds and OpenAPI generation passed locally.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1760,17 +1940,26 @@
     "files": [
       "packages/ai-gateway/src/anthropic.ts",
       "packages/ai-gateway/src/index.ts",
-      "apps/web/components/owner-ai-gateway.tsx"
+      "apps/web/components/owner-ai-gateway.tsx",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "packages/ai-gateway/src/anthropic.test.ts",
-      "packages/ai-gateway/src/index.test.ts"
+      "packages/ai-gateway/src/index.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Malformed/oversized tool calls and safe Markdown are tested; untrusted repository/worker prompt-injection and egress evaluations are not implemented."
+      "No arbitrary customer scripts execute. General engineering sandbox and network-isolation drills remain unavailable."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Malformed/oversized tool calls and safe Markdown are tested; untrusted repository/worker prompt-injection and egress evaluations are not implemented.",
+    "evidence": "Static source and patches reject scripts, event handlers, forms, dynamic templates, remote resources, ambiguous anchors and oversized changes; browser CSP and opaque-origin tests pass.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1781,17 +1970,26 @@
     "files": [
       "apps/api/src/modules/care/service.ts",
       "apps/api/src/modules/care/routes.ts",
-      "apps/worker/src/care-maintenance.ts"
+      "apps/worker/src/care-maintenance.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Duplicate intake, reassignment, revoke, expiry, and stale worker checks pass; crash/race/cancellation stress and ambiguous remote-outcome reconciliation remain open."
+      "Multi-host crashes, DB failover, lost-heartbeat fencing under network partitions and load/race drills remain open."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Duplicate intake, reassignment, revoke, expiry, and stale worker checks pass; crash/race/cancellation stress and ambiguous remote-outcome reconciliation remain open.",
+    "evidence": "Integration tests cover duplicate approvals, cancellation during a model call, source drift, changed credential versions, budget reservations, rollback and unknown outcome reconciliation without write replay.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1818,16 +2016,26 @@
     "id": "ZR-096",
     "requirement": "Run backup/recovery, deployment-regression, and stale-approval drills.",
     "acceptance": "Recovery evidence exists before protected production use.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Backup/recovery, release regression, and production stale-approval drills have not been performed."
+      "These are not live recovery or production release drills; real target validation is required before enabling release."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Backup/recovery, release regression, and production stale-approval drills have not been performed.",
+    "coverage": "PARTIAL",
+    "evidence": "Simulated transport integration tests verify pre-mutation backup storage, conditional restore, source drift denial, stale account denial and unknown outcome reconciliation.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1890,7 +2098,12 @@
     "files": [
       "docs/CARE-IMPLEMENTATION.md",
       ".github/workflows/ci.yml",
-      "playwright.care.config.ts"
+      "playwright.care.config.ts",
+      "apps/api/src/modules/care/repair-service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/api/src/modules/care/release-service.ts",
+      "packages/care/src/static-html.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "npm test",
@@ -1898,13 +2111,17 @@
       "npm run typecheck",
       "npm run build",
       "care integration suite",
-      "care browser suite"
+      "care browser suite",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "packages/care/src/static-html.test.ts",
+      "apps/api/src/modules/care/static-target.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "The secure access/disclosure journey has API and UI evidence; the complete website repair-preview-release journey is not implemented or released."
+      "No live provider or server release occurred. General application stacks, remaining role workflows and production readiness gates are not complete."
     ],
     "coverage": "PARTIAL",
-    "evidence": "The secure access/disclosure journey has API and UI evidence; the complete website repair-preview-release journey is not implemented or released.",
+    "evidence": "The secure access journey and supported static HTML intake/approval/candidate/preview/release services are implemented with unit/API/browser evidence.",
     "updatedAt": "2026-09-23"
   }
 ]

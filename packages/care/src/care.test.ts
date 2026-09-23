@@ -45,6 +45,6 @@ describe('truthful activity and release policy', () => {
   it('retains all planned roles and tool interfaces without advertising unevaluated execution', () => {
     expect(agentCatalogue).toHaveLength(24); expect(toolCatalogue).toHaveLength(64);
     expect(new Set(toolCatalogue.map((tool) => tool.id)).size).toBe(64);
-    expect(agentCatalogue.filter((role) => role.enabled).map((role) => role.id)).toEqual(['A02']);
+    expect(agentCatalogue.filter((role) => role.enabled).map((role) => role.id)).toEqual(['A02', 'A08']);
   });
 });

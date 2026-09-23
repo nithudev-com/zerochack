@@ -519,6 +519,7 @@ model Website {
   careCredentials CareCredential[]
   careJobs CareJob[]
   careEvents CareEvent[]
+  careArtifacts CareArtifact[]
 
   @@unique([tenantId, id])
 
@@ -598,6 +599,10 @@ model CareJob {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
   agents CareAgentRun[]
+  revisions CareRevision[]
+  releases CareRelease[]
+  leaseOwner String? @map("lease_owner") @db.Uuid
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
   @@unique([tenantId, websiteId, requestKey])
   @@unique([tenantId, websiteId, id])
   @@index([tenantId, websiteId, state])
@@ -1270,6 +1275,7 @@ model AiTenantPolicy {
 }
 
 model AiUsage {
+  purpose String @default("CHAT") @db.VarChar(32)
   id                  String        @id @default(uuid()) @db.Uuid
   tenantId            String        @map("tenant_id") @db.Uuid
   userId              String        @map("user_id") @db.Uuid
@@ -2065,4 +2071,77 @@ model SystemSetting {
   changedBy         User     @relation("SettingActor", fields: [changedByUserId], references: [id], onDelete: Restrict)
 
   @@map("system_settings")
+}
+
+model CareArtifact {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  jobId String? @map("job_id") @db.Uuid
+  environment String @db.VarChar(16)
+  kind String @db.VarChar(20)
+  filename String @db.VarChar(120)
+  contentType String @map("content_type") @db.VarChar(100)
+  status String @default("QUARANTINED") @db.VarChar(20)
+  digest String @db.Char(64)
+  sizeBytes Int @map("size_bytes")
+  encryptedBody String @map("encrypted_body") @db.Text
+  createdBy String @map("created_by") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
+  @@unique([tenantId, websiteId, id])
+  @@index([tenantId, websiteId, environment, status])
+  @@map("care_artifacts")
+}
+model CareRevision {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  jobId String @map("job_id") @db.Uuid
+  version Int
+  sourceId String @map("source_id") @db.Uuid
+  sourceDigest String @map("source_digest") @db.Char(64)
+  candidateId String? @map("candidate_id") @db.Uuid
+  candidateDigest String? @map("candidate_digest") @db.Char(64)
+  state String @default("AWAITING_APPROVAL") @db.VarChar(32)
+  plan Json
+  verification Json?
+  approvedBy String? @map("approved_by") @db.Uuid
+  approvalExpiresAt DateTime? @map("approval_expires_at") @db.Timestamptz(6)
+  budgetMicros Int @map("budget_micros")
+  chargedMicros Int @default(0) @map("charged_micros")
+  budgetState String @default("UNRESERVED") @map("budget_state") @db.VarChar(16)
+  usageId String? @map("usage_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  job CareJob @relation(fields: [tenantId, websiteId, jobId], references: [tenantId, websiteId, id], onDelete: Cascade)
+  @@unique([tenantId, websiteId, id])
+  @@unique([jobId, version])
+  @@index([tenantId, budgetState, createdAt])
+  @@map("care_revisions")
+}
+model CareRelease {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  jobId String @map("job_id") @db.Uuid
+  revisionId String @map("revision_id") @db.Uuid
+  requestKey String @map("request_key") @db.Uuid
+  credentialId String @map("credential_id") @db.Uuid
+  credentialVersion Int @map("credential_version")
+  remotePath String @map("remote_path") @db.VarChar(1024)
+  sourceDigest String @map("source_digest") @db.Char(64)
+  candidateDigest String @map("candidate_digest") @db.Char(64)
+  backupId String? @map("backup_id") @db.Uuid
+  state String @default("AWAITING_APPROVAL") @db.VarChar(32)
+  approvedBy String? @map("approved_by") @db.Uuid
+  approvalExpiresAt DateTime? @map("approval_expires_at") @db.Timestamptz(6)
+  heartbeatAt DateTime @default(now()) @map("heartbeat_at") @db.Timestamptz(6)
+  errorCode String? @map("error_code") @db.VarChar(100)
+  evidence Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  job CareJob @relation(fields: [tenantId, websiteId, jobId], references: [tenantId, websiteId, id], onDelete: Cascade)
+  @@unique([tenantId, websiteId, requestKey])
+  @@index([tenantId, websiteId, state])
+  @@map("care_releases")
 }

@@ -5,7 +5,7 @@ import type { Environment } from '@zerochack/config';
 import { decryptSecret, encryptSecret, generateRecoveryCodes, generateTotpSecret, hashOpaqueToken, verifyTotp } from '@zerochack/auth';
 import { mfaCodeSchema, tokenSchema } from '@zerochack/validation';
 import { ApiError } from '../../errors.js';
-import { authenticate, requireOwnerMfa, requireOwnerRole, setSessionCookie } from './security.js';
+import { authenticate, requireOwnerMfa, setSessionCookie } from './security.js';
 import { consumeAuthToken, createSession, writeAudit } from './service.js';
 import { metadataPurpose, metadataTenantId, parse, requestContext } from './routes.js';
 
@@ -82,7 +82,7 @@ export const mfaRoutes: FastifyPluginAsync<{ environment: Environment }> = async
   });
 
   app.post('/auth/mfa/step-up', { preHandler: (request) => authenticate(request, environment), config: { rateLimit: { max: 5, timeWindow: '5 minutes' } } }, async (request) => {
-    if (!(request.roleNames ?? []).includes('Cybersecurity Specialist')) requireOwnerRole(request); const body = parse({ safeParse: (input: unknown) => typeof input === 'object' && input !== null && 'code' in input && typeof input.code === 'string' ? { success: true as const, data: { code: input.code } } : { success: false as const, error: { flatten: () => ({ fieldErrors: { code: ['Required'] } }) } } }, request.body);
+    const body = parse({ safeParse: (input: unknown) => typeof input === 'object' && input !== null && 'code' in input && typeof input.code === 'string' ? { success: true as const, data: { code: input.code } } : { success: false as const, error: { flatten: () => ({ fieldErrors: { code: ['Required'] } }) } } }, request.body);
     const user = await database.user.findUniqueOrThrow({ where: { id: request.userId! } }); if (!user.mfaEnabledAt || !user.mfaSecretEncrypted || !verifyTotp(decryptSecret(user.mfaSecretEncrypted, environment.MFA_ENCRYPTION_KEY), body.code)) throw new ApiError(401, 'MFA_CODE_INVALID', 'MFA code is invalid');
     await database.session.update({ where: { id: request.sessionId! }, data: { mfaVerifiedAt: new Date() } }); await writeAudit({ tenantId: request.tenantId, actorUserId: request.userId, requestId: request.id, action: 'auth.mfa_step_up', resourceType: 'session', resourceId: request.sessionId, ipAddress: request.ip }); return { status: 'VERIFIED' };
   });

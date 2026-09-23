@@ -19,6 +19,13 @@ export async function maintainCareRecords(now = new Date()) {
       await tx.careAgentRun.updateMany({ where: { jobId: job.id, state: { in: ['RUNNING','VERIFYING'] } }, data: { state: 'STALE' } });
       await tx.careEvent.create({ data: { tenantId: job.tenantId, websiteId: job.websiteId, environment: job.environment, jobId: job.id, eventType: 'job.stale', state: 'STALE', summary: 'Worker heartbeat was lost. Outcomes need review; the task has not been replayed.' } });
     }
+    const artifacts = await tx.careArtifact.findMany({ where: { status: 'ACCEPTED', expiresAt: { lte: now } }, take: 100 });
+    for (const artifact of artifacts) {
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${artifact.websiteId}::uuid FOR UPDATE`;
+      const activeRelease = await tx.careRelease.count({ where: { websiteId: artifact.websiteId, state: { in: ['QUEUED','RUNNING','VERIFYING','OUTCOME_UNKNOWN'] } } });
+      if (!activeRelease) await tx.careArtifact.update({ where: { id: artifact.id }, data: { status: 'EXPIRED', encryptedBody: '' } });
+    }
+    await tx.careRelease.updateMany({ where: { state: { in: ['RUNNING','VERIFYING'] }, heartbeatAt: { lt: new Date(now.getTime() - 90000) } }, data: { state: 'OUTCOME_UNKNOWN', errorCode: 'WORKER_HEARTBEAT_LOST' } });
     return { expiredCredentials: expired.length, staleJobs: stale.length };
   }, { timeout: 15000 });
 }

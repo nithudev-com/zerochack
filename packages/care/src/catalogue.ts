@@ -94,15 +94,15 @@ export const agentCatalogue = [
   {
     "id": "A08",
     "name": "Frontend Repair Engineer",
-    "knowledge": "Components, CSS, responsive behavior, interaction state.",
-    "inputs": "Issue, component source, design baseline.",
+    "knowledge": "Static HTML, inline CSS, responsive layout.",
+    "inputs": "Approved issue and validated standalone HTML.",
     "output": "Focused interface repair and preview.",
-    "boundary": "No unrelated redesign or content changes.",
+    "boundary": "Data-only candidate generation. No scripts, backend, tools, source execution, or production access.",
     "version": 1,
-    "enabled": false,
-    "maxAttempts": 3,
-    "maxToolCalls": 24,
-    "maxConcurrentPerWebsite": 3
+    "enabled": true,
+    "maxAttempts": 1,
+    "maxToolCalls": 0,
+    "maxConcurrentPerWebsite": 1
   },
   {
     "id": "A09",

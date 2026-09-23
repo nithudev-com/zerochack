@@ -1,3 +1,5 @@
+import { careEvent, vaultKey } from './runtime.js';
+export { careEvent, vaultKey } from './runtime.js';
 import { randomUUID } from 'node:crypto';
 import { database } from '@zerochack/database';
 import type { Prisma } from '@prisma/client';
@@ -9,14 +11,10 @@ import { ApiError } from '../../errors.js';
 import { requirePermission } from '../auth/security.js';
 
 export const credentialMetadata = { id: true, kind: true, environment: true, host: true, port: true, username: true, version: true, status: true, createdAt: true, authorizationExpiresAt: true } as const;
-export const vaultKey = (environment: Environment) => environment.CARE_VAULT_KEY ?? environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY;
 export async function careWebsite(request: FastifyRequest, websiteId: string, tx?: Prisma.TransactionClient) {
   const site = await (tx ?? database).website.findFirst({ where: { id: websiteId, tenantId: request.tenantId!, lifecycle: 'ACTIVE' } });
   if (!site) throw new ApiError(404, 'WEBSITE_NOT_FOUND', 'Website was not found');
   return site;
-}
-export async function careEvent(tx: Prisma.TransactionClient, scope: { tenantId: string; websiteId: string; environment: string }, eventType: string, state: string, summary: string, refs?: { jobId?: string; agentRunId?: string }) {
-  return tx.careEvent.create({ data: { tenantId: scope.tenantId, websiteId: scope.websiteId, environment: scope.environment, ...refs, eventType, state, summary } });
 }
 export async function captureAccess(request: FastifyRequest, websiteId: string, input: { content: string; environment: string; authorizationConfirmed: boolean; idempotencyKey: string }, environment: Environment) {
   requirePermission(request, 'websites.manage');

@@ -1,6 +1,40 @@
 import { expect, test } from '@playwright/test';
 const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
+test('repair requires file consent and exact plan approval, then shows opaque protected previews', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const artifactId = 'eb334a71-5cff-448c-a5ce-e6ae286a5f40';
+  const sourceDigest = 'a'.repeat(64); const candidateDigest = 'b'.repeat(64); let phase = 0; let approved: unknown;
+  const artifact = { id: artifactId, kind: 'SOURCE', filename: 'index.html', digest: sourceDigest, sizeBytes: 200, expiresAt: new Date(Date.now() + 86400000).toISOString() };
+  const revision = { id: 'd855909b-f762-40a2-b474-2d69206b752c', version: 1, state: 'AWAITING_APPROVAL', sourceId: artifactId, sourceDigest, candidateId: null, candidateDigest: null, budgetMicros: 500000, chargedMicros: 0, budgetState: 'UNRESERVED', plan: { boundary: 'Prepare one static HTML candidate.', expectedBehavior: 'Show the corrected heading', configuration: { model: 'Fixture model' } }, verification: { checks: ['static-policy','title'], limitations: ['Visual review is required.'] } };
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/care')) return route.fulfill({ json: { credentials: [], accessRequests: [], jobs: [{ id: jobId, kind: 'REPAIR', summary: 'Correct the standalone page heading', state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: { attachments: true, isolatedRepair: true, deployment: false } } });
+    if (path.endsWith('/workflow')) return route.fulfill({ json: { job: { state: 'AWAITING_APPROVAL', planVersion: 1 }, artifacts: phase ? [artifact] : [], revisions: phase >= 2 ? [{ ...revision, ...(phase === 3 ? { state: 'VERIFIED', candidateId: 'candidate', candidateDigest, budgetState: 'SETTLED', chargedMicros: 130 } : {}) }] : [], releases: [], capabilities: { release: false, maximumBudgetMicros: 500000 } } });
+    if (path.endsWith('/artifacts')) { expect(route.request().postDataJSON().privacyReviewed).toBe(true); phase = 1; return route.fulfill({ status: 201, json: artifact }); }
+    if (path.endsWith('/change-plan')) { expect(route.request().postDataJSON().sourceId).toBe(artifactId); phase = 2; return route.fulfill({ status: 201, json: revision }); }
+    if (path.includes('/change-plans/') && path.endsWith('/approve')) { approved = route.request().postDataJSON(); phase = 3; return route.fulfill({ json: { state: 'QUEUED' } }); }
+    if (path.endsWith('/preview')) return route.fulfill({ json: { html: '<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'"><h1>Preview content</h1><script>parent.previewScriptRan=true</script><img src="https://invalid.example.test/tracker">' } });
+    return route.fallback();
+  });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${id}`);
+  await page.getByRole('button', { name: 'Open repair workspace' }).click();
+  await expect(page.getByLabel('Upload HTML, screenshot, or redacted log')).toBeDisabled();
+  await page.getByLabel('I removed credentials and private information.').check();
+  await page.getByLabel('Upload HTML, screenshot, or redacted log').setInputFiles({ name: 'index.html', mimeType: 'text/html', buffer: Buffer.from('<h1>Reviewed source</h1>') });
+  await page.getByRole('button', { name: 'Prepare approval plan' }).click();
+  await page.getByRole('button', { name: /Approve candidate preparation/ }).click();
+  expect(approved).toEqual({ version: 1, sourceDigest, budgetMicros: 500000, authorizeRepair: true });
+  const blocked: string[] = []; const received: string[] = []; page.on('requestfailed', (request) => { if (request.url().includes('invalid.example.test')) blocked.push(request.failure()?.errorText ?? 'unknown'); }); page.on('response', (response) => { if (response.url().includes('invalid.example.test')) received.push(response.url()); });
+  await page.getByRole('button', { name: 'Compare before and after' }).click();
+  await expect(page.locator('iframe[title="Candidate page preview"]')).toHaveAttribute('sandbox', '');
+  await expect(page.frameLocator('iframe[title="Candidate page preview"]').getByRole('heading', { name: 'Preview content' })).toBeVisible();
+  expect(await page.evaluate(() => 'previewScriptRan' in window)).toBe(false); await expect.poll(() => blocked.length).toBe(2); expect(blocked.every((value) => /csp/i.test(value))).toBe(true); expect(received).toEqual([]);
+  expect(await page.evaluate(() => { try { return Boolean(document.querySelector('iframe')!.contentWindow!.document); } catch { return false; } })).toBe(false);
+  await expect(page.getByText('Production release is disabled.')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: 'test-results/care-repair-mobile.png', fullPage: true });
+  await page.getByRole('button', { name: 'Close repair workspace' }).click(); await expect(page.locator('iframe')).toHaveCount(0);
+});
 test.beforeEach(async ({ page }) => {
   await page.route('**/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname;

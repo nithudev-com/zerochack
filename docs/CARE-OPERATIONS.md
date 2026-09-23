@@ -2,13 +2,13 @@
 
 ## Rollout
 
-1. Back up the PostgreSQL database and establish a tested restore point. Review the additive `20260923000000_chat_care` migration. It creates care records, scope constraints, a nullable legacy access reference, and a production-default environment for existing chat messages.
+1. Back up the PostgreSQL database and establish a tested restore point. Review the additive `20260923000000_chat_care` and `20260923010000_care_repair` migrations. It creates care records, scope constraints, a nullable legacy access reference, and a production-default environment for existing chat messages.
 2. Keep `CARE_ENABLED=false` while applying `npm run db:migrate:deploy` and updating **all** API and worker instances. Existing binaries cannot decrypt a broker reference stored by this version. Do not enable capture in a mixed-version fleet.
 3. Provision `CARE_VAULT_KEY` as a random base64-encoded 32-byte key in the deployment's secret manager. Production startup rejects a missing/default key or reuse of the existing AI, MFA, or integration encryption key. The application currently supports the `v1` key only; a multi-key rotation/re-encryption service is not implemented. Do not rotate the value while live ciphertext depends on it.
 4. Enable `CARE_ENABLED=true` consistently on API and worker instances. Verify the maintenance worker runs. Before opening access to customers, run the real PostgreSQL integration suite and smoke-test capture, revoke, specialist MFA/grants, and SSE in staging.
 5. In the existing owner AI gateway, add an Anthropic provider using `anthropic-messages`, an encrypted server-side API credential, and a model available to that account. Set the existing tenant/model rate, concurrency, and cost policy. Run a minimal approved live smoke test and record its actual usage. There is no automatic fallback to another provider after a policy refusal.
 
-The web application exposes the new chat layout while care capabilities are opt-in. If disabled, ordinary existing assistant messages remain available and the workspace points to existing Secure Access. Repair requests never start a patch, preview, or release in this version.
+The web application exposes the new chat layout while care capabilities are opt-in. If disabled, ordinary existing assistant messages remain available and the workspace points to existing Secure Access. Repair and release have separate default-off flags; enabling care alone does not start a repair or release.
 
 ## Capture format and boundaries
 
@@ -61,3 +61,23 @@ npm run test:e2e:care
 ```
 
 CI provisions PostgreSQL 16 and Redis and includes the new care browser suite. Fixture browser tests and mock SDK streams are deliberately labelled in the implementation record. Live provider and infrastructure readiness require separate measured evidence.
+
+## Static HTML repair rollout
+
+Set CARE_REPAIR_ENABLED=true on all API/worker instances only after migrations and scoped integration checks pass. Provision CARE_ARTIFACT_KEY as a distinct random 32-byte base64 key. The production loader rejects missing/default/reused artifact keys. CARE_JOB_BUDGET_MICROS defaults to 500000 ($0.50 model allowance). Configure nonzero input/output model prices and a tenant policy before approval. The reservation is conservative, not a provider invoice guarantee; unknown provider charges remain held for reconciliation. Never silently reset a reservation whose invocation may have incurred charges.
+
+The repair worker polls durable database jobs every two seconds, allows one running repair per website, uses a two-minute model cancellation deadline and a 90-second lease heartbeat threshold, and does not replay stale work. It supports only standalone HTML and inline CSS. It does not provision an engineering container or execute source. Do not enable broader role/tool catalogue entries to bypass this boundary.
+
+Artifacts expire after seven days. The maintenance worker wipes expired ciphertext when no active or unresolved website release requires recovery material. Retained ciphertext does not extend expired authorization or make an expired artifact available through the API. Operator intervention may be necessary after expiry. Database backups retain ciphertext according to the database policy. Artifact-key rotation/re-encryption is not yet implemented; retain the key while any live or recovery artifact depends on it.
+
+## Single-file production release
+
+Keep CARE_RELEASE_ENABLED=false until real PostgreSQL/Redis CI, a disposable live-provider call, and a disposable SFTP/HTTP publish-and-restore drill pass. Release requires both other care flags. Use a minimally privileged deployment account, an independently verified host fingerprint, and an exclusively controlled web-root path. Do not use this path for JavaScript applications, forms, dynamic templates, cache-transformed pages, databases or multi-file deployments.
+
+The customer reviews previews, selects the exact account and absolute index.html path, and confirms production replacement plus conditional rollback. MFA enrollment is available in customer Profile; a six-digit step-up enables the release approval for five minutes. The approval itself expires after 15 minutes. Source, candidate, account version, current membership/permissions, website lifecycle and public URL are rechecked by the worker. Read-only inspection consent alone never authorizes replacement.
+
+The worker requires the exact source hash both in the SFTP target and the HTTP response before any mutation. It saves an encrypted original, verifies that copy, creates an exclusive sibling lock, stages a bounded temporary file and uses the OpenSSH atomic rename extension. There is no delete-and-rename fallback. A remote administrator must exclude out-of-band writes throughout this window; SFTP does not supply an atomic conditional compare-and-swap against them.
+
+A verified candidate returns COMPLETED. A failed candidate health check with verified restoration returns ROLLED_BACK. A timeout, lost heartbeat or unverifiable mutation returns OUTCOME_UNKNOWN and blocks another release. Wait at least two minutes after last worker activity, verify identity and use Reconcile release outcome. This reads current remote/public hashes and never replays a write. When the baseline is observed after an uncertain result, BASELINE_CONFIRMED records that observation without claiming a rollback actually ran. Explicitly approved recovery may finish after the start-approval expiry, but current actor and credential authority are still required immediately before its write. If evidence disagrees, a trusted human must inspect the target and recovery evidence. Do not delete the lock or mark success merely to unblock another release. Remote temporary files can remain after a failed upload; investigate their exact release identity before manual cleanup.
+
+Cancel pending release revokes an unstarted queued approval atomically. Once execution starts, do not change the scope during an active/unresolved release. Stop new releases with the flag and let an in-flight deterministic operation reach an observed outcome; disabling a flag does not terminate an already-open connection. Artifact removal is blocked while recovery may be necessary. A full database/server recovery plan remains separate from this single-file rollback.

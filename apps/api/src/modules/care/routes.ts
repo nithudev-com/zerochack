@@ -5,6 +5,9 @@ import type { Environment } from '@zerochack/config';
 import { agentCatalogue, toolCatalogue, environments, assertDisclosure, CareError, openSecret, visibleAgentState, looksSensitive } from '@zerochack/care';
 import { authenticate, requirePermission, requireOwnerMfa } from '../auth/security.js';
 import { ApiError } from '../../errors.js';
+import type { AiService } from '../ai/service.js';
+import { repairRoutes } from './repair-routes.js';
+import { invalidateRepair } from './repair-service.js';
 import { careEvent, careWebsite, credentialMetadata, vaultKey } from './service.js';
 
 const uuid = z.string().uuid();
@@ -17,7 +20,8 @@ const websiteParams = z.object({ websiteId: uuid });
 const activeTicket = { notIn: ['RESOLVED', 'CLOSED', 'CANCELLED', 'QUEUED'] as ['RESOLVED', 'CLOSED', 'CANCELLED', 'QUEUED'] };
 const safeGrant = { id: true, tenantId: true, websiteId: true, credentialId: true, credentialVersion: true, specialistId: true, ticketId: true, reason: true, status: true, expiresAt: true, createdAt: true, credential: { select: credentialMetadata } } as const;
 
-export async function careRoutes(app: FastifyInstance, options: { environment: Environment }) {
+export async function careRoutes(app: FastifyInstance, options: { environment: Environment; ai: AiService }) {
+  app.setErrorHandler((error, _request, reply) => { if (error instanceof CareError) return reply.code(400).send({ error: { code: error.code, message: error.message } }); throw error; });
   app.addHook('onSend', async (_request, reply, payload) => { reply.header('cache-control', 'private, no-store'); return payload; });
   app.addHook('preHandler', async (request) => {
     await authenticate(request, options.environment);
@@ -33,7 +37,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       database.careJob.findMany({ where: { tenantId, websiteId }, include: { agents: true }, orderBy: { createdAt: 'desc' }, take: 30 })
     ]);
     const staff = await database.user.findMany({ where: { id: { in: accessRequests.map((grant) => grant.specialistId) } }, select: { id: true, displayName: true } });
-    return { credentials, accessRequests: accessRequests.map((grant) => ({ ...grant, specialistName: staff.find((person) => person.id === grant.specialistId)?.displayName ?? 'Assigned specialist', status: ['PENDING','APPROVED'].includes(grant.status) && grant.expiresAt <= new Date() ? 'EXPIRED' : grant.status })), jobs: jobs.map((job) => ({ ...job, state: visibleAgentState(job.state, job.heartbeatAt), agents: job.agents.map((agent) => ({ ...agent, state: visibleAgentState(agent.state, agent.heartbeatAt), name: agentCatalogue.find((role) => role.id === agent.roleId)?.name ?? 'AI assistant' })) })), capabilities: { secureCapture: true, specialistDisclosure: true, trackedChat: true, isolatedRepair: false, deployment: false, attachments: false }, roles: agentCatalogue.map(({ id, name, enabled }) => ({ id, name, enabled })) };
+    return { credentials, accessRequests: accessRequests.map((grant) => ({ ...grant, specialistName: staff.find((person) => person.id === grant.specialistId)?.displayName ?? 'Assigned specialist', status: ['PENDING','APPROVED'].includes(grant.status) && grant.expiresAt <= new Date() ? 'EXPIRED' : grant.status })), jobs: jobs.map((job) => ({ ...job, state: visibleAgentState(job.state, job.heartbeatAt), agents: job.agents.map((agent) => ({ ...agent, state: visibleAgentState(agent.state, agent.heartbeatAt), name: agentCatalogue.find((role) => role.id === agent.roleId)?.name ?? 'AI assistant' })) })), capabilities: { secureCapture: true, specialistDisclosure: true, trackedChat: true, isolatedRepair: options.environment.CARE_REPAIR_ENABLED, deployment: options.environment.CARE_RELEASE_ENABLED, attachments: options.environment.CARE_REPAIR_ENABLED }, roles: agentCatalogue.map(({ id, name, enabled }) => ({ id, name, enabled })) };
   });
 
   app.delete('/websites/:websiteId/credentials/:credentialId', async (request, reply) => {
@@ -132,7 +136,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
       const existing = await tx.careJob.findUnique({ where: { tenantId_websiteId_requestKey: { tenantId, websiteId, requestKey: input.requestKey } } });
       if (existing) return existing;
-      const job = await tx.careJob.create({ data: { tenantId, websiteId, userId: request.userId!, ...input, kind: 'REPAIR', state: 'WAITING_FOR_INPUT', errorCode: 'ISOLATED_WORKER_NOT_CONFIGURED' } });
+      const job = await tx.careJob.create({ data: { tenantId, websiteId, userId: request.userId!, ...input, kind: 'REPAIR', state: 'WAITING_FOR_INPUT', errorCode: options.environment.CARE_REPAIR_ENABLED ? 'SOURCE_REQUIRED' : 'ISOLATED_WORKER_NOT_CONFIGURED' } });
       await careEvent(tx, job, 'job.created', job.state, 'Issue recorded. A configured isolated repair worker and scoped plan are required before work can begin.', { jobId: job.id });
       return reply.code(201).send(job);
     });
@@ -148,14 +152,19 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       const input = parse(z.object({ content: z.string().trim().min(1).max(4000) }), request.body);
       if (looksSensitive(input.content)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Use secure capture for access details.');
       await database.$transaction(async (tx) => {
+        await invalidateRepair(tx, job);
+        const current = await tx.careJob.findUniqueOrThrow({ where: { id } });
+        const expectedBehavior = [current.expectedBehavior, `Customer correction: ${input.content}`].filter(Boolean).join('\n');
+        if (expectedBehavior.length > 4000) throw new ApiError(400, 'SCOPE_LIMIT', 'The combined requirements exceed 4000 characters. Create a new issue with a consolidated scope.');
         await tx.chatMessage.create({ data: { tenantId: job.tenantId, websiteId: job.websiteId, environment: job.environment, authorUserId: request.userId!, type: 'CUSTOMER', content: input.content } });
-        await tx.careJob.update({ where: { id }, data: { state: 'WAITING_FOR_INPUT', planVersion: { increment: 1 }, approvedVersion: null, approvedBy: null, approvalExpiresAt: null } });
+        await tx.careJob.update({ where: { id }, data: { state: 'WAITING_FOR_INPUT', expectedBehavior, planVersion: { increment: 1 }, leaseVersion: { increment: 1 }, approvedVersion: null, approvedBy: null, approvalExpiresAt: null } });
         await careEvent(tx, job, 'feedback.received', 'WAITING_FOR_INPUT', 'Customer feedback recorded. The scope needs review before further work.', { jobId: id });
       }); return { recorded: true };
     }
     const state = action === 'cancel' ? 'CANCELLED' : 'WAITING_FOR_INPUT';
     await database.$transaction(async (tx) => {
-      const changed = await tx.careJob.updateMany({ where: { id, state: { notIn: ['COMPLETED','FAILED','CANCELLED'] } }, data: { state, leaseVersion: { increment: 1 } } });
+      await invalidateRepair(tx, job);
+      const changed = await tx.careJob.updateMany({ where: { id, state: { notIn: ['COMPLETED','FAILED','CANCELLED'] } }, data: { state, leaseVersion: { increment: 1 }, ...(job.kind === 'REPAIR' ? { planVersion: { increment: 1 }, approvedVersion: null, approvedBy: null, approvalExpiresAt: null } : {}) } });
       if (!changed.count) throw new ApiError(409, 'JOB_TERMINAL', 'This task has already finished.');
       await tx.careAgentRun.updateMany({ where: { jobId: id, state: { in: ['RUNNING','QUEUED','VERIFYING'] } }, data: { state, completedAt: action === 'cancel' ? new Date() : null } });
       await careEvent(tx, job, `job.${action === 'cancel' ? 'cancelled' : 'paused'}`, state, 'Future steps stopped. Any observation already in progress may finish; this does not undo changes.', { jobId: id });
@@ -184,8 +193,9 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
     const timer = setInterval(() => void poll(), 2500); void poll();
     request.raw.on('close', () => { closed = true; clearInterval(timer); });
   });
+  await app.register(repairRoutes, options);
   app.get('/owner/care/capabilities', async (request) => {
     requireOwnerMfa(request);
-    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', isolatedRepair: 'NOT_CONFIGURED', deployment: 'NOT_CONFIGURED', limitations: ['Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
+    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
   });
 }
