@@ -1,6 +1,6 @@
 # Chat and secure-access upgrade — implementation record
 
-This branch implements the secure connection and specialist disclosure journey, a chat-first workspace, the Claude adapter, durable activity for actual chat execution, and a bounded standalone HTML repair workflow. **It does not complete the entire 100-item upgrade plan and does not provide general autonomous application repair.** The ledger currently marks 23 narrow acceptance items verified, 67 partially implemented, and 10 without implementation or verification. The item-by-item record is [upgrade-ledger.json](upgrade-ledger.json); the supplied requirements remain in [ZEROROOT-UPGRADE-PLAN.md](ZEROROOT-UPGRADE-PLAN.md).
+This branch implements the secure connection and specialist disclosure journey, a chat-first workspace, the Claude adapter, durable activity for actual chat execution, and a bounded standalone HTML repair workflow. **It does not complete the entire 100-item upgrade plan and does not provide general autonomous application repair.** The ledger currently marks 23 narrow acceptance items verified, 69 partially implemented, and 8 without implementation or verification. The item-by-item record is [upgrade-ledger.json](upgrade-ledger.json); the supplied requirements remain in [ZEROROOT-UPGRADE-PLAN.md](ZEROROOT-UPGRADE-PLAN.md).
 
 Baseline: `e82be579fdcca3e6139cc74f74bc0e980ab69dab`. The original unit suite passed 89 tests in 16 files. Existing release-readiness documents are historical evidence; this branch does not convert their outstanding production gates into passes.
 

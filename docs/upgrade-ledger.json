@@ -26,7 +26,7 @@
       "docs/ZEROROOT-UPGRADE-PLAN.md"
     ],
     "tests": [
-      "npm test (baseline: 89; current: 103)"
+      "npm test (baseline: 89; current: 113)"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
@@ -43,7 +43,7 @@
       "docs/ZEROROOT-UPGRADE-PLAN.md"
     ],
     "tests": [
-      "npm test (baseline: 89; current: 103)"
+      "npm test (baseline: 89; current: 113)"
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
@@ -118,17 +118,21 @@
     "files": [
       "apps/api/src/modules/care/routes.ts",
       "packages/care/src/policy.ts",
-      "apps/web/components/specialist-access.tsx"
+      "apps/web/components/specialist-access.tsx",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Inspection authority and named credential disclosure are separate; repair/release/monitoring permission models remain unfinished."
+      "General application repair and monitoring authorization remain incomplete."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Inspection authority and named credential disclosure are separate; repair/release/monitoring permission models remain unfinished.",
+    "evidence": "Inspection, specialist disclosure, model repair and production release have separate approvals; queued production approval can be cancelled.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -137,16 +141,20 @@
     "acceptance": "Approval cannot apply to a changed target or artifact.",
     "status": "IN_PROGRESS",
     "files": [
-      "packages/care/src/policy.ts"
+      "packages/care/src/policy.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Exact digest/revision/environment/plan/expiry policy is unit tested; recovery and release services do not call it yet."
+      "Live distributed race, crash and recovery drills remain open."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Exact digest/revision/environment/plan/expiry policy is unit tested; recovery and release services do not call it yet.",
+    "evidence": "Release binds current source/candidate hashes, plan, account version, target path and URL; authority is rechecked before atomic commit. Recovery and unknown-outcome reconciliation are implemented for the single-file path.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -216,16 +224,19 @@
     "files": [
       "apps/web/components/care-chat.tsx",
       "apps/web/app/care.css",
-      "apps/web/components/workspace.tsx"
+      "apps/web/components/workspace.tsx",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "apps/web/care-e2e/chat.spec.ts"
+      "apps/web/care-e2e/chat.spec.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts"
     ],
     "limitations": [
-      "360/390/768/1280/1440-width journeys pass; actual mobile keyboard resize/rotation and preview layouts remain unverified."
+      "Real-device keyboard resize/rotation and comprehensive preview layout coverage remain unverified."
     ],
     "coverage": "PARTIAL",
-    "evidence": "360/390/768/1280/1440-width journeys pass; actual mobile keyboard resize/rotation and preview layouts remain unverified.",
+    "evidence": "360/390/768/1280/1440 chat widths and the 390px protected repair preview journey pass browser checks.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -314,32 +325,40 @@
     "files": [
       "apps/web/components/care-chat.tsx",
       "apps/web/app/care.css",
-      "apps/web/components/workspace.tsx"
+      "apps/web/components/workspace.tsx",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
-      "apps/web/care-e2e/chat.spec.ts"
+      "apps/web/care-e2e/chat.spec.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts"
     ],
     "limitations": [
-      "Credential receipts and specialist approval cards are server-derived; repair-plan, finding-in-chat, verification, and preview cards are incomplete."
+      "Finding-in-chat cards and broader stack workflows remain incomplete."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Credential receipts and specialist approval cards are server-derived; repair-plan, finding-in-chat, verification, and preview cards are incomplete.",
+    "evidence": "Server-derived receipts, specialist approval, repair-plan, static verification, before/after preview and release controls are available in the website conversation.",
     "updatedAt": "2026-09-23"
   },
   {
     "id": "ZR-018",
     "requirement": "Implement safe attachments and screenshot feedback.",
     "acceptance": "Type, size, quarantine, privacy, and scope checks pass.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Attachment quarantine, file-type/decompression limits, sanitized previews, and screenshot privacy classification are not implemented."
+      "No asynchronous quarantine or OCR privacy classifier is implemented; screenshot pixel review remains the customer responsibility."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Attachment quarantine, file-type/decompression limits, sanitized previews, and screenshot privacy classification are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "HTML, PNG/JPEG and redacted text intake has size/structure limits, user privacy confirmation, image decode/re-encoding, encrypted storage and protected retrieval.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -483,17 +502,21 @@
     "files": [
       "apps/api/src/modules/care/service.ts",
       "apps/api/src/modules/care/routes.ts",
-      "apps/worker/src/care-maintenance.ts"
+      "apps/worker/src/care-maintenance.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "apps/api/src/modules/care/care.integration.test.ts",
-      "packages/care/src/care.test.ts"
+      "packages/care/src/care.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Current states and stale projections are displayed; queued/dependency/verification lifecycle execution is not implemented."
+      "Inter-agent dependency execution and broader role state machines remain unavailable."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Current states and stale projections are displayed; queued/dependency/verification lifecycle execution is not implemented.",
+    "evidence": "Actual chat and repair runs, queued repair approval, independent candidate checks, release completion/recovery and unknown-outcome states are persisted and displayed.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -519,16 +542,21 @@
     "id": "ZR-028",
     "requirement": "Implement keyboard-friendly before/after previews.",
     "acceptance": "Comparison works without dragging or animation.",
-    "status": "TO_VERIFY",
+    "status": "IN_PROGRESS",
     "files": [
-      "docs/CARE-IMPLEMENTATION.md"
+      "docs/CARE-IMPLEMENTATION.md",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
-    "tests": [],
+    "tests": [
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
+    ],
     "limitations": [
-      "Before/after preview and keyboard comparison controls are not implemented."
+      "No interactive comparison slider or manual keyboard/screen-reader audit is claimed."
     ],
-    "coverage": "NOT_IMPLEMENTED_OR_NOT_VERIFIED",
-    "evidence": "Before/after preview and keyboard comparison controls are not implemented.",
+    "coverage": "PARTIAL",
+    "evidence": "Before/after previews use keyboard-reachable compare controls and opaque sandboxed frames; the fixture browser journey checks preview isolation and mobile width.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -675,17 +703,21 @@
     "status": "IN_PROGRESS",
     "files": [
       "packages/care/src/vault.ts",
-      "apps/api/src/modules/care/service.ts"
+      "apps/api/src/modules/care/service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "packages/care/src/care.test.ts",
-      "apps/api/src/modules/care/care.integration.test.ts"
+      "apps/api/src/modules/care/care.integration.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Tenant/site/environment/identity/version decrypt binding is tested; generalized intended-purpose grants beyond inspection are not implemented."
+      "Generalized purpose grants for all proposed connectors are not implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Tenant/site/environment/identity/version decrypt binding is tested; generalized intended-purpose grants beyond inspection are not implemented.",
+    "evidence": "Tenant/site/environment/identity/version decrypt binding is enforced; production release has a separate explicit account/version-bound authorization.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -713,17 +745,21 @@
     "status": "IN_PROGRESS",
     "files": [
       "packages/care/src/vault.ts",
-      "apps/api/src/modules/care/service.ts"
+      "apps/api/src/modules/care/service.ts",
+      "apps/api/src/modules/care/repair-routes.ts",
+      "apps/web/components/care-repair.tsx"
     ],
     "tests": [
       "packages/care/src/care.test.ts",
-      "apps/api/src/modules/care/care.integration.test.ts"
+      "apps/api/src/modules/care/care.integration.test.ts",
+      "apps/api/src/modules/care/repair.integration.test.ts",
+      "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "Synthetic markers stay out of tested chat/events/audit/local-storage paths; external telemetry, all legacy reports, and future attachments are not comprehensively verified."
+      "External telemetry, legacy reports and historical content are not comprehensively audited."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Synthetic markers stay out of tested chat/events/audit/local-storage paths; external telemetry, all legacy reports, and future attachments are not comprehensively verified.",
+    "evidence": "Synthetic boundary tests cover chat/events/audits/browser storage plus encrypted source/candidate storage and absence of raw patches in AI usage response records.",
     "updatedAt": "2026-09-23"
   },
   {
