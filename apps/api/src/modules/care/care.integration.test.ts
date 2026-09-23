@@ -138,6 +138,8 @@ describe.sequential('care routes through actual authentication and database path
     const sameTime = new Date('2026-01-01T00:00:00Z');
     const messageIds = Array.from({ length: 205 }, () => randomUUID()).sort();
     await database.chatMessage.createMany({ data: messageIds.map((id, index) => ({ id, tenantId: customer.tenantId, websiteId: savedSite.id, type: 'SYSTEM', environment: 'PRODUCTION', content: `Saved entry ${index}`, createdAt: sameTime })) });
+    // Pairs share a timestamp; adjacent pairs differ by one microsecond, which JS Date loses.
+    await database.$executeRaw`WITH numbered AS (SELECT id, (row_number() OVER (ORDER BY id) - 1) / 2 AS position FROM chat_messages WHERE website_id = ${savedSite.id}::uuid) UPDATE chat_messages SET created_at = ${sameTime}::timestamptz + numbered.position * interval '1 microsecond' FROM numbered WHERE chat_messages.id = numbered.id`;
     const staging = await database.chatMessage.create({ data: { tenantId: customer.tenantId, websiteId: savedSite.id, type: 'SYSTEM', environment: 'STAGING', content: 'Staging-only history' } });
     const get = (suffix: string, cookie = customer.cookie) => app.inject({ method: 'GET', url: `/v1/websites/${savedSite.id}/${suffix}`, headers: { cookie } });
     const latest = await get('chat'); expect(latest.json()).toHaveLength(200); expect(latest.json()[199].id).toBe(messageIds[204]);
@@ -147,6 +149,7 @@ describe.sequential('care routes through actual authentication and database path
     expect((await get('chat', other.cookie)).statusCode).toBe(404);
     const jobIds = Array.from({ length: 32 }, () => randomUUID()).sort();
     await database.careJob.createMany({ data: jobIds.map((id) => ({ id, tenantId: customer.tenantId, websiteId: savedSite.id, userId: customer.userId, requestKey: randomUUID(), kind: 'REPAIR', state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', summary: 'Saved job history', createdAt: sameTime })) });
+    await database.$executeRaw`WITH numbered AS (SELECT id, (row_number() OVER (ORDER BY id) - 1) / 2 AS position FROM care_jobs WHERE website_id = ${savedSite.id}::uuid) UPDATE care_jobs SET created_at = ${sameTime}::timestamptz + numbered.position * interval '1 microsecond' FROM numbered WHERE care_jobs.id = numbered.id`;
     const first = (await get('care?environment=PRODUCTION')).json(); expect(first.jobs).toHaveLength(30);
     const next = (await get(`care?environment=PRODUCTION&before=${first.nextCursor}`)).json(); expect(next.jobs.map((job: { id: string }) => job.id)).toEqual(jobIds.slice(0, 2).reverse()); expect(next.nextCursor).toBeNull();
     expect((await get(`care?environment=STAGING&before=${first.nextCursor}`)).statusCode).toBe(404);

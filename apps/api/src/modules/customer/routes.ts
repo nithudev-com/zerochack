@@ -464,7 +464,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     const { environment, before } = parse(z.object({ environment: z.enum(['PRODUCTION','STAGING']).default('PRODUCTION'), before: z.string().uuid().optional() }), request.query);
     const anchor = before ? await database.chatMessage.findFirst({ where: { id: before, tenantId, websiteId, environment }, select: { id: true, createdAt: true } }) : null;
     if (before && !anchor) throw new ApiError(404, 'HISTORY_CURSOR_INVALID', 'The history cursor is outside this conversation.');
-    const messages = await database.chatMessage.findMany({ where: { tenantId, websiteId, environment, ...(anchor ? { OR: [{ createdAt: { lt: anchor.createdAt } }, { createdAt: anchor.createdAt, id: { lt: anchor.id } }] } : {}) }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200, include: { author: { select: { displayName: true } } } });
+    // Let the database compare its full timestamp precision; JS Date truncates microseconds.
+    const messages = await database.chatMessage.findMany({ where: { tenantId, websiteId, environment }, ...(anchor ? { cursor: { id: anchor.id }, skip: 1 } : {}), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200, include: { author: { select: { displayName: true } } } });
     return messages.reverse();
   });
 
