@@ -73,7 +73,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
     if (!request.roleNames?.includes('Cybersecurity Specialist')) throw new ApiError(403, 'SPECIALIST_REQUIRED', 'Specialist role required.');
     const input = parse(z.object({ ticketId: uuid, credentialId: uuid, reason: z.string().trim().min(10).max(1000), durationMinutes: z.number().int().min(5).max(60) }).strict(), request.body);
     if (looksSensitive(input.reason)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Do not put credentials in the reason.');
-    return database.$transaction(async (tx) => {
+    const grant = await database.$transaction(async (tx) => {
       const ticket = await tx.ticket.findFirst({ where: { id: input.ticketId, assignedSpecialistId: request.userId!, status: activeTicket } });
       if (!ticket) throw new ApiError(404, 'NOT_FOUND', 'Assigned ticket was not found.');
       const credential = await tx.careCredential.findFirst({ where: { id: input.credentialId, tenantId: ticket.tenantId, websiteId: ticket.websiteId, status: 'STORED', authorizationExpiresAt: { gt: new Date() } } });
@@ -81,8 +81,9 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       const grant = await tx.careAccessRequest.create({ data: { tenantId: ticket.tenantId, websiteId: ticket.websiteId, ticketId: ticket.id, credentialId: credential.id, credentialVersion: credential.version, specialistId: request.userId!, reason: input.reason, expiresAt: new Date(Math.min(credential.authorizationExpiresAt.getTime(), Date.now() + input.durationMinutes * 60000)) }, select: safeGrant });
       await careEvent(tx, credential, 'approval.required', 'PENDING', 'Your assigned human specialist requested access. Review the exact account, reason, and expiry.');
       await tx.auditLog.create({ data: { tenantId: ticket.tenantId, actorUserId: request.userId!, requestId: request.id, action: 'care.disclosure_requested', resourceType: 'credential_grant', resourceId: grant.id } });
-      return reply.code(201).send(grant);
+      return grant;
     });
+    return reply.code(201).send(grant);
   });
 
   app.post('/access-requests/:id/:decision', async (request) => {
@@ -134,14 +135,15 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
     const input = parse(z.object({ requestKey: uuid, summary: z.string().trim().min(10).max(1000), expectedBehavior: z.string().trim().min(10).max(4000), environment: z.enum(environments).default('STAGING') }).strict(), request.body);
     if (looksSensitive(input.summary + '\n' + input.expectedBehavior)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Use secure capture for access details.');
     const tenantId = request.tenantId!;
-    return database.$transaction(async (tx) => {
+    const result = await database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
       const existing = await tx.careJob.findUnique({ where: { tenantId_websiteId_requestKey: { tenantId, websiteId, requestKey: input.requestKey } } });
-      if (existing) return existing;
+      if (existing) return { job: existing, created: false };
       const job = await tx.careJob.create({ data: { tenantId, websiteId, userId: request.userId!, ...input, kind: 'REPAIR', state: 'WAITING_FOR_INPUT', errorCode: options.environment.CARE_REPAIR_ENABLED ? 'SOURCE_REQUIRED' : 'ISOLATED_WORKER_NOT_CONFIGURED' } });
       await careEvent(tx, job, 'job.created', job.state, 'Issue recorded. A configured isolated repair worker and scoped plan are required before work can begin.', { jobId: job.id });
-      return reply.code(201).send(job);
+      return { job, created: true };
     });
+    return reply.code(result.created ? 201 : 200).send(result.job);
   });
   app.post('/jobs/:id/:action', async (request) => {
     requirePermission(request, 'chat.write');

@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { database } from '@zerochack/database';
 import { encryptSecret, hashOpaqueToken } from '@zerochack/auth';
@@ -49,6 +49,26 @@ beforeEach(async () => { testAddress++; calls = []; invalidEvidence = false; dur
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('durable approved multi-role source reviews with real authentication and fixture model', () => {
+  it('does not return a prepared review if its transaction fails after writing the plan', async () => {
+    const body = { requestKey: randomUUID(), summary: 'Review source and identify missing verification', expectedBehavior: 'Provide cited observations and explicit limitations', environment: 'STAGING', language: 'ta', roleIds: ['A01'], files, privacyReviewed: true, budgetMicros: 1000000 };
+    const transaction = database.$transaction.bind(database);
+    let wroteBeforeFailure = false;
+    const failure = vi.spyOn(database, '$transaction').mockImplementationOnce((callback) => transaction(async (tx) => {
+      await callback(tx);
+      wroteBeforeFailure = true;
+      throw new Error('Synthetic commit failure after route writes');
+    }));
+    const artifactsBefore = await database.careArtifact.count({ where: { tenantId } });
+    try { expect((await request('POST', `/websites/${siteId}/reviews`, body)).statusCode).toBe(500); }
+    finally { failure.mockRestore(); database.$transaction = transaction; }
+    expect(wroteBeforeFailure).toBe(true);
+    expect(await database.careJob.count({ where: { tenantId, requestKey: body.requestKey } })).toBe(0);
+    expect(await database.careArtifact.count({ where: { tenantId } })).toBe(artifactsBefore);
+    const created = await request('POST', `/websites/${siteId}/reviews`, body);
+    expect(created.statusCode, created.body).toBe(201);
+    expect((await request('GET', `/jobs/${created.json().jobId}/review`)).statusCode).toBe(200);
+    expect(calls).toHaveLength(0);
+  });
   it('runs all 24 roles once, checkpoints every step, encrypts reports and exposes citations without changing source', async () => {
     const value = await createReview(agentCatalogue.map((role) => role.id), 4000000);
     expect(await runOneReview(env, ai)).toBe(false); expect(calls).toHaveLength(0);

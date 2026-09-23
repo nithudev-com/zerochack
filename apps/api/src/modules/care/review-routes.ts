@@ -34,12 +34,12 @@ export async function reviewRoutes(app: FastifyInstance, options: { environment:
     const estimate = reviewEstimate(bytes, steps.length, configuration);
     if (estimate.maximumEstimateMicros > body.budgetMicros) throw new ApiError(400, 'BUDGET_EXCEEDED', `This source and role selection require an allowance of at least $${(estimate.maximumEstimateMicros / 1_000_000).toFixed(3)} at the configured prices. Select fewer roles, use smaller inputs, or adjust the allowance.`);
     const requestFingerprint = digestBytes(Buffer.from(JSON.stringify({ sourceDigest: digestBytes(bytes), summary: body.summary, expectedBehavior: body.expectedBehavior, environment: body.environment, language: body.language, roleIds: steps.map((step) => step.roleId), budgetMicros: body.budgetMicros })));
-    return database.$transaction(async (tx) => {
+    const result = await database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
       const existing = await tx.careJob.findUnique({ where: { tenantId_websiteId_requestKey: { tenantId: request.tenantId!, websiteId, requestKey: body.requestKey } }, include: { revisions: true } });
       if (existing) {
         if (existing.kind !== 'REVIEW' || (existing.revisions[0]?.plan as unknown as ReviewPlan)?.requestFingerprint !== requestFingerprint) throw new ApiError(409, 'REQUEST_KEY_CONFLICT', 'This request key belongs to a different review scope.');
-        return { jobId: existing.id, state: existing.state };
+        return { jobId: existing.id, state: existing.state, created: false };
       }
       if (await tx.careJob.count({ where: { tenantId: request.tenantId!, kind: 'REVIEW', state: { in: ['AWAITING_APPROVAL','QUEUED','RUNNING'] } } }) >= 10) throw new ApiError(429, 'REVIEW_QUEUE_LIMIT', 'Finish or cancel existing reviews before creating more.');
       const job = await tx.careJob.create({ data: { tenantId: request.tenantId!, websiteId, userId: request.userId!, requestKey: body.requestKey, environment: body.environment, kind: 'REVIEW', state: 'AWAITING_APPROVAL', summary: body.summary, expectedBehavior: body.expectedBehavior, sourceRevision: digestBytes(bytes) } });
@@ -48,8 +48,9 @@ export async function reviewRoutes(app: FastifyInstance, options: { environment:
       await tx.careRevision.create({ data: { tenantId: job.tenantId, websiteId, jobId: job.id, version: 1, sourceId: artifact.id, sourceDigest: artifact.digest, budgetMicros: body.budgetMicros, plan } });
       await careEvent(tx, job, 'review.approval_required', 'AWAITING_APPROVAL', `Review the ${steps.length}-role source-review plan and model allowance before any AI call.`, { jobId: job.id });
       await tx.auditLog.create({ data: { tenantId: job.tenantId, actorUserId: request.userId!, requestId: request.id, action: 'care.review_prepared', resourceType: 'job', resourceId: job.id, metadata: { sourceDigest: artifact.digest, roleIds: plan.roleIds, privacyReviewed: true } } });
-      return reply.code(201).send({ jobId: job.id, state: job.state });
+      return { jobId: job.id, state: job.state, created: true };
     });
+    return reply.code(result.created ? 201 : 200).send({ jobId: result.jobId, state: result.state });
   });
   app.get('/jobs/:id/review', async (request) => {
     requirePermission(request, 'chat.read'); const job = await reviewJob(request);

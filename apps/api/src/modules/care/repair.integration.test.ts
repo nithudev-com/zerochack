@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { database } from '@zerochack/database';
 import { encryptSecret, hashOpaqueToken, totp } from '@zerochack/auth';
@@ -62,6 +62,25 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('approved static repair and deterministic release with real authorization and persistence', () => {
+  it('reports a failed transaction without publishing a created job and allows an exact retry', async () => {
+    const body = { requestKey: randomUUID(), summary: 'The page shows the old heading', expectedBehavior: 'Show Correct heading in the main heading', environment: 'STAGING' };
+    const transaction = database.$transaction.bind(database);
+    let wroteBeforeFailure = false;
+    const failure = vi.spyOn(database, '$transaction').mockImplementationOnce((callback) => transaction(async (tx) => {
+      await callback(tx);
+      wroteBeforeFailure = true;
+      throw new Error('Synthetic commit failure after route writes');
+    }));
+    try { expect((await request('POST', `/websites/${siteId}/jobs`, body)).statusCode).toBe(500); }
+    finally { failure.mockRestore(); database.$transaction = transaction; }
+    expect(wroteBeforeFailure).toBe(true);
+    expect(await database.careJob.count({ where: { tenantId, requestKey: body.requestKey } })).toBe(0);
+    const created = await request('POST', `/websites/${siteId}/jobs`, body);
+    expect(created.statusCode, created.body).toBe(201);
+    expect(await database.careJob.findUnique({ where: { id: created.json().id } })).not.toBeNull();
+    const repeated = await request('POST', `/websites/${siteId}/jobs`, body);
+    expect(repeated.statusCode).toBe(200); expect(repeated.json().id).toBe(created.json().id);
+  });
   it('queues only exact approvals, persists a verified candidate and keeps source out of chat/usage', async () => {
     const value = await newCase(); const stored = await database.careArtifact.findUniqueOrThrow({ where: { id: value.artifact.id } }); expect(stored.encryptedBody).not.toContain(source);
     expect((await approve({ ...value.revision, sourceDigest: 'a'.repeat(64) })).statusCode).toBe(409);

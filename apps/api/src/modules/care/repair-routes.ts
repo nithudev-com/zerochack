@@ -85,7 +85,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     const bytes = readArtifact(source, env); const baseline = inspectStaticHtml(bytes.toString('utf8'));
     const configuration = await options.ai.configuration(job.tenantId); const maximumEstimate = reserveEstimate(bytes, configuration);
     if (maximumEstimate > body.budgetMicros) throw new ApiError(400, 'BUDGET_EXCEEDED', 'The conservative model allowance exceeds this budget. Configure a smaller model/token limit or approve a larger allowance.');
-    return database.$transaction(async (tx) => {
+    const revision = await database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${job.websiteId}::uuid FOR UPDATE`;
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${job.id}::uuid FOR UPDATE`;
       const current = await tx.careJob.findUniqueOrThrow({ where: { id: job.id } });
@@ -93,8 +93,9 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
       const revision = await tx.careRevision.create({ data: { tenantId: job.tenantId, websiteId: job.websiteId, jobId: job.id, version: current.planVersion, sourceId: source.id, sourceDigest: source.digest, budgetMicros: body.budgetMicros, plan: { policy: STATIC_POLICY_VERSION, allowedFiles: ['index.html'], issue: current.summary, expectedBehavior: current.expectedBehavior, baseline, maximumEstimateMicros: maximumEstimate, configuration: repairConfiguration(configuration), boundary: 'Prepare one static HTML candidate; no live writes, scripts, package installation, or source execution.', checks: ['static-content-policy','language','viewport','title','image-alternatives','unique-identifiers'], requiresCustomerPreview: true } } });
       await tx.careJob.update({ where: { id: job.id }, data: { state: 'AWAITING_APPROVAL', errorCode: null } });
       await careEvent(tx, job, 'approval.required', 'AWAITING_APPROVAL', 'Review the scoped static HTML plan and maximum model allowance.', { jobId: job.id });
-      return reply.code(201).send(revision);
+      return revision;
     });
+    return reply.code(201).send(revision);
   });
   app.post('/change-plans/:id/approve', async (request) => {
     requirePermission(request, 'websites.manage'); requirePermission(request, 'ai.use');
@@ -122,10 +123,10 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     requirePermission(request, 'websites.manage'); const job = await jobFor(request);
     if (!env.CARE_RELEASE_ENABLED) throw new ApiError(503, 'RELEASE_DISABLED', 'Single-file SFTP release is not enabled. Download and review the candidate instead.');
     const body = input(z.object({ requestKey: uuid, revisionId: uuid, credentialId: uuid, remotePath: z.string().max(1024) }).strict(), request.body); assertStaticTarget(body.remotePath);
-    return database.$transaction(async (tx) => {
+    const result = await database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${job.websiteId}::uuid FOR UPDATE`;
       const existing = await tx.careRelease.findUnique({ where: { tenantId_websiteId_requestKey: { tenantId: job.tenantId, websiteId: job.websiteId, requestKey: body.requestKey } } });
-      if (existing) { if (existing.jobId !== job.id || existing.revisionId !== body.revisionId || existing.credentialId !== body.credentialId || existing.remotePath !== body.remotePath) throw new ApiError(409, 'REQUEST_KEY_CONFLICT', 'Use a new request key for a different release.'); return existing; }
+      if (existing) { if (existing.jobId !== job.id || existing.revisionId !== body.revisionId || existing.credentialId !== body.credentialId || existing.remotePath !== body.remotePath) throw new ApiError(409, 'REQUEST_KEY_CONFLICT', 'Use a new request key for a different release.'); return { release: existing, created: false }; }
       const revision = await tx.careRevision.findFirst({ where: { id: body.revisionId, jobId: job.id, version: job.planVersion, state: 'VERIFIED' } });
       const credential = await tx.careCredential.findFirst({ where: { id: body.credentialId, tenantId: job.tenantId, websiteId: job.websiteId, environment: 'PRODUCTION', kind: 'SSH', status: 'STORED', authorizationExpiresAt: { gt: new Date() } } });
       const bridge = await tx.websiteAccessCredential.findFirst({ where: { websiteId: job.websiteId, vaultCredentialId: body.credentialId, hostKeyFingerprint: { not: null } } });
@@ -133,8 +134,9 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
       if (!revision?.candidateId || !revision.candidateDigest || !credential || !bridge || website.connectionStatus !== 'VERIFIED') throw new ApiError(409, 'RELEASE_NOT_READY', 'A verified candidate, verified website, and current fingerprint-pinned SSH account are required.');
       const release = await tx.careRelease.create({ data: { ...body, tenantId: job.tenantId, websiteId: job.websiteId, jobId: job.id, credentialVersion: credential.version, sourceDigest: revision.sourceDigest, candidateDigest: revision.candidateDigest, evidence: { url: website.url, hostKeyFingerprint: bridge.hostKeyFingerprint } } });
       await careEvent(tx, job, 'release.approval_required', 'AWAITING_APPROVAL', 'Review the exact candidate, production path, and rollback authorization before approving release.', { jobId: job.id });
-      return reply.code(201).send(release);
+      return { release, created: true };
     });
+    return reply.code(result.created ? 201 : 200).send(result.release);
   });
   app.post('/releases/:id/cancel', async (request) => {
     requirePermission(request, 'websites.manage');
