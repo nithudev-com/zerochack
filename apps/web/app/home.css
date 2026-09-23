@@ -349,6 +349,13 @@
 .zr-example-code { margin:0 0 0 38px; padding:16px 14px; border:1px solid #dce5d3; border-radius:6px; color:#d0debd; background:#25362a; font-family:ui-monospace,SFMono-Regular,monospace; font-size:.6rem; line-height:1.9; white-space:pre-wrap; overflow-wrap:anywhere; }
 @media(max-width:500px) { .zr-example-code { margin-left:0; font-size:.59rem; }.zr-preview-tabs { margin-inline:12px; gap:1px; }.zr-preview-tabs button { font-size:.6rem; padding-inline:5px; } }
 /* Searchable, whole-stack technology directory. */
+.zr-tech-availability { display:grid; gap:8px; padding:18px 20px; margin-bottom:22px!important; border-left:3px solid #587944; background:#edf2e5; color:#3c5333; font-size:.8rem; line-height:1.7; }
+.zr-tech-availability span { font-size:.74rem; }
+.zr-tech-support { margin-top:20px; border-top:1px solid #dde4d4; padding-top:15px; color:#435c3a; font-size:.75rem; line-height:1.8; overflow-wrap:anywhere; }
+.zr-tech-support summary { cursor:pointer; font-weight:600; }
+.zr-tech-support p { margin:12px 0 0!important; }
+.zr-tech-support strong { font-weight:600; }
+.zr-tech-filters button:focus-visible, .zr-tech-support summary:focus-visible { outline:2px solid #2e4731; outline-offset:3px; }
 .zr-tech-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:20px; padding-bottom:20px; border-bottom:1px solid #d6dfcd; }
 .zr-tech-filters { display:flex; flex-wrap:wrap; gap:7px; }
 .zr-tech-filters button { border:1px solid #d5decc; border-radius:5px; background:transparent; color:#52634a; padding:10px 12px; font-size:.68rem; cursor:pointer; }

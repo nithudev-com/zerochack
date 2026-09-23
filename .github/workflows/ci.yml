@@ -58,3 +58,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - run: npm run test:e2e:care
+      - run: npm run test:e2e:care
+        name: Production Care and homepage browser checks
+        env:
+          CARE_WEB_PRODUCTION: 'true'

@@ -22,7 +22,8 @@
     "react-hook-form": "^7.62.0",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
-    "zod": "^4.1.0"
+    "zod": "^4.1.0",
+    "@zerochack/care": "*"
   },
   "devDependencies": {
     "@types/qrcode": "^1.5.6",

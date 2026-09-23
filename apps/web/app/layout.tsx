@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { connection } from 'next/server';
 import { ApplicationShell } from '../components/application-shell';
 import { Providers } from './providers';
 import './globals.css';
@@ -41,6 +42,8 @@ export const metadata: Metadata = {
     images: ['/opengraph-image']
   }
 };
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // Nonces must be bound to the current response, never to build-time HTML.
+  await connection();
   return <html lang="en" data-scroll-behavior="smooth"><body><Providers><ApplicationShell>{children}</ApplicationShell></Providers></body></html>;
 }

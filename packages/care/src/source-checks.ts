@@ -1,6 +1,7 @@
 import { parse, type DefaultTreeAdapterTypes } from 'parse5';
 import postcss from 'postcss';
 import ts from 'typescript';
+import { LineCounter, parseAllDocuments } from 'yaml';
 import type { ReviewSnapshot } from './source-review.js';
 
 type Element = DefaultTreeAdapterTypes.Element;
@@ -87,6 +88,23 @@ export function checkCss(snapshot: ReviewSnapshot): SourceCheck {
     check.result.checkedFiles.push(file.path);
     try { postcss.parse(file.content, { from: undefined, map: false }); }
     catch (error) { check.add(file.path, error instanceof postcss.CssSyntaxError ? error.line ?? 1 : 1, 'CSS_PARSE_ERROR', error instanceof postcss.CssSyntaxError ? error.reason : 'CSS parsing could not complete.'); }
+  }
+  return check.finish();
+}
+
+export function checkYaml(snapshot: ReviewSnapshot): SourceCheck {
+  const check = report('yaml-syntax', 'YAML syntax and duplicate keys only. No alias expansion, custom tag resolution, template rendering, platform schema validation, external includes or pipeline execution.');
+  for (const file of snapshot.files.filter((item) => /\.ya?ml$/i.test(item.path))) {
+    check.result.checkedFiles.push(file.path);
+    try {
+      const lineCounter = new LineCounter();
+      // Retain the AST only; never convert to JS or resolve aliases/tags/includes.
+      const documents = parseAllDocuments(file.content, { lineCounter, prettyErrors: false, strict: true, uniqueKeys: true, schema: 'core', customTags: [], resolveKnownTags: false, logLevel: 'silent' });
+      for (const document of documents) for (const issue of [...document.errors, ...document.warnings]) {
+        const message = issue.code === 'DUPLICATE_KEY' ? 'This YAML mapping declares the same key more than once.' : issue.code === 'TAG_RESOLVE_FAILED' ? 'This YAML tag needs platform-specific review; custom tags are not resolved.' : 'Review the YAML syntax at this location; templates and platform-specific extensions need separate validation.';
+        check.add(file.path, lineCounter.linePos(issue.pos[0]).line, `YAML_${issue.code}`, message);
+      }
+    } catch { check.add(file.path, 1, 'PARSE_INCOMPLETE', 'YAML parsing could not complete. This file needs manual review.'); }
   }
   return check.finish();
 }

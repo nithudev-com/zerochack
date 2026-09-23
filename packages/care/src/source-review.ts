@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { isSupportedReviewPath } from './source-formats.js';
 import { agentCatalogue } from './catalogue.js';
 import { CareError, looksSensitive } from './vault.js';
 import { digestBytes } from './static-html.js';
 
-export const REVIEW_POLICY_VERSION = 'source-review-v2';
+export const REVIEW_POLICY_VERSION = 'source-review-v3';
 export const REVIEW_MAX_BYTES = 200_000;
 export const REVIEW_CONTEXT_BYTES = 400_000;
 export const reviewRoleIds = agentCatalogue.map((role) => role.id);
@@ -18,8 +19,7 @@ export function prepareReviewSnapshot(value: unknown): ReviewSnapshot {
   if (Buffer.byteLength(JSON.stringify(parsed.data)) > REVIEW_MAX_BYTES) throw new CareError('SOURCE_LIMIT', 'The reviewed source snapshot must fit within 200 KB.');
   const seen = new Set<string>();
   const files = parsed.data.map(({ path, content }) => {
-    const parts = path.split('/');
-    if (!/^[A-Za-z0-9_@./-]+$/.test(path) || parts.some((part) => !part || part === '.' || part === '..' || /^\.?(?:env(?:\.|$)|git$|ssh$|npmrc$|netrc$|credentials?(?:\.|$))/i.test(part)) || !/\.(?:html?|css|scss|[cm]?[jt]sx?|json|ya?ml|md|txt|sql|prisma|php|py|rb|go|rs|java|vue|svelte|toml|xml)$|(?:^|\/)Dockerfile$/i.test(path) || seen.has(path.toLowerCase())) throw new CareError('SOURCE_PATH_DENIED', 'Use unique relative text-source paths; credential files and path traversal are not accepted.');
+    if (!isSupportedReviewPath(path) || seen.has(path.toLowerCase())) throw new CareError('SOURCE_PATH_DENIED', 'Use unique supported relative text-source paths; credential files and path traversal are not accepted.');
     if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(content) || looksSensitive(content)) throw new CareError('SENSITIVE_CONTENT_BLOCKED', 'Remove credentials, private data and binary content before uploading source.');
     seen.add(path.toLowerCase());
     const normalized = content.replace(/\r\n?/g, '\n');

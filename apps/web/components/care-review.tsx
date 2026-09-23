@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { coreReviewRoleIds, technologyCoverage, technologyChecks } from '@zerochack/care/technology-coverage';
+import { reviewPathProblem, sourceTextBasenames, sourceTextExtensions } from '@zerochack/care/source-formats';
 
 export type ReviewRole = { id: string; name: string; implementation: string };
 type SourceFile = { path: string; content: string };
@@ -21,6 +23,13 @@ export function CareReviewForm({ websiteId, environment, roles, maximumBudgetMic
   const client = useQueryClient();
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [selected, setSelected] = useState(roles.map((role) => role.id));
+  const [areaId, setAreaId] = useState('');
+  const area = technologyCoverage.find((item) => item.id === areaId);
+  const pathProblem = reviewPathProblem(files.map((file) => file.path));
+  function chooseTeam(ids: readonly string[], technologyId = '') {
+    setSelected(roles.filter((role) => ids.includes(role.id)).map((role) => role.id));
+    setAreaId(technologyId);
+  }
   const [summary, setSummary] = useState(''); const [expected, setExpected] = useState('');
   const [language, setLanguage] = useState('en'); const [budget, setBudget] = useState(String(maximumBudgetMicros / 1_000_000));
   const [privacy, setPrivacy] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
@@ -35,6 +44,7 @@ export function CareReviewForm({ websiteId, environment, roles, maximumBudgetMic
     finally { setBusy(false); }
   }
   async function prepare() {
+    if (pathProblem) { setError(pathProblem); return; }
     setBusy(true); setError('');
     try {
       await api(`/websites/${websiteId}/reviews`, { method: 'POST', body: JSON.stringify({ requestKey: crypto.randomUUID(), summary, expectedBehavior: expected, environment, language, roleIds: selected, files, privacyReviewed: privacy, budgetMicros: Math.round(Number(budget) * 1_000_000) }) });
@@ -49,17 +59,21 @@ export function CareReviewForm({ websiteId, environment, roles, maximumBudgetMic
     <label>What should the team review?<textarea required minLength={10} maxLength={1000} value={summary} onChange={(event) => setSummary(event.target.value)}/></label>
     <label>Expected outcome<textarea required minLength={10} maxLength={4000} value={expected} onChange={(event) => setExpected(event.target.value)}/></label>
     <label>Report language<select value={language} onChange={(event) => setLanguage(event.target.value)}><option value="en">English</option><option value="ta">தமிழ்</option></select></label>
+    <label>Technology area · suggested team<select value={areaId} onChange={(event) => { const next = technologyCoverage.find((item) => item.id === event.target.value); if (next) chooseTeam(next.roleIds, next.id); else setAreaId(''); }}><option value="">Custom team</option>{technologyCoverage.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
+    {area && <div className="care-panel"><p>Example source files: {area.examples.join(', ')}.</p><p>Automatic checks on matching files: {area.checkIds.length ? area.checkIds.map((id) => technologyChecks[id]).join('; ') : 'No format-specific parser for these examples; source review only'}. Every upload is also screened for secret patterns. Platform behavior and live connections are not verified by file review.</p></div>}
     <fieldset><legend>Assigned source-review roles · {selected.length} selected</legend>
-      <div className="care-inline-actions"><button type="button" onClick={() => setSelected(roles.map((role) => role.id))}>Select all 24 roles</button><button type="button" onClick={() => setSelected(['A01','A03','A05','A14','A18'])}>Select core review team</button></div>
-      <div className="care-review-roles">{roles.map((role) => <label key={role.id}><input type="checkbox" checked={selected.includes(role.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, role.id] : selected.filter((id) => id !== role.id))}/><span>{role.id} · {role.name}</span></label>)}</div>
+      <div className="care-inline-actions"><button type="button" onClick={() => chooseTeam(roles.map((role) => role.id))}>Select all {roles.length} roles</button><button type="button" onClick={() => chooseTeam(coreReviewRoleIds)}>Select core review team</button></div>
+      <div className="care-review-roles">{roles.map((role) => <label key={role.id}><input type="checkbox" checked={selected.includes(role.id)} onChange={(event) => { setSelected(event.target.checked ? [...selected, role.id] : selected.filter((id) => id !== role.id)); setAreaId(''); }}/><span>{role.id} · {role.name}</span></label>)}</div>
     </fieldset>
     <label>Reviewed text source files<input type="file" multiple disabled={busy} onChange={(event) => { void chooseFiles(event.target.files); event.target.value = ''; }}/></label>
     <p className="care-small">Up to 30 UTF-8 files and 200 KB including metadata. No archives, credentials or private customer records. Adjust duplicate filenames to their relative project paths.</p>
-    {files.map((file, index) => <label key={index}>Source path {index + 1}<input required aria-label={`Source path ${index + 1}`} maxLength={180} value={file.path} onChange={(event) => setFiles(files.map((item, position) => position === index ? { ...item, path: event.target.value } : item))}/></label>)}
+    <details><summary>Accepted source formats</summary><p className="care-small">{sourceTextExtensions.map((extension) => `.${extension}`).join(', ')}. Also: {sourceTextBasenames.join(', ')}. These are text inputs for review; acceptance does not install or run their platforms. Remove credentials and private records from configuration and logs.</p></details>
+    {files.map((file, index) => <label key={index}>Source path {index + 1}<input required aria-label={`Source path ${index + 1}`} maxLength={180} value={file.path} onChange={(event) => { setFiles(files.map((item, position) => position === index ? { ...item, path: event.target.value } : item)); setPrivacy(false); }}/></label>)}
+    {pathProblem && <p className="care-alert" role="alert">{pathProblem}</p>}
     <label>Maximum review model allowance (USD)<input type="number" min="0.001" step="0.001" max={maximumBudgetMicros / 1_000_000} required value={budget} onChange={(event) => setBudget(event.target.value)}/></label>
     <label className="care-consent"><input type="checkbox" checked={privacy} onChange={(event) => setPrivacy(event.target.checked)}/>I reviewed these files, removed credentials and private data, and am authorized to submit them to the configured AI provider after approval.</label>
     {error && <p className="care-alert" role="alert">{error}</p>}
-    <button disabled={busy || !privacy || !files.length || !selected.length}>{busy ? 'Preparing…' : 'Prepare team review plan'}</button>
+    <button disabled={busy || !privacy || !files.length || !selected.length || Boolean(pathProblem)}>{busy ? 'Preparing…' : 'Prepare team review plan'}</button>
   </form>;
 }
 

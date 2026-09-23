@@ -49,6 +49,19 @@ beforeEach(async () => { testAddress++; calls = []; invalidEvidence = false; dur
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('durable approved multi-role source reviews with real authentication and fixture model', () => {
+  it('reviews newly supported source and persists YAML checks with the approved report', async () => {
+    const value = await createReview(['A12'], 1000000, { files: [...files, { path: 'Program.cs', content: 'public class Program {}' }, { path: 'infra/main.tf', content: 'terraform {}' }, { path: 'deploy.yaml', content: 'replicas: 2\nreplicas: 3\n' }] });
+    expect(value.revision.plan.policy).toBe('source-review-v3');
+    expect(calls).toHaveLength(0);
+    expect((await approve(value.revision)).statusCode).toBe(200);
+    expect(await runOneReview(env, ai)).toBe(true);
+    const result = (await request('GET', `/jobs/${value.job.id}/review`)).json();
+    expect(result.job.state).toBe('COMPLETED');
+    expect(result.revision.verification.toolIds).toContain('T67');
+    expect(result.revision.verification.staticChecks).toEqual(expect.arrayContaining([expect.objectContaining({ check: 'yaml-syntax', state: 'OBSERVATIONS', diagnostics: [expect.objectContaining({ path: 'deploy.yaml', line: 2, code: 'YAML_DUPLICATE_KEY' })] })]));
+    expect(result.revision.verification.runtimeTests).toBe('NOT_RUN');
+    expect(await database.careRelease.count({ where: { jobId: value.job.id } })).toBe(0);
+  });
   it('does not return a prepared review if its transaction fails after writing the plan', async () => {
     const body = { requestKey: randomUUID(), summary: 'Review source and identify missing verification', expectedBehavior: 'Provide cited observations and explicit limitations', environment: 'STAGING', language: 'ta', roleIds: ['A01'], files, privacyReviewed: true, budgetMicros: 1000000 };
     const transaction = database.$transaction.bind(database);
@@ -98,7 +111,7 @@ describe.sequential('durable approved multi-role source reviews with real authen
     await app.close(); app = await buildApp(env, { aiAdapters: [adapter] });
     const reopened = await request('GET', `/jobs/${value.job.id}/review`);
     expect(reopened.statusCode).toBe(200); expect(reopened.json().reports).toHaveLength(1);
-    expect(reopened.json().revision.verification.staticChecks).toHaveLength(4);
+    expect(reopened.json().revision.verification.staticChecks.map((check: { check: string }) => check.check)).toEqual(['accessibility','links','source-syntax','css-syntax','yaml-syntax']);
     expect((await request('GET', `/websites/${siteId}/chat?environment=STAGING`)).body).toContain('A09 source review');
     expect(calls).toHaveLength(1);
   });

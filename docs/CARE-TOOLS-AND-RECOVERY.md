@@ -1,6 +1,6 @@
 # Tools, continuity and defensive recovery
 
-The application has 24 source-review roles and 66 registered tool contracts. Fourteen handlers are implemented: thirteen offline source/context checks and one server-scoped recovery metadata handler. Fifty-two wider contracts remain disabled. More role names do not establish better accuracy; evaluate the existing roles against representative approved cases and inspect false positives, missed issues, citations and actual cost.
+The application has 24 source-review roles and 67 registered tool contracts. Fifteen handlers are implemented: fourteen offline source/context checks and one server-scoped recovery metadata handler. Fifty-two wider contracts remain disabled. More role names do not establish better accuracy; evaluate the existing roles against representative approved cases and inspect false positives, missed issues, citations and actual cost.
 
 ## Installed and exercised components
 
@@ -9,12 +9,13 @@ The application has 24 source-review roles and 66 registered tool contracts. Fou
 | TypeScript 5.9.3 compiler API | T65 parses JS/TS/JSX/TSX using an in-memory host | No filesystem, imports, tsconfig, plugins, emit or runtime execution; syntax only |
 | Strict JSON parser | T65 checks JSON syntax | Does not validate an application's business schema |
 | PostCSS 8.5.27 | T66 parses standalone CSS | No plugins, source-map loading, external imports or browser rendering |
+| yaml 2.9.0 | T67 checks supplied YAML documents and duplicate keys | No alias expansion, custom tags, templates, platform schemas or pipeline execution |
 | parse5 8.0.1 | T31 static HTML language/alt/title/ID references; T32 local fragments | Not accessible-name computation, link crawling or WCAG certification |
 | @axe-core/playwright | Automated WCAG-tagged checks of the Care UI in mobile/desktop and light/dark states | UI fixture tests; manual keyboard, screen-reader and inclusive-user evaluation still required |
 | Vitest 4.1.11, Playwright, PostgreSQL/Prisma, Redis | Application contracts, browser journeys, persisted steps and CI | Provider and SFTP adapters in automated Care tests are fixtures |
 | T53 recovery metadata | Retained verified-backup records, schedules, recorded monitoring and unresolved releases | No backup-byte revalidation, clean-state determination, live health check or restore |
 
-All diagnostic outputs are bounded. Unsupported files return `NOT_APPLICABLE`; a parser problem returns an observation rather than a fabricated success. Every tool remains bound to the approved tenant, website, environment and source. Source-review policy v2 fences old unfinished v1 plans; saved results remain available, but further model work needs a newly approved plan.
+All diagnostic outputs are bounded. Unsupported files return `NOT_APPLICABLE`; a parser problem returns an observation rather than a fabricated success. Every tool remains bound to the approved tenant, website, environment and source. Source-review policy v3 fences old unfinished v1/v2 plans; saved results remain available, but further model work needs a newly approved plan.
 
 Run the ordinary CI gates and `npm run test:accessibility`. In an actual configured deployment, run `npm run care:preflight -- TENANT_UUID`. The command reports database schema, preserved-history migration, worker heartbeat, Redis, model pricing/configuration and missing live-validation evidence. It does not make a model call or operate a customer host.
 
@@ -52,6 +53,7 @@ Primary references reviewed for the implementation:
 
 - [Playwright accessibility testing](https://playwright.dev/docs/accessibility-testing)
 - [TypeScript compiler API](https://github.com/microsoft/TypeScript/wiki/Using-the-Compiler-API)
+- [YAML document parser and options](https://eemeli.org/yaml/)
 - [PostCSS parser API](https://postcss.org/api/)
 - [parse5 source locations](https://parse5.js.org/interfaces/parse5.ParserOptions.html)
 - [MCP authorization specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2025-11-25/basic/authorization.mdx)

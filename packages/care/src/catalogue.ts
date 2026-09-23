@@ -1,4 +1,4 @@
-import { implementedReviewTools } from './review-tools.js';
+import { implementedReviewTools } from './tool-ids';
 // Role descriptions preserve the wider roadmap; implemented execution modes are explicit below.
 const agentDefinitions = [
   {
@@ -1267,7 +1267,8 @@ const toolDefinitions = [
     "unavailableReason": "Implementation and capability evaluation required"
   },
   { id: 'T65', name: 'source_check_syntax', executionClass: 'R', purpose: 'Parse approved JSON and JS/TS/JSX/TSX text in memory; no imports, type checking or execution.', version: 1, enabled: false, environments: ['PRODUCTION','STAGING'], timeoutMs: 30000, maxOutputBytes: 65536, unavailableReason: 'Implementation and capability evaluation required' },
-  { id: 'T66', name: 'design_check_css', executionClass: 'R', purpose: 'Parse standalone CSS without plugins, source maps or rendering.', version: 1, enabled: false, environments: ['PRODUCTION','STAGING'], timeoutMs: 30000, maxOutputBytes: 65536, unavailableReason: 'Implementation and capability evaluation required' }
+  { id: 'T66', name: 'design_check_css', executionClass: 'R', purpose: 'Parse standalone CSS without plugins, source maps or rendering.', version: 1, enabled: false, environments: ['PRODUCTION','STAGING'], timeoutMs: 30000, maxOutputBytes: 65536, unavailableReason: 'Implementation and capability evaluation required' },
+  { id: 'T67', name: 'source_check_yaml', executionClass: 'R', purpose: 'Parse supplied YAML documents with duplicate-key diagnostics; no alias expansion, custom tag resolution, schema validation or execution.', version: 1, enabled: false, environments: ['PRODUCTION','STAGING'], timeoutMs: 30000, maxOutputBytes: 65536, unavailableReason: 'Implementation and capability evaluation required' }
 ] as const;
 
 export const toolCatalogue = toolDefinitions.map((tool) => {

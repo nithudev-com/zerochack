@@ -3,7 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "exports": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./catalogue": "./src/catalogue.ts",
+    "./technology-coverage": "./src/technology-coverage.ts",
+    "./source-formats": "./src/source-formats.ts"
+  },
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
@@ -14,6 +19,7 @@
     "sharp": "0.35.4",
     "ssh2": "1.17.0",
     "typescript": "5.9.3",
-    "zod": "^4.1.0"
+    "zod": "^4.1.0",
+    "yaml": "2.9.0"
   }
 }

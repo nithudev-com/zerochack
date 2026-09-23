@@ -1,7 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import ts from 'typescript';
-import { checkCss, checkHtml, checkSyntax, prepareReviewSnapshot } from './index.js';
+import { Document } from 'yaml';
+import { checkCss, checkHtml, checkSyntax, checkYaml, prepareReviewSnapshot } from './index.js';
 describe('bounded deterministic source checks', () => {
+  it('checks every YAML document and reports duplicate keys at the source line', () => {
+    const source = prepareReviewSnapshot([{ path: 'deploy.yaml', content: 'kind: Service\n---\nreplicas: 2\nreplicas: 3\n' }]);
+    expect(checkYaml(source)).toMatchObject({ state: 'OBSERVATIONS', checkedFiles: ['deploy.yaml'], diagnostics: [{ path: 'deploy.yaml', line: 4, code: 'YAML_DUPLICATE_KEY', message: expect.any(String) }] });
+    expect(checkYaml(prepareReviewSnapshot([{ path: 'broken.yml', content: 'services: [web' }])).state).toBe('OBSERVATIONS');
+    expect(checkYaml(prepareReviewSnapshot([{ path: 'pipeline.yaml', content: 'name: Build\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n' }])).state).toBe('NO_ISSUES_DETECTED');
+    expect(checkYaml(prepareReviewSnapshot([{ path: 'infra/main.tf', content: 'terraform {}' }])).state).toBe('NOT_APPLICABLE');
+  });
+  it('does not expand YAML aliases or resolve custom tags and bounds diagnostics without source echo', () => {
+    const conversion = vi.spyOn(Document.prototype, 'toJS').mockImplementation(() => { throw new Error('Must not convert YAML to JS'); });
+    try {
+      expect(checkYaml(prepareReviewSnapshot([{ path: 'compose.yaml', content: 'base: &base {image: example}\nservice: *base\n' }])).state).toBe('NO_ISSUES_DETECTED');
+      const tags = checkYaml(prepareReviewSnapshot([{ path: 'template.yaml', content: 'value: !Ref customer-text-marker\n' }]));
+      expect(tags.state).toBe('OBSERVATIONS'); expect(JSON.stringify(tags)).not.toContain('customer-text-marker');
+      expect(conversion).not.toHaveBeenCalled();
+      const noisy = checkYaml(prepareReviewSnapshot([{ path: 'noisy.yaml', content: 'same: value\n'.repeat(100) }]));
+      expect(noisy.diagnostics).toHaveLength(30); expect(noisy.truncated).toBe(true);
+    } finally { conversion.mockRestore(); }
+  });
   it('reports exact HTML attribute locations and missing fragment references', () => {
     const source = prepareReviewSnapshot([{ path: 'index.html', content: '<!doctype html>\n<html><body>\n<img src="https://example.test/image.png">\n<div id="title"></div><p id="title"></p>\n<label for="missing">Name</label>\n<a href="#absent">Open</a><a href="#title">Title</a>\n</body></html>' }]);
     const a11y = checkHtml(source, 'accessibility');

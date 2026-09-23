@@ -85,3 +85,10 @@ Cancel pending release revokes an unstarted queued approval atomically. Once exe
 ## Approved source-review rollout
 
 See [CARE-SOURCE-REVIEWS.md](CARE-SOURCE-REVIEWS.md). Set `CARE_REVIEW_ENABLED=true` on compatible API/worker instances after migrations, artifact-key provisioning and tenant/provider setup. The default model allowance ceiling is `CARE_REVIEW_BUDGET_MICROS=5000000`. All 24 roles are available for source review; only selected roles run. This flag does not provide engineering sandboxes or enable general repair. Run `npm run care:preflight -- TENANT_UUID` to inspect setup without making model or customer-host calls. Validate real model quality with representative approved cases before rollout.
+
+
+## Production web rendering and CSP
+
+The web proxy generates a fresh script nonce for every document request and supplies the same policy to Next.js rendering and the response. Root layout waits for the request; documents therefore render dynamically. Keep these responses private/no-store through the reverse proxy or CDN; do not reuse cached nonce-bearing HTML between visitors. Static build assets remain cacheable. Set NEXT_PUBLIC_API_URL consistently at build and runtime to the actual API origin. The JSON-LD script uses the request nonce. Production does not permit unsafe-inline or unsafe-eval in script-src.
+
+After a production build, run `CARE_WEB_PRODUCTION=true npm run test:e2e:care` to verify the same Care and homepage flows under the production CSP. This is an API-fixture suite; ordinary real-API portal journeys and real provider/deployment evaluations remain separate.

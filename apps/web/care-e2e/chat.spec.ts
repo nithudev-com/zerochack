@@ -2,6 +2,26 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
+test('technology team presets use available roles and invalid upload paths are blocked before submission', async ({ page }) => {
+  const roles = ['A01','A03','A05','A08','A09','A12','A14','A18'].map(id => ({ id, name: `Review role ${id}`, implementation: 'SOURCE_REVIEW' }));
+  await page.route('**/care?**', async route => route.fulfill({ json: { credentials: [], accessRequests: [], jobs: [], roles, capabilities: { sourceReview: true, maximumReviewBudgetMicros: 5000000 } } }));
+  await page.goto(`/customer/websites/${id}`);
+  await page.getByRole('button', { name: 'Review source with AI team' }).click();
+  const form = page.getByRole('form', { name: 'New source review' });
+  await form.getByLabel('Technology area · suggested team').selectOption('devops');
+  await expect(form.getByRole('checkbox', { checked: true })).toHaveCount(6);
+  await expect(form.getByText(/YAML syntax and duplicate keys/)).toBeVisible();
+  await form.getByLabel('Reviewed text source files').setInputFiles({ name: 'secrets.yaml', mimeType: 'text/plain', buffer: Buffer.from('sanitized: example') });
+  await expect(form.getByRole('alert')).toContainText('credential files');
+  await form.getByLabel('I reviewed these files').check();
+  await expect(form.getByRole('button', { name: 'Prepare team review plan' })).toBeDisabled();
+  await form.getByLabel('Source path 1', { exact: true }).fill('deploy.yaml');
+  await expect(form.getByRole('alert')).toHaveCount(0);
+  await expect(form.getByLabel('I reviewed these files')).not.toBeChecked();
+  await form.getByRole('button', { name: 'Select all 8 roles' }).click();
+  await expect(form.getByRole('checkbox', { checked: true })).toHaveCount(8);
+  await expect(form.getByLabel('Technology area · suggested team')).toHaveValue('');
+});
 test('all 24 source-review roles require consent and exact approval, with Tamil evidence reports on mobile', async ({ page }) => {
   const roles = Array.from({ length: 24 }, (_, index) => ({ id: `A${String(index + 1).padStart(2,'0')}`, name: `Review role ${index + 1}`, implementation: 'SOURCE_REVIEW' }));
   const jobId = '71d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; let phase = 0; let prepared: Record<string, unknown> | undefined; let approval: unknown;
