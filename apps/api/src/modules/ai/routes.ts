@@ -11,7 +11,7 @@ import type { AiService } from './service.js';
 
 const uuid = z.string().uuid();
 const positive = z.number().int().min(1).max(100_000);
-const providerCreate = z.object({ name: z.string().trim().min(2).max(120), adapterKey: z.literal('openai-responses'), enabled: z.boolean().default(false), requestsPerMinute: positive.default(60), maxConcurrent: positive.max(100).default(4) });
+const providerCreate = z.object({ name: z.string().trim().min(2).max(120), adapterKey: z.enum(['openai-responses','anthropic-messages']), enabled: z.boolean().default(false), requestsPerMinute: positive.default(60), maxConcurrent: positive.max(100).default(4) });
 const providerPatch = z.object({ enabled: z.boolean().optional(), requestsPerMinute: positive.optional(), maxConcurrent: positive.max(100).optional() }).refine((input) => Object.keys(input).length > 0);
 const credentialCreate = z.object({ label: z.string().trim().min(2).max(120), secret: z.string().min(12).max(4096), enabled: z.boolean().default(true) });
 const credentialPatch = z.object({ enabled: z.boolean().optional(), secret: z.string().min(12).max(4096).optional() }).refine((input) => Object.keys(input).length > 0);

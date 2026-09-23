@@ -1,3 +1,8 @@
+import { AiService } from '../../api/src/modules/ai/service.js';
+import { runOneReview } from '../../api/src/modules/care/review-service.js';
+import { runOneRepair } from '../../api/src/modules/care/repair-service.js';
+import { runOneRelease } from '../../api/src/modules/care/release-service.js';
+import { maintainCareRecords } from './care-maintenance.js';
 import { createLogger, loadEnvironment } from '@zerochack/config';
 import { createQueueRegistry, queueNames } from './queues.js';
 import { createScanWorker } from './scan-worker.js';
@@ -24,6 +29,14 @@ const schedules = await reconcileSchedulers(registry.queues);
 const heartbeatRedis = new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
 const heartbeat = async () => heartbeatRedis.set('zerochack:worker:heartbeat', new Date().toISOString(), 'EX', 90);
 await heartbeat();
+const careAi = new AiService(environment, heartbeatRedis);
+let repairBusy = false; let releaseBusy = false; let reviewBusy = false;
+let reviewWork: Promise<unknown> | undefined;
+const reviewTimer = setInterval(() => { if (reviewBusy || !environment.CARE_REVIEW_ENABLED) return; reviewBusy = true; reviewWork = runOneReview(environment, careAi).catch(() => logger.error({ errorCode: 'REVIEW_WORKER_FAILED' }, 'care.review_failed')).finally(() => { reviewBusy = false; }); }, 2000);
+const repairTimer = setInterval(() => { if (repairBusy || !environment.CARE_REPAIR_ENABLED) return; repairBusy = true; void runOneRepair(environment, careAi).catch(() => logger.error({ errorCode: 'REPAIR_WORKER_FAILED' }, 'care.repair_failed')).finally(() => { repairBusy = false; }); }, 2000);
+const releaseTimer = setInterval(() => { if (releaseBusy || !environment.CARE_RELEASE_ENABLED) return; releaseBusy = true; void runOneRelease(environment).catch(() => logger.error({ errorCode: 'RELEASE_WORKER_FAILED' }, 'care.release_failed')).finally(() => { releaseBusy = false; }); }, 2000);
+let careMaintenanceBusy = false;
+const careMaintenance = setInterval(() => { if (!environment.CARE_ENABLED || careMaintenanceBusy) return; careMaintenanceBusy = true; void maintainCareRecords().catch(() => logger.error({ errorCode: 'CARE_MAINTENANCE_FAILED' }, 'care.maintenance_failed')).finally(() => { careMaintenanceBusy = false; }); }, 60000);
 const heartbeatTimer = setInterval(() => void heartbeat().catch((error) => logger.error({ err: error, errorCode: 'WORKER_HEARTBEAT_FAILED' }, 'worker.heartbeat_failed')), 30_000);
 
 for (const events of registry.events) {
@@ -35,6 +48,11 @@ logger.info({ queues: queueNames, schedules }, 'worker.ready');
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'service.shutdown');
   clearInterval(heartbeatTimer);
+  clearInterval(careMaintenance);
+  clearInterval(repairTimer);
+  clearInterval(reviewTimer);
+  await reviewWork;
+  clearInterval(releaseTimer);
   await scanWorker.close();
   await backupWorker.close();
   await monitoringWorker.close();

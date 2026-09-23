@@ -5,6 +5,14 @@ import { z } from 'zod';
 const booleanString = z.enum(['true', 'false']).transform((value) => value === 'true');
 const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  CARE_ENABLED: booleanString.default(false),
+  CARE_REPAIR_ENABLED: booleanString.default(false),
+  CARE_REVIEW_ENABLED: booleanString.default(false),
+  CARE_REVIEW_BUDGET_MICROS: z.coerce.number().int().min(1000).max(100000000).default(5000000),
+  CARE_RELEASE_ENABLED: booleanString.default(false),
+  CARE_ARTIFACT_KEY: z.string().optional().refine((value) => value === undefined || Buffer.from(value, "base64").length === 32, "Must be a base64-encoded 32-byte key"),
+  CARE_JOB_BUDGET_MICROS: z.coerce.number().int().min(1000).max(10000000).default(500000),
+  CARE_VAULT_KEY: z.string().optional().refine((value) => value === undefined || Buffer.from(value, 'base64').length === 32, 'Must be a base64-encoded 32-byte key'),
   API_HOST: z.string().default('0.0.0.0'),
   API_PORT: z.coerce.number().int().positive().max(65_535).default(4000),
   WEB_PORT: z.coerce.number().int().positive().max(65_535).default(3000),
@@ -66,6 +74,10 @@ export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Enviro
   if (result.data.NODE_ENV === 'production' && placeholderSecret(result.data.METRICS_TOKEN)) {
     throw new Error('Invalid environment configuration. Check: METRICS_TOKEN');
   }
+  if (result.data.NODE_ENV === 'production' && result.data.CARE_ENABLED && (!result.data.CARE_VAULT_KEY || result.data.CARE_VAULT_KEY === defaultEncryptionKey || [result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY, result.data.MFA_ENCRYPTION_KEY].includes(result.data.CARE_VAULT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_VAULT_KEY');
+  if (result.data.NODE_ENV === 'production' && (result.data.CARE_REPAIR_ENABLED || result.data.CARE_REVIEW_ENABLED) && (!result.data.CARE_ARTIFACT_KEY || result.data.CARE_ARTIFACT_KEY === defaultEncryptionKey || [result.data.CARE_VAULT_KEY, result.data.MFA_ENCRYPTION_KEY, result.data.PAYMENT_CREDENTIAL_ENCRYPTION_KEY, result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY].includes(result.data.CARE_ARTIFACT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_ARTIFACT_KEY');
+  if (result.data.CARE_REVIEW_ENABLED && !result.data.CARE_ENABLED) throw new Error('Care source reviews require CARE_ENABLED.');
+  if (result.data.CARE_RELEASE_ENABLED && !result.data.CARE_REPAIR_ENABLED || result.data.CARE_REPAIR_ENABLED && !result.data.CARE_ENABLED) throw new Error('Care release requires repair and care flags.');
   const corsOrigins = [...new Set(result.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean))];
   if (corsOrigins.length === 0 || corsOrigins.some((origin) => { try { return new URL(origin).origin !== origin; } catch { return true; } })) {
     throw new Error('Invalid environment configuration. Check: CORS_ORIGINS');
@@ -81,6 +93,7 @@ export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Enviro
 }
 
 const redactPaths = [
+  'req.body', 'body', '*.content', '*.encryptedEnvelope',
   'password', '*.password', 'token', '*.token', 'authorization', 'req.headers.authorization',
   'apiKey', '*.apiKey', 'secret', '*.secret', 'privateKey', '*.privateKey',
   'paymentCredentials', '*.paymentCredentials', 'cookie', 'req.headers.cookie'

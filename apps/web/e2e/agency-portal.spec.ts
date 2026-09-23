@@ -7,7 +7,8 @@ test('agency can navigate every portal section with only authorized client data'
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/agency\/overview$/u);
   for (const section of ['Overview', 'Clients', 'Websites', 'Subscriptions', 'Commerce', 'Quotes', 'Billing', 'Notifications', 'Profile']) {
-    await page.getByRole('link', { name: section, exact: true }).click();
-    await expect(page.getByRole('heading', { name: section, exact: true })).toBeVisible({ timeout: 30_000 });
+    await page.getByRole('navigation', { name: 'Agency navigation' }).getByRole('link', { name: section, exact: true }).click();
+    const heading = section === 'Overview' ? /^Every client,/ : section;
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible({ timeout: 30_000 });
   }
 });

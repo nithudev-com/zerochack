@@ -15,6 +15,7 @@ import { authorizationRoutes } from './modules/authorization/routes.js';
 import { SmtpEmailProvider, type EmailProvider } from '@zerochack/email';
 import Redis from 'ioredis';
 import { Queue } from 'bullmq';
+import { careRoutes } from './modules/care/routes.js';
 import { customerRoutes } from './modules/customer/routes.js';
 import { aiRoutes } from './modules/ai/routes.js';
 import { AiService } from './modules/ai/service.js';
@@ -75,8 +76,8 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     const possibleStatus = 'statusCode' in error ? error.statusCode : undefined;
     const statusCode = known ? error.statusCode : (typeof possibleStatus === 'number' && possibleStatus < 500 ? possibleStatus : 500);
     const code = known ? error.code : statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_ERROR';
-    request.log.error({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, errorCode: code, err: error }, 'request.failed');
-    void reply.code(statusCode).send({ error: { code, message: statusCode === 500 && environment.NODE_ENV === 'production' ? 'An unexpected error occurred' : error.message, requestId: request.id, ...(known && error.details !== undefined ? { details: error.details } : {}) } });
+    request.log.error({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, errorCode: code }, 'request.failed');
+    void reply.code(statusCode).send({ error: { code, message: statusCode === 500 ? 'An unexpected error occurred' : error.message, requestId: request.id, ...(known && error.details !== undefined ? { details: error.details } : {}) } });
   });
 
   await app.register(async (v1) => {
@@ -87,6 +88,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     await v1.register(mfaRoutes, { environment });
     await v1.register(authorizationRoutes, { environment, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
     await v1.register(aiRoutes, { environment, ai });
+    await v1.register(careRoutes, { environment, ai });
     await v1.register(customerRoutes, { environment, ai, ...(customerQueues ? { queues: customerQueues } : {}) });
     await v1.register(specialistRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, scans: customerQueues.scans, notifications:customerQueues.notifications,reports:customerQueues.reports } } : {}) });
     await v1.register(commercialRoutes, { environment, ...(dependencies?.paymentProviders ? { providers: dependencies.paymentProviders } : {}),...(customerQueues?{notificationsQueue:customerQueues.notifications}:{}) });
