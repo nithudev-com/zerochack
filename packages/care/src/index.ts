@@ -6,3 +6,5 @@ export * from "./static-html.js";
 export * from './source-review.js';
 export * from './review-tools.js';
 export * from './source-checks.js';
+export * from './tool-ids.js';
+export * from './review-knowledge.js';

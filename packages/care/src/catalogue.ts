@@ -1,4 +1,5 @@
-import { implementedReviewTools } from './tool-ids';
+import { implementedReviewTools, implementedRecordTools } from './tool-ids';
+import { limitedToolBoundaries, unavailableToolRequirements, workflowToolBindings } from './tool-support';
 // Role descriptions preserve the wider roadmap; implemented execution modes are explicit below.
 const agentDefinitions = [
   {
@@ -1272,6 +1273,17 @@ const toolDefinitions = [
 ] as const;
 
 export const toolCatalogue = toolDefinitions.map((tool) => {
-  const enabled = (implementedReviewTools as readonly string[]).includes(tool.id);
-  return { ...tool, version: ['T31','T32','T53'].includes(tool.id) ? 2 : tool.version, enabled, maxOutputBytes: tool.id === 'T10' ? 250000 : tool.maxOutputBytes, implementation: enabled ? tool.id === 'T53' ? 'SCOPED_RECOVERY_METADATA' : 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED', unavailableReason: enabled ? null : tool.unavailableReason };
+  const review = (implementedReviewTools as readonly string[]).includes(tool.id);
+  const records = (implementedRecordTools as readonly string[]).includes(tool.id);
+  const binding = workflowToolBindings[tool.id];
+  const enabled = review || records || Boolean(binding);
+  const boundary = limitedToolBoundaries[tool.id] ?? binding?.boundary;
+  return { ...tool, version: boundary || ['T31','T32','T53'].includes(tool.id) ? 2 : tool.version, enabled,
+    purpose: boundary ?? tool.purpose, proposedPurpose: tool.purpose,
+    maxOutputBytes: tool.id === 'T50' ? 6_000_000 : tool.id === 'T52' ? 1_300_000 : tool.id === 'T10' ? 250000 : tool.maxOutputBytes,
+    implementation: binding ? 'DEDICATED_APPROVAL_WORKFLOW' : records ? 'SCOPED_SAVED_EVIDENCE' : review ? tool.id === 'T53' ? 'SCOPED_RECOVERY_METADATA' : 'OFFLINE_SOURCE_REVIEW' : 'UNIMPLEMENTED',
+    entrypoint: binding?.entrypoint ?? (enabled ? `POST /jobs/:id/tools/${tool.id}` : null),
+    requirements: binding?.requirements ?? (review ? ['Current exact source-review approval', 'CARE_REVIEW_ENABLED', 'Authorized sanitized source'] : records ? ['Authenticated tenant/site access', 'Recorded evidence in this job or environment'] : []),
+    unavailableReason: enabled ? null : unavailableToolRequirements[tool.id] ?? tool.unavailableReason
+  };
 });

@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { CareError, looksSensitive } from './vault.js';
 import type { ReviewSnapshot } from './source-review.js';
 import { checkCss, checkHtml, checkSyntax, checkYaml } from './source-checks.js';
+import { checkApiContract, checkDefensiveConfig, checkSecuritySource, compareCssTokens, inventoryDeclaredSchema, inventorySbom } from './defensive-checks.js';
+import { getReviewKnowledge, searchReviewKnowledge } from './review-knowledge.js';
 
 import { implementedReviewTools } from './tool-ids.js';
 export { implementedReviewTools } from './tool-ids.js';
@@ -16,9 +18,13 @@ export type ReviewToolContext = {
 const empty = z.object({}).strict();
 const schemas = {
   T01: empty, T02: empty, T04: empty, T09: empty,
+  T06: z.object({ query: z.string().trim().min(2).max(120) }).strict(),
+  T07: z.object({ id: z.string().max(80), version: z.string().max(80) }).strict(),
   T10: z.object({ path: z.string().max(180), startLine: z.number().int().min(1).default(1), endLine: z.number().int().min(1).max(100_000).optional() }).strict(),
   T11: z.object({ text: z.string().min(2).max(120), path: z.string().max(180).optional() }).strict(),
-  T19: empty, T21: empty, T31: empty, T32: empty, T53: empty, T59: empty, T65: empty, T66: empty, T67: empty
+  T17: empty, T18: empty, T19: empty, T21: empty, T22: empty,
+  T30: z.object({ baselinePath: z.string().max(180), candidatePath: z.string().max(180) }).strict(),
+  T31: empty, T32: empty, T38: empty, T45: empty, T47: empty, T53: empty, T59: empty, T65: empty, T66: empty, T67: empty
 };
 /** Pure, offline handlers. The server binds scope; callers cannot supply a tenant or destination. */
 export function executeReviewTool(id: typeof implementedReviewTools[number], args: unknown, context: ReviewToolContext, now = new Date()): unknown {
@@ -35,6 +41,15 @@ function reviewToolOutput(id: typeof implementedReviewTools[number], args: unkno
     case 'T01': return { summary: context.summary, expectedBehavior: context.expectedBehavior, mode: 'SOURCE_REVIEW' };
     case 'T02': return { environment: context.environment, sourceDigest: context.sourceDigest, fileCount: snapshot.files.length, policy: snapshot.policy, liveAccess: false, sourceExecution: false };
     case 'T04': return { jobId: context.jobId, expiresAt: context.approvalExpiresAt.toISOString(), sourceDigest: context.sourceDigest, capability: 'SOURCE_REVIEW', permitsRelease: false };
+    case 'T06': return searchReviewKnowledge(schemas.T06.parse(args).query);
+    case 'T07': { const input = schemas.T07.parse(args); return getReviewKnowledge(input.id, input.version); }
+    case 'T17': return checkSecuritySource(snapshot);
+    case 'T18': return checkDefensiveConfig(snapshot, 'config');
+    case 'T22': return inventorySbom(snapshot);
+    case 'T30': { const input = schemas.T30.parse(args); return compareCssTokens(snapshot, input.baselinePath, input.candidatePath); }
+    case 'T38': return checkApiContract(snapshot);
+    case 'T45': return inventoryDeclaredSchema(snapshot);
+    case 'T47': return checkDefensiveConfig(snapshot, 'infra');
     case 'T09': return snapshot.files.map(({ path, digest, lines }) => ({ path, digest, lines }));
     case 'T10': {
       const input = schemas.T10.parse(args); const file = snapshot.files.find((item) => item.path === input.path);

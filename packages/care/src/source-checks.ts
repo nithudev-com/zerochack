@@ -18,7 +18,7 @@ function elements(content: string): Element[] {
   }
   return result;
 }
-function report(check: string, limitation: string) {
+export function sourceCheckReport(check: string, limitation: string) {
   const result: SourceCheck = { check, state: 'NOT_APPLICABLE', checkedFiles: [], diagnostics: [], truncated: false, limitation };
   return {
     result,
@@ -29,6 +29,7 @@ function report(check: string, limitation: string) {
     finish() { result.state = result.diagnostics.length ? 'OBSERVATIONS' : result.checkedFiles.length ? 'NO_ISSUES_DETECTED' : 'NOT_APPLICABLE'; return result; }
   };
 }
+const report = sourceCheckReport;
 
 /** Parses customer text only. No DOM execution, resources, plugins, config loading or network. */
 export function checkHtml(snapshot: ReviewSnapshot, mode: 'accessibility' | 'links'): SourceCheck {

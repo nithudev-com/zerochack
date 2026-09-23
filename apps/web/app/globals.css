@@ -27,6 +27,7 @@ textarea { font: inherit; }
 .brand--footer .brand-logo { width: 11rem; }
 .app-footer--branded { display: flex; align-items: center; justify-content: center; gap: 1rem; }
 .app-footer--branded .brand-logo { width: 6.5rem; }
+.app-footer.app-footer--branded { color: #626670; }
 .app-header nav { display: flex; flex-wrap: wrap; min-width: 0; gap: var(--space-4); font-size: .875rem; color: var(--gray-700); }
 .app-header nav a { text-decoration: none; }
 .app-header nav a:hover { color: var(--black); }

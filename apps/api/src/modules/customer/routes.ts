@@ -431,6 +431,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
   app.post('/websites/:websiteId/tickets', async (request, reply) => {
     requirePermission(request, 'tickets.create'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; const input = parse(ticketInput, request.body);
     await websiteForTenant(tenantId, websiteId);
+    if (looksSensitive(`${input.title}\n${input.description ?? ''}`)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Remove credentials from the support request and use secure access capture instead.');
     if (input.findingId && !(await database.securityFinding.findFirst({ where: { id: input.findingId, tenantId, websiteId } }))) throw new ApiError(400, 'INVALID_FINDING_REFERENCE', 'Finding does not belong to this website');
     const ticket = await database.ticket.create({ data: { tenantId, websiteId, title: input.title, ...(input.description ? { description: input.description } : {}), ...(input.findingId ? { findingId: input.findingId } : {}) } });
     await publishTenantEvent({ tenantId, recipientId: request.userId!, eventType: 'TICKET_CREATED', deduplicationKey: `ticket-created:${ticket.id}`, title: 'Support ticket created', message: `Your ticket “${ticket.title}” was created.`, actionUrl: `/customer/websites/${websiteId}/tickets`, data: { websiteId, ticketId: ticket.id } }, options.queues?.notifications);

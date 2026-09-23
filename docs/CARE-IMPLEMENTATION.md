@@ -30,7 +30,7 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 | Other stored account types / staging connectors | Storage only; connection execution unavailable |
 | Claude provider | Adapter and contract tests implemented; live smoke test outstanding |
 | AI role catalogue | All 24 roles execute bounded source reviews; A02 chat and A08 static HTML repair remain separate modes |
-| Proposed tool catalogue | Fourteen bounded source-review handlers implemented; 52 wider interfaces remain disabled |
+| Proposed tool catalogue | 44 bounded source/evidence/workflow contracts; 23 wider interfaces unavailable; see CARE-TOOL-CONTRACTS.md |
 | Existing assessment tools | Existing scoped tools remain separate from the proposed catalogue |
 | Repair execution and source patches | Static HTML data-only runner implemented; disposable execution workers unavailable |
 | Attachments | Validated encrypted HTML, screenshots and redacted logs; privacy review required |
@@ -61,7 +61,7 @@ Production migration rollback, load, crash/race, accessibility assistive-technol
 
 ## Approved multi-role source review
 
-All 24 roles can run customer-approved text-source reviews through the real gateway integration. Source snapshots and reports are encrypted, approvals bind exact scope/model/allowance, and each step is checkpointed in PostgreSQL. Thirteen offline tools and one scoped recovery-metadata tool supply authorized source and workflow context. Strict result schemas reject fabricated file/line quotations. Later roles receive prior summaries as untrusted context and must cite source independently. Reports expose missing evidence and do not certify model conclusions, tests or repairs.
+All 24 roles can run customer-approved text-source reviews through the real gateway integration. Source snapshots and reports are encrypted, approvals bind exact scope/model/allowance, and each step is checkpointed in PostgreSQL. Twenty-three offline source/policy tools and one scoped recovery-metadata tool are available; the deterministic runner selects a fixed subset for each approved review. Strict result schemas reject fabricated file/line quotations. Later roles receive prior summaries as untrusted context and must cite source independently. Reports expose missing evidence and do not certify model conclusions, tests or repairs.
 
 The customer can choose all roles or a smaller team and request Tamil or English reports. The team panel no longer truncates the assigned team at twelve roles. Worker claims serialize reviews and static repairs per website. A source-screening expression was bounded to avoid excessive processing on long text. A read-only `care:preflight` command reports missing deployment configuration. See [CARE-SOURCE-REVIEWS.md](CARE-SOURCE-REVIEWS.md) for usage, limits and rollout.
 
@@ -79,7 +79,7 @@ Failed candidate health triggers the specifically approved conditional restore, 
 
 ## Remaining implementation and external gates
 
-General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 52 proposed general tool interfaces, dynamic coordinator graphs, reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
+General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 23 proposed general tool interfaces, dynamic coordinator graphs, external reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
 
 Before enabling production release, run the full integration suite against PostgreSQL 16/Redis, use a real provider account with configured prices, test a disposable SFTP/static-host target and rollback, establish an exclusive deployment window, verify key/backup retention, and complete crash/failover and authorization-expiry drills. A separate external writer can race SFTP; it must be excluded operationally because ordinary SFTP cannot atomically compare and swap against unrelated writers. Neither static checks nor this branch certify production readiness.
 
@@ -108,3 +108,7 @@ Preserves the user's `858e746` homepage, directory and SEO redesign. The 12 tech
 Source-review policy is v3; unfinished older plans need a new approval, while saved history and existing completed reports remain available. Homepage search/filter/reset, keyboard examples, navigation, SEO data and mobile/desktop automated accessibility are included in CI. See CARE-SOURCE-REVIEWS.md for current verification counts and rollout requirements.
 
 A production-mode check found that the existing `script-src self` policy blocked Next.js hydration scripts, leaving the homepage on its loading fallback. A request proxy now generates a fresh nonce and overrides caller nonce/CSP headers; document rendering is dynamic so the nonce matches the response. Homepage JSON-LD receives that nonce. Script protections stay strict, and pages must not be cached as shared static HTML. CI now runs the full Care/home browser suite against both dev and the built production server, including nonce rotation and actual search interaction.
+
+## Tool contract implementation pass
+
+The current matrix is [CARE-TOOL-CONTRACTS.md](CARE-TOOL-CONTRACTS.md), which supersedes counts in earlier dated implementation entries. Of the previously unavailable 52 contracts, 19 now have new bounded handlers/proposal code and 10 are explicitly bound to existing dedicated application workflows. Total: 44 bounded implementations/bindings and 23 unavailable contracts. The narrower v2 boundaries are explicit; this does not fulfill the general execution roadmap. Policy v4 approvals include the expanded deterministic source context. Customer evidence tools and saved monitoring proposals are accessible from each job; owner capabilities show deployment flags, entrypoints and missing dependencies. No generic source execution, offensive automation, external MCP server or live-provider configuration is introduced.

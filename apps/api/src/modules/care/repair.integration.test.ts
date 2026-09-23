@@ -88,6 +88,9 @@ describe.sequential('approved static repair and deterministic release with real 
     const before = calls; expect(await runOneRepair(env, ai)).toBe(true); expect(calls, (await database.careJob.findUniqueOrThrow({ where: { id: value.job.id } })).errorCode ?? 'model invocation').toBe(before + 1); expect(await runOneRepair(env, ai)).toBe(false);
     const revision = await database.careRevision.findUniqueOrThrow({ where: { id: value.revision.id } }); expect(revision).toMatchObject({ state: 'VERIFIED', budgetState: 'SETTLED', chargedMicros: 130 });
     const candidate = await database.careArtifact.findUniqueOrThrow({ where: { id: revision.candidateId! } }); expect(readArtifact(candidate, env).toString()).toContain('<h1>Correct heading</h1>');
+    const comparison = await request('POST', `/jobs/${value.job.id}/tools/T51`, {});
+    expect(comparison.statusCode, comparison.body).toBe(200);
+    expect(comparison.json().output).toMatchObject({ state: 'VERIFIED', version: 1, diff: { baselineDigest: revision.sourceDigest, candidateDigest: candidate.digest, changes: [{ path: 'index.html', change: 'MODIFIED', beforeDigest: revision.sourceDigest, afterDigest: candidate.digest }] } });
     const preview = await request('GET', `/artifacts/${candidate.id}/preview`); expect(preview.headers['cache-control']).toContain('no-store'); expect(preview.json().html).toContain('Content-Security-Policy');
     expect((await database.aiUsage.findUniqueOrThrow({ where: { id: revision.usageId! } })).responseText).toBeNull();
     expect(JSON.stringify(await database.chatMessage.findMany({ where: { websiteId: siteId } }))).not.toContain('<!doctype');

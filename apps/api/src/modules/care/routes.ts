@@ -8,6 +8,7 @@ import { authenticate, requirePermission, requireOwnerMfa } from '../auth/securi
 import { ApiError } from '../../errors.js';
 import type { AiService } from '../ai/service.js';
 import { reviewRoutes } from './review-routes.js';
+import { careToolRoutes } from './tool-routes.js';
 import { stopReview } from './review-service.js';
 import { repairRoutes } from './repair-routes.js';
 import { invalidateRepair } from './repair-service.js';
@@ -212,8 +213,10 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
   });
   await app.register(repairRoutes, options);
   await app.register(reviewRoutes, options);
+  await app.register(careToolRoutes, options);
   app.get('/owner/care/capabilities', async (request) => {
     requireOwnerMfa(request);
-    return { roles: agentCatalogue, tools: toolCatalogue, vault: 'CONFIGURED', sourceReview: options.environment.CARE_REVIEW_ENABLED ? 'APPROVED_TEXT_SOURCE' : 'DISABLED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['All 24 roles support source review; this does not implement the wider autonomous repair roadmap.', 'Thirteen offline source checks and one scoped recovery-metadata tool are implemented; 52 wider contracts stay disabled.', 'Live provider smoke testing is required.', 'No model tool can disclose credentials or approve a release.'] };
+    const tools = toolCatalogue.map((tool) => ({ ...tool, deploymentState: !tool.enabled ? 'UNIMPLEMENTED' : tool.implementation === 'OFFLINE_SOURCE_REVIEW' || tool.id === 'T53' ? options.environment.CARE_REVIEW_ENABLED ? 'APPROVAL_REQUIRED' : 'DISABLED' : ['T08','T15','T49','T50','T52'].includes(tool.id) ? options.environment.CARE_REPAIR_ENABLED || (tool.id === 'T08' && options.environment.CARE_REVIEW_ENABLED) ? 'SETUP_AND_APPROVAL_REQUIRED' : 'DISABLED' : ['T54','T55'].includes(tool.id) ? options.environment.CARE_REPAIR_ENABLED && options.environment.CARE_RELEASE_ENABLED ? 'SETUP_AND_APPROVAL_REQUIRED' : 'DISABLED' : 'AUTHORIZED_REQUEST_REQUIRED' }));
+    return { roles: agentCatalogue, tools, vault: 'CONFIGURED', sourceReview: options.environment.CARE_REVIEW_ENABLED ? 'APPROVED_TEXT_SOURCE' : 'DISABLED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['All 24 roles support source review; this does not implement the wider autonomous repair roadmap.', `${tools.filter((tool) => tool.enabled).length} bounded contracts have implementations or dedicated workflow bindings; ${tools.filter((tool) => !tool.enabled).length} contracts remain unavailable with explicit requirements.`, 'Implementation does not prove deployment setup or live-provider success. Dedicated approval workflows are customer actions, not autonomous model tools.', 'No model tool can disclose credentials or approve a release.'] };
   });
 }

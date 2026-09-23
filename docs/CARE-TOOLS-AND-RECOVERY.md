@@ -1,6 +1,6 @@
 # Tools, continuity and defensive recovery
 
-The application has 24 source-review roles and 67 registered tool contracts. Fifteen handlers are implemented: fourteen offline source/context checks and one server-scoped recovery metadata handler. Fifty-two wider contracts remain disabled. More role names do not establish better accuracy; evaluate the existing roles against representative approved cases and inspect false positives, missed issues, citations and actual cost.
+The application has 24 source-review roles and 67 registered tool contracts. Forty-four contracts have bounded implementations or dedicated workflow bindings: 24 source/policy tools, 9 saved-evidence tools and 11 dedicated workflows. Twenty-three wider contracts remain unavailable. The [complete contract matrix](CARE-TOOL-CONTRACTS.md) records every boundary, entrypoint and missing prerequisite. More role names do not establish better accuracy; evaluate the existing roles against representative approved cases and inspect false positives, missed issues, citations and actual cost.
 
 ## Installed and exercised components
 
@@ -15,7 +15,7 @@ The application has 24 source-review roles and 67 registered tool contracts. Fif
 | Vitest 4.1.11, Playwright, PostgreSQL/Prisma, Redis | Application contracts, browser journeys, persisted steps and CI | Provider and SFTP adapters in automated Care tests are fixtures |
 | T53 recovery metadata | Retained verified-backup records, schedules, recorded monitoring and unresolved releases | No backup-byte revalidation, clean-state determination, live health check or restore |
 
-All diagnostic outputs are bounded. Unsupported files return `NOT_APPLICABLE`; a parser problem returns an observation rather than a fabricated success. Every tool remains bound to the approved tenant, website, environment and source. Source-review policy v3 fences old unfinished v1/v2 plans; saved results remain available, but further model work needs a newly approved plan.
+All diagnostic outputs are bounded. Unsupported files return `NOT_APPLICABLE`; a parser problem returns an observation rather than a fabricated success. Every tool remains bound to the approved tenant, website, environment and source. Source-review policy v4 fences old unfinished v1/v2/v3 plans; saved results remain available, but further model work needs a newly approved plan.
 
 Run the ordinary CI gates and `npm run test:accessibility`. In an actual configured deployment, run `npm run care:preflight -- TENANT_UUID`. The command reports database schema, preserved-history migration, worker heartbeat, Redis, model pricing/configuration and missing live-validation evidence. It does not make a model call or operate a customer host.
 

@@ -8,6 +8,7 @@ import type { AiProviderAdapter } from '@zerochack/ai-gateway';
 import { buildApp } from '../../app.js';
 import { AiService } from '../ai/service.js';
 import { runOneReview } from './review-service.js';
+import { writeArtifact } from './repair-service.js';
 import { maintainCareRecords } from '../../../../worker/src/care-maintenance.js';
 
 const env = loadEnvironment({ NODE_ENV: 'test', CARE_ENABLED: 'true', CARE_REVIEW_ENABLED: 'true', DATABASE_URL: process.env.DATABASE_URL, LOG_LEVEL: 'silent', REDIS_URL: 'redis://127.0.0.1:6380', CORS_ORIGINS: 'http://localhost:3000', SESSION_SECRET: 'review-test-session-key-at-least-32-characters', CARE_VAULT_KEY: Buffer.alloc(32, 33).toString('base64'), CARE_ARTIFACT_KEY: Buffer.alloc(32, 34).toString('base64') });
@@ -49,9 +50,55 @@ beforeEach(async () => { testAddress++; calls = []; invalidEvidence = false; dur
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('durable approved multi-role source reviews with real authentication and fixture model', () => {
+  it('dispatches bounded tools only with exact current source approval and strict arguments', async () => {
+    const value = await createReview(['A01'], 1000000, { files: [...files, { path: 'before.css', content: ':root { --color: blue; }' }, { path: 'after.css', content: ':root { --color: green; }' }] });
+    const url = `/jobs/${value.job.id}/tools/`;
+    expect((await request('POST', url + 'T17', {})).statusCode).toBe(403);
+    expect((await approve(value.revision)).statusCode).toBe(200);
+    for (const id of ['T17','T18','T22','T38','T45','T47']) expect((await request('POST', url + id, {})).statusCode).toBe(200);
+    expect((await request('POST', url + 'T06', { query: 'source' })).json().output[0].provenance).toBe('BUNDLED_CARE_POLICY');
+    expect((await request('POST', url + 'T07', { id: 'source-evidence', version: 'old' })).statusCode).toBe(400);
+    expect((await request('POST', url + 'T30', { baselinePath: 'before.css', candidatePath: 'after.css' })).json().output.changes).toEqual([{ token: '--color', change: 'DECLARATIONS_CHANGED' }]);
+    expect((await request('POST', url + 'T17', { tenantId: randomUUID() })).statusCode).toBe(400);
+    expect((await request('POST', url + 'T35', {})).json().error.code).toBe('TOOL_UNAVAILABLE');
+    expect(calls).toHaveLength(0);
+    await database.careRevision.update({ where: { id: value.revision.id }, data: { approvalExpiresAt: new Date(0) } });
+    expect((await request('POST', url + 'T17', {})).statusCode).toBe(403);
+  });
+  it('returns actual retained findings and summaries without requiring another model call', async () => {
+    const value = await createReview(['A09']); await approve(value.revision); await runOneReview(env, ai);
+    const url = `/jobs/${value.job.id}/tools/`;
+    const evidence = await request('POST', url + 'T05', {});
+    expect(evidence.statusCode, evidence.body).toBe(200);
+    expect(evidence.json().output).toMatchObject({ state: 'RECORDED_EVIDENCE', totalFindings: 1, truncated: false });
+    expect(evidence.json().output.findings[0].evidence[0].quote).toBe('<button>Save</button>');
+    expect((await request('POST', url + 'T62', {})).json().output.reports[0]).toMatchObject({ roleId: 'A09', findingCount: 1 });
+    expect((await request('POST', url + 'T51', {})).json().output.state).toBe('NOT_OBSERVED');
+    expect((await request('POST', url + 'T56', {})).json().output.state).toBe('NOT_OBSERVED');
+    expect((await request('POST', url + 'T58', {})).json().output.state).toBe('NOT_OBSERVED');
+    expect((await request('POST', url + 'T57', {})).json().output.job.errorCode).toBeNull();
+    expect((await request('POST', url + 'T05', { websiteId: randomUUID() })).statusCode).toBe(400);
+    expect(calls).toEqual(['A09']);
+  });
+  it('compares only same-job artifacts, checks integrity and identifies stale plan bindings', async () => {
+    const value = await createReview(['A01']); const other = await createReview(['A01']);
+    const bytes = Buffer.from(JSON.stringify({ files: [{ path: 'src/page.tsx', content: 'export const value = 2;' }, { path: 'new.txt', content: 'new supplied text' }] }));
+    const candidate = await database.$transaction((tx) => writeArtifact(tx, { tenantId, websiteId: siteId, jobId: value.job.id, environment: 'STAGING', createdBy: userId }, bytes, 'SOURCE_BUNDLE', 'candidate.json', 'application/json', env));
+    const url = `/jobs/${value.job.id}/tools/`;
+    const diff = await request('POST', url + 'T12', { baselineArtifactId: value.revision.sourceId, candidateArtifactId: candidate.id });
+    expect(diff.statusCode, diff.body).toBe(200);
+    expect(diff.json().output.changes).toEqual(expect.arrayContaining([expect.objectContaining({ path: 'src/page.tsx', change: 'MODIFIED' }), expect.objectContaining({ path: 'new.txt', change: 'ADDED' })]));
+    expect((await request('POST', url + 'T12', { baselineArtifactId: other.revision.sourceId, candidateArtifactId: candidate.id })).statusCode).toBe(404);
+    const args = { revisionId: value.revision.id, sourceDigest: value.revision.sourceDigest };
+    expect((await request('POST', url + 'T16', args)).json().output.conflict).toBe(false);
+    await database.careJob.update({ where: { id: value.job.id }, data: { planVersion: 2 } });
+    expect((await request('POST', url + 'T16', args)).json().output.conflict).toBe(true);
+    await database.careArtifact.update({ where: { id: candidate.id }, data: { digest: 'a'.repeat(64) } });
+    expect((await request('POST', url + 'T12', { baselineArtifactId: value.revision.sourceId, candidateArtifactId: candidate.id })).json().error.code).toBe('ARTIFACT_INTEGRITY');
+  });
   it('reviews newly supported source and persists YAML checks with the approved report', async () => {
     const value = await createReview(['A12'], 1000000, { files: [...files, { path: 'Program.cs', content: 'public class Program {}' }, { path: 'infra/main.tf', content: 'terraform {}' }, { path: 'deploy.yaml', content: 'replicas: 2\nreplicas: 3\n' }] });
-    expect(value.revision.plan.policy).toBe('source-review-v3');
+    expect(value.revision.plan.policy).toBe('source-review-v4');
     expect(calls).toHaveLength(0);
     expect((await approve(value.revision)).statusCode).toBe(200);
     expect(await runOneReview(env, ai)).toBe(true);
@@ -111,7 +158,7 @@ describe.sequential('durable approved multi-role source reviews with real authen
     await app.close(); app = await buildApp(env, { aiAdapters: [adapter] });
     const reopened = await request('GET', `/jobs/${value.job.id}/review`);
     expect(reopened.statusCode).toBe(200); expect(reopened.json().reports).toHaveLength(1);
-    expect(reopened.json().revision.verification.staticChecks.map((check: { check: string }) => check.check)).toEqual(['accessibility','links','source-syntax','css-syntax','yaml-syntax']);
+    expect(reopened.json().revision.verification.staticChecks.map((check: { check: string }) => check.check)).toEqual(['accessibility','links','source-syntax','css-syntax','yaml-syntax','security-source','security-config','api-contract-structure','infrastructure-manifest']);
     expect((await request('GET', `/websites/${siteId}/chat?environment=STAGING`)).body).toContain('A09 source review');
     expect(calls).toHaveLength(1);
   });

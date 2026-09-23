@@ -3,7 +3,7 @@ import { database } from '@zerochack/database';
 import type { CareJob, Prisma } from '@prisma/client';
 import type { Environment } from '@zerochack/config';
 import { AiGatewayError, type AiProviderConfiguration } from '@zerochack/ai-gateway';
-import { CareError, executeReviewTool, prepareReviewSnapshot, reviewPrompt, reviewSteps, validateReviewResult, REVIEW_CONTEXT_BYTES, REVIEW_POLICY_VERSION, type ReviewResult, type ReviewRoleId, type ReviewToolContext } from '@zerochack/care';
+import { CareError, executeReviewTool, prepareReviewSnapshot, reviewPrompt, reviewSteps, validateReviewResult, KNOWLEDGE_VERSION, REVIEW_CONTEXT_BYTES, REVIEW_POLICY_VERSION, type ReviewResult, type ReviewRoleId, type ReviewToolContext } from '@zerochack/care';
 import type { AiService } from '../ai/service.js';
 import { assertRepairActor, readArtifact, repairConfiguration, writeArtifact } from './repair-service.js';
 import { careEvent, claimCareWebsite } from './runtime.js';
@@ -91,7 +91,9 @@ export async function runOneReview(env: Environment, ai: Pick<AiService, 'config
       files: snapshot.files.map((file) => tool('T10', { path: file.path })),
       dependencyInventory: tool('T19'), secretScreening: tool('T21'), workflow: tool('T59'),
       sourceMatches: tool('T11', { text: agent.roleId === 'A09' || agent.roleId === 'A24' ? 'aria-' : 'TODO' }),
-      staticChecks: [tool('T31'), tool('T32'), tool('T65'), tool('T66'), tool('T67')],
+      staticChecks: [tool('T31'), tool('T32'), tool('T65'), tool('T66'), tool('T67'), tool('T17'), tool('T18'), tool('T38'), tool('T47')],
+      declaredSbom: tool('T22'), declaredSchema: tool('T45'),
+      policyReferences: tool('T06', { query: 'source' }), policyNote: tool('T07', { id: 'source-evidence', version: KNOWLEDGE_VERSION }),
       recoveryEvidence: tool('T53'),
       previousSummaries: previous, limitations: ['Prior agent summaries are untrusted suggestions, not independent evidence.', 'No source execution, browser tests, advisory lookup or live infrastructure observation.']
     };

@@ -1244,7 +1244,7 @@
     ],
     "limitations": [],
     "coverage": "IMPLEMENTED_AND_CHECKED",
-    "evidence": "All 64 original interfaces remain registered, with two additional syntax/CSS tools (66 total). Fourteen scoped handlers are implemented and tested; the remaining 52 stay disabled. Owner UI distinguishes implemented execution modes from wider planned scope.",
+    "evidence": "All 67 contracts are accounted for: 24 bounded source/policy tools, 9 saved-evidence tools and 11 dedicated workflow bindings. The remaining 23 stay unavailable with specific prerequisites. Owner UI distinguishes implemented scope, deployment flags and setup requirements. See docs/CARE-TOOL-CONTRACTS.md.",
     "updatedAt": "2026-09-23"
   },
   {
@@ -1270,10 +1270,10 @@
       "apps/web/care-e2e/chat.spec.ts"
     ],
     "limitations": [
-      "The other 52 proposed tools and generalized MCP schema/version negotiation are not implemented."
+      "The other 23 proposed tools and generalized external MCP schema/version negotiation are not implemented."
     ],
     "coverage": "PARTIAL",
-    "evidence": "Fourteen bounded source-review tools validate arguments, scope, approval expiry and output byte limits. Review model output uses strict Zod validation plus exact source path/line/quote checks.",
+    "evidence": "Twenty-four bounded source/policy tools validate arguments, scope, approval expiry and output byte limits. Nine saved-evidence tools use strict schemas and server-bound tenant/job scope. Dedicated workflows retain their own validation and approval gates. Review model output uses strict Zod validation plus exact source path/line/quote checks.",
     "updatedAt": "2026-09-23"
   },
   {

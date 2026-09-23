@@ -57,11 +57,11 @@ These fifteen bounded handlers are called by the deterministic review runner. Th
 | T67 | source_check_yaml | YAML document syntax and duplicate keys; no alias expansion/custom tag resolution, platform validation or execution |
 | T59 | workflow_get_status | Current job state and completed predecessor roles |
 
-The other **52 proposed tools remain disabled**. The owner registry describes the actual execution mode. T10 has a 250 KB output limit; the other implemented tools have a 64 KB limit. Oversized output stops the review instead of silently omitting required source.
+The source/policy registry now has **24 bounded tools**, including new policy notes, defensive AST/configuration checks, supplied SBOM/Prisma inventories, CSS-token comparison and basic OpenAPI JSON checks. The broader application adds 9 saved-evidence tools and 11 dedicated workflow bindings; **23 proposed tools remain unavailable**. See the [full matrix and API usage](CARE-TOOL-CONTRACTS.md). T10 has a 250 KB output limit; other dispatcher results have a 64 KB limit. Dedicated artifact routes retain their existing upload/download limits. Oversized output stops the review instead of silently omitting required source.
 
 ## Deployment
 
-Deploy API, web and worker together and apply migrations through `20260923030000_care_preserve_history`. Stop old maintenance workers before migrating; they still contain the former artifact purge. Source-review policy is now `source-review-v3`; unfinished v1/v2 plans require a new approval plan, while their saved results remain readable. Configure:
+Deploy API, web and worker together and apply migrations through `20260923030000_care_preserve_history`. Stop old maintenance workers before migrating; they still contain the former artifact purge. Source-review policy is now `source-review-v4`; unfinished v1/v2/v3 plans require a new approval plan, while their saved results remain readable. Configure:
 
 ```dotenv
 CARE_ENABLED=true
@@ -83,6 +83,6 @@ Keep the existing PostgreSQL, Redis, Zod, Prisma, provider adapters and frontend
 
 ## Validation and remaining gates
 
-The expanded suites cover 152 unit tests, 37 Care API integration tests using PGlite and fixture model/remote adapters, and 23 API-fixture browser tests including homepage coverage, run in both development and production builds. Consult the current PR checks for completed CI evidence. The integration suite exercises every one of the 24 roles, checkpoints between fresh service instances, tenant isolation, exact approval, invalid citations, current authorization, cancellation, reservations, dependency failure, a second worker, stale handling and rollback before HTTP success. The full integration suite also ran against real PostgreSQL 16/Redis in CI; subsequent commit-order regression fixes are tracked in the current [pull request checks](https://github.com/nithudev-com/zerochack/pull/1/checks).
+The expanded suites cover 164 unit tests, 43 Care API integration tests using PGlite and fixture model/remote adapters, and 24 API-fixture browser tests including homepage coverage, run in both development and production builds. Consult the current PR checks for completed CI evidence. The integration suite exercises every one of the 24 roles, checkpoints between fresh service instances, tenant isolation, exact approval, invalid citations, current authorization, cancellation, reservations, dependency failure, a second worker, stale handling and rollback before HTTP success. The full integration suite also ran against real PostgreSQL 16/Redis in CI; subsequent commit-order regression fixes are tracked in the current [pull request checks](https://github.com/nithudev-com/zerochack/pull/1/checks).
 
 These are implementation-contract tests, not an accuracy benchmark of a real model. PostgreSQL 16/Redis CI must pass for the revision being released. Live provider representative-case evaluations, production migrations/rollback, load/failover and real publish/restore drills remain separate gates. The original 100-item project is not complete. See `CARE-IMPLEMENTATION.md` and `upgrade-ledger.json` for the wider status. The customer and owner flow is also explained in [Tamil](USAGE-TA.md).

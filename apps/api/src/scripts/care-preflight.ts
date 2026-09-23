@@ -36,5 +36,5 @@ try {
 } finally {
   redis?.disconnect(); await database.$disconnect();
 }
-process.stdout.write(JSON.stringify({ sourceReviewRoles: agentCatalogue.filter((role) => role.sourceReview).length, implementedTools: toolCatalogue.filter((tool) => tool.enabled).length, implementedOfflineTools: toolCatalogue.filter((tool) => tool.implementation === 'OFFLINE_SOURCE_REVIEW').length, checks, productionCertified: false }, null, 2) + '\n');
+process.stdout.write(JSON.stringify({ sourceReviewRoles: agentCatalogue.filter((role) => role.sourceReview).length, implementedTools: toolCatalogue.filter((tool) => tool.enabled).length, implementedOfflineTools: toolCatalogue.filter((tool) => tool.implementation === 'OFFLINE_SOURCE_REVIEW').length, savedEvidenceTools: toolCatalogue.filter((tool) => tool.implementation === 'SCOPED_SAVED_EVIDENCE').length, dedicatedWorkflowBindings: toolCatalogue.filter((tool) => tool.implementation === 'DEDICATED_APPROVAL_WORKFLOW').length, unavailableTools: toolCatalogue.filter((tool) => !tool.enabled).map(({ id, name, unavailableReason }) => ({ id, name, reason: unavailableReason })), checks, productionCertified: false }, null, 2) + '\n');
 process.exitCode = checks.some((check) => check.state === 'BLOCKED') ? 1 : 0;

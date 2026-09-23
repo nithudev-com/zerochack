@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { agentCatalogue, executeReviewTool, implementedReviewTools, prepareReviewSnapshot, reviewPrompt, reviewSteps, validateReviewResult, type ReviewToolContext } from './index.js';
 
-const files = [{ path: 'src/page.tsx', content: 'export function Page() {\n  return <button>Save</button>;\n}\n' }];
+const files = [{ path: 'src/page.tsx', content: 'export function Page() {\n  return <button>Save</button>;\n}\n' }, { path: 'baseline.css', content: ':root { --color: blue; }' }, { path: 'candidate.css', content: ':root { --color: green; }' }];
 const snapshot = prepareReviewSnapshot(files);
 const context: ReviewToolContext = { tenantId: 'tenant-one', websiteId: 'site-one', jobId: 'job-one', environment: 'STAGING', authorized: true, approvalExpiresAt: new Date(Date.now() + 60000), sourceDigest: 'a'.repeat(64), summary: 'Review the page button', expectedBehavior: 'Check the source and state limitations', snapshot, state: 'RUNNING', completedRoles: [] };
 const result = { roleId: 'A09', status: 'REVIEWED', summary: 'A Save button is present in the supplied page source.', findings: [{ title: 'Check interaction behavior', priority: 'LOW', explanation: 'The source includes a Save button; its runtime behavior needs testing.', recommendation: 'Test the expected button behavior with a keyboard and assistive technology.', evidence: [{ path: 'src/page.tsx', startLine: 2, endLine: 2, quote: '<button>Save</button>' }] }], limitations: ['No browser or assistive-technology test was performed.'], nextSteps: ['Run the registered interaction tests in an isolated environment.'] };
@@ -38,7 +38,7 @@ describe('source-review scope and evidence controls', () => {
     expect(() => executeReviewTool('T10', { path: '../other.ts' }, context)).toThrow();
     expect(() => executeReviewTool('T10', { path: 'src/page.tsx', tenantId: 'other' }, context)).toThrow();
     for (const tool of implementedReviewTools) {
-      const args = tool === 'T10' ? { path: 'src/page.tsx' } : tool === 'T11' ? { text: 'Save' } : {};
+      const args = tool === 'T10' ? { path: 'src/page.tsx' } : tool === 'T11' ? { text: 'Save' } : tool === 'T06' ? { query: 'source' } : tool === 'T07' ? { id: 'source-evidence', version: 'care-policy-notes-v1' } : tool === 'T30' ? { baselinePath: 'baseline.css', candidatePath: 'candidate.css' } : {};
       expect(executeReviewTool(tool, args, context)).toBeDefined();
       expect(() => executeReviewTool(tool, args, { ...context, authorized: false })).toThrow();
       expect(() => executeReviewTool(tool, args, { ...context, approvalExpiresAt: new Date(0) })).toThrow();

@@ -32,6 +32,43 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('care routes through actual authentication and database paths', () => {
+  it('isolates record tools by tenant and returns no account secrets or unbounded errors', async () => {
+    const job = await database.careJob.create({ data: { tenantId: customer.tenantId, websiteId: siteId, userId: customer.userId, requestKey: randomUUID(), kind: 'REPAIR', environment: 'PRODUCTION', summary: 'Scoped record tool fixture', state: 'FAILED', errorCode: marker } });
+    const url = `/v1/jobs/${job.id}/tools/`;
+    expect((await app.inject({ method: 'POST', url: url + 'T03', headers: { cookie: other.cookie }, payload: {} })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: url + 'T03', payload: {} })).statusCode).toBe(401);
+    const access = await app.inject({ method: 'POST', url: url + 'T03', headers: { cookie: customer.cookie }, payload: {} });
+    expect(access.statusCode).toBe(200); expect(access.headers['cache-control']).toContain('no-store');
+    expect(access.json().output).toMatchObject({ secretDisclosure: false, connectionStatus: 'NOT_CHECKED' });
+    const errors = await app.inject({ method: 'POST', url: url + 'T57', headers: { cookie: customer.cookie }, payload: {} });
+    expect(errors.json().output.job.errorCode).toBe('REDACTED_ERROR'); expect(errors.body).not.toContain(marker);
+    await database.careJob.update({ where: { id: job.id }, data: { errorCode: null } });
+    await database.monitoringPolicy.upsert({ where: { websiteId: siteId }, create: { tenantId: customer.tenantId, websiteId: siteId, enabled: false, intervalMinutes: 60 }, update: { enabled: false } });
+    await database.monitoringCheck.create({ data: { tenantId: customer.tenantId, websiteId: siteId, jobId: randomUUID(), status: 'SUCCEEDED', completedAt: new Date(Date.now() - 24 * 3600000), responseTimeMs: 125 } });
+    const health = await app.inject({ method: 'POST', url: url + 'T58', headers: { cookie: customer.cookie }, payload: {} });
+    expect(health.json().output).toMatchObject({ state: 'RECORDED_EVIDENCE', stale: true, policy: { enabled: false }, lastCheck: { responseTimeMs: 125 } });
+  });
+  it('saves idempotent monitoring proposals without activating scheduling and retains cancelled history', async () => {
+    const parent = await database.careJob.create({ data: { tenantId: customer.tenantId, websiteId: siteId, userId: customer.userId, requestKey: randomUUID(), kind: 'REPAIR', environment: 'PRODUCTION', summary: 'Monitoring proposal fixture', state: 'WAITING_FOR_INPUT' } });
+    const url = `/v1/jobs/${parent.id}/monitoring-plan`; const headers = { cookie: customer.cookie };
+    const payload = { requestKey: randomUUID(), intervalMinutes: 60, alertCooldownMinutes: 120, expectedStatus: 200 };
+    const created = await app.inject({ method: 'POST', url, headers, payload }); expect(created.statusCode, created.body).toBe(201);
+    expect(created.json().proposal).toMatchObject({ activation: 'NOT_SCHEDULED', requiresCustomerApproval: true });
+    const again = await app.inject({ method: 'POST', url, headers, payload }); expect(again.statusCode).toBe(200); expect(again.json().proposalJobId).toBe(created.json().proposalJobId);
+    expect((await app.inject({ method: 'POST', url, headers, payload: { ...payload, intervalMinutes: 30 } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'POST', url, headers: { cookie: other.cookie }, payload })).statusCode).toBe(404);
+    expect((await database.monitoringPolicy.findUniqueOrThrow({ where: { websiteId: siteId } })).enabled).toBe(false);
+    expect((await app.inject({ method: 'POST', url: `/v1/jobs/${created.json().proposalJobId}/cancel`, headers })).statusCode).toBe(200);
+    const saved = await database.careJob.findUniqueOrThrow({ where: { id: created.json().proposalJobId } }); expect(saved.state).toBe('CANCELLED'); expect(JSON.parse(saved.expectedBehavior!)).toMatchObject({ parentJobId: parent.id, intervalMinutes: 60 });
+    await database.careJob.update({ where: { id: parent.id }, data: { environment: 'STAGING' } });
+    expect((await app.inject({ method: 'POST', url, headers, payload: { ...payload, requestKey: randomUUID() } })).statusCode).toBe(409);
+  });
+  it('blocks secrets in human handoff requests before creating a ticket', async () => {
+    const before = await database.ticket.count({ where: { websiteId: siteId } });
+    const result = await app.inject({ method: 'POST', url: `/v1/websites/${siteId}/tickets`, headers: { cookie: customer.cookie }, payload: { title: 'Please review the supplied issue', description: `password: ${marker}` } });
+    expect(result.statusCode).toBe(400); expect(result.json().error.code).toBe('SENSITIVE_CONTENT_BLOCKED'); expect(result.body).not.toContain(marker);
+    expect(await database.ticket.count({ where: { websiteId: siteId } })).toBe(before);
+  });
   it('requires explicit authority and keeps ambiguous submissions out of storage', async () => {
     const url = `/v1/websites/${siteId}/chat/ingest`;
     expect((await app.inject({ method: 'POST', url, headers: { cookie: customer.cookie }, payload: { mode: 'SECURE', idempotencyKey: randomUUID(), content: marker, environment: 'PRODUCTION', authorizationConfirmed: false } })).statusCode).toBe(400);
@@ -44,6 +81,10 @@ describe.sequential('care routes through actual authentication and database path
     const response = await app.inject({ method: 'POST', url: `/v1/websites/${siteId}/chat/ingest`, headers: { cookie: customer.cookie }, payload: { mode: 'SECURE', idempotencyKey: captureKey, content: `Type: SSH\nHost: server.example.test\nUsername: deploy\nPassword: ${marker}`, environment: 'PRODUCTION', authorizationConfirmed: true } });
     expect(response.statusCode).toBe(201); expect(response.body).not.toContain(marker); expect(response.json().connectionStatus).toBe('NOT_CHECKED'); credentialId = response.json().credentials[0].id;
     const stored = await database.careCredential.findUniqueOrThrow({ where: { id: credentialId } }); expect(stored.encryptedEnvelope).toMatch(/^zr1\./); expect(stored.encryptedEnvelope).not.toContain(marker);
+    const capturedJob = await database.careJob.findUniqueOrThrow({ where: { tenantId_websiteId_requestKey: { tenantId: customer.tenantId, websiteId: siteId, requestKey: captureKey } } });
+    const capabilities = await app.inject({ method: 'POST', url: `/v1/jobs/${capturedJob.id}/tools/T03`, headers: { cookie: customer.cookie }, payload: {} });
+    expect(capabilities.json().output).toMatchObject({ credentialTypes: ['SSH'], recordedAccounts: 1, secretDisclosure: false });
+    expect(capabilities.body).not.toContain(marker); expect(capabilities.body).not.toContain('server.example.test'); expect(capabilities.body).not.toContain('encryptedEnvelope');
     const bridge = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: siteId } }); expect(bridge.encryptedSecret).toBe(''); expect(bridge.vaultCredentialId).toBe(credentialId);
     for (const data of [await database.chatMessage.findMany({ where: { websiteId: siteId } }), await database.careEvent.findMany({ where: { websiteId: siteId } }), await database.auditLog.findMany({ where: { tenantId: customer.tenantId } })]) expect(JSON.stringify(data)).not.toContain(marker);
     expect(await database.aiUsage.count({ where: { tenantId: customer.tenantId } })).toBe(0);

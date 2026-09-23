@@ -2,6 +2,32 @@ import { expect, test } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
+test('saved evidence tools show real states and retain monitoring proposals without activating them', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5';
+  const proposalId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b';
+  let saved = false;
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/care')) return route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REPAIR', summary: 'Review the saved issue', state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }, ...(saved ? [{ id: proposalId, kind: 'MONITOR_PLAN', summary: 'Monitoring schedule proposal requires customer review', expectedBehavior: JSON.stringify({ intervalMinutes: 60, activation: 'NOT_SCHEDULED' }), state: 'WAITING_FOR_INPUT', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }] : [])], capabilities: { attachments: false, isolatedRepair: false, deployment: false } } });
+    if (path.endsWith('/tools/T58')) { expect(route.request().postDataJSON()).toEqual({}); return route.fulfill({ json: { toolId: 'T58', output: { state: 'NOT_OBSERVED', limitation: 'No recorded monitoring check exists.' } } }); }
+    if (path.endsWith('/monitoring-plan')) { expect(route.request().postDataJSON()).toMatchObject({ intervalMinutes: 60, expectedStatus: 200 }); saved = true; return route.fulfill({ status: 201, json: { proposalJobId: proposalId, proposal: { activation: 'NOT_SCHEDULED' } } }); }
+    return route.fallback();
+  });
+  await page.goto(`/customer/websites/${id}`);
+  await page.getByText('Saved evidence & source tools', { exact: true }).click();
+  await page.getByLabel('Evidence to read').selectOption('T58');
+  await page.getByRole('button', { name: 'Read evidence', exact: true }).click();
+  await expect(page.getByText(/No recorded monitoring check exists/)).toBeVisible();
+  const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
+  expect(accessibility.violations).toEqual([]);
+  await expect(page.getByRole('button', { name: 'Save monitoring proposal' })).toBeDisabled();
+  await page.getByLabel('Save this proposal for review; do not activate monitoring.').check();
+  await page.getByRole('button', { name: 'Save monitoring proposal' }).click();
+  await expect(page.getByRole('heading', { name: 'Monitoring schedule proposal requires customer review' })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Monitoring schedule proposal requires customer review' })).toBeVisible();
+  await expect(page.getByText('waiting for input · No monitoring was activated by this proposal.')).toBeVisible();
+});
 test('technology team presets use available roles and invalid upload paths are blocked before submission', async ({ page }) => {
   const roles = ['A01','A03','A05','A08','A09','A12','A14','A18'].map(id => ({ id, name: `Review role ${id}`, implementation: 'SOURCE_REVIEW' }));
   await page.route('**/care?**', async route => route.fulfill({ json: { credentials: [], accessRequests: [], jobs: [], roles, capabilities: { sourceReview: true, maximumReviewBudgetMicros: 5000000 } } }));
