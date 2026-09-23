@@ -11,8 +11,9 @@ function BrandLogo({ priority = false }: { priority?: boolean }) {
 export function ApplicationShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const marketing = pathname === '/';
+  const careWorkspace = /^\/customer\/websites\/[^/]+$/.test(pathname);
   const publicAuth = pathname.endsWith('/login') || pathname.endsWith('/register') || ['/sign-in', '/forgot-password', '/reset-password', '/verify-email', '/mfa', '/approval-pending', '/rejected', '/suspended', '/deactivated'].includes(pathname);
-  return <div className={`app-shell${marketing ? ' app-shell--marketing' : ''}`}>
+  return <div className={`app-shell${marketing ? ' app-shell--marketing' : ''}${careWorkspace ? ' app-shell--care' : ''}`}>
     <header className="app-header">
       <Link className="brand brand--image" href="/" aria-label="ZeroRoot home"><BrandLogo priority /></Link>
       {marketing ? <><nav aria-label="Primary navigation"><a href="#security">Security</a><a href="#platform">Platform</a><a href="#portals">Portals</a><a href="#faq">FAQ</a></nav><div className="header-actions"><Link className="header-login" href="/sign-in">Sign in</Link><Link className="header-cta" href="/customer/register">Get protected <span aria-hidden="true">→</span></Link></div></> : publicAuth ? <nav aria-label="Public navigation"><Link href="/">Home</Link></nav> : <nav aria-label="Primary navigation"><Link href="/">Home</Link><Link href="/dashboard">Dashboard</Link><Link href="/account">Sessions</Link><a href="http://localhost:4000/docs">API documentation</a></nav>}

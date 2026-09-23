@@ -516,10 +516,128 @@ model Website {
   restoreOperations         RestoreOperation[]
   accessCredential          WebsiteAccessCredential?
   securityFixOrders         SecurityFixOrder[]
+  careCredentials CareCredential[]
+  careJobs CareJob[]
+  careEvents CareEvent[]
+
+  @@unique([tenantId, id])
 
   @@unique([tenantId, normalizedHost])
   @@index([tenantId, lifecycle])
   @@map("websites")
+}
+
+model CareCredential {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  kind String @db.VarChar(20)
+  host String @db.VarChar(253)
+  port Int @default(22)
+  username String @db.VarChar(120)
+  authMethod String @map("auth_method") @db.VarChar(20)
+  version Int @default(1)
+  encryptedEnvelope String @map("encrypted_envelope") @db.Text
+  status String @default("STORED") @db.VarChar(20)
+  authorizedBy String @map("authorized_by") @db.Uuid
+  authorizationExpiresAt DateTime @map("authorization_expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
+  legacyAccess WebsiteAccessCredential?
+  grants CareAccessRequest[]
+  @@unique([tenantId, websiteId, id])
+  @@index([tenantId, websiteId, environment, status])
+  @@map("care_credentials")
+}
+
+model CareAccessRequest {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  credentialId String @map("credential_id") @db.Uuid
+  credentialVersion Int @map("credential_version")
+  specialistId String @map("specialist_id") @db.Uuid
+  ticketId String @map("ticket_id") @db.Uuid
+  reason String @db.VarChar(1000)
+  status String @default("PENDING") @db.VarChar(20)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  decidedBy String? @map("decided_by") @db.Uuid
+  decidedAt DateTime? @map("decided_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  credential CareCredential @relation(fields: [tenantId, websiteId, credentialId], references: [tenantId, websiteId, id], onDelete: Cascade)
+  @@index([tenantId, websiteId, status])
+  @@index([specialistId, status, expiresAt])
+  @@map("care_access_requests")
+}
+
+model CareJob {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  userId String @map("user_id") @db.Uuid
+  requestKey String @map("request_key") @db.Uuid
+  environment String @default("STAGING") @db.VarChar(16)
+  kind String @db.VarChar(16)
+  state String @default("QUEUED") @db.VarChar(32)
+  summary String @db.VarChar(1000)
+  expectedBehavior String? @map("expected_behavior") @db.VarChar(4000)
+  planVersion Int @default(1) @map("plan_version")
+  approvedVersion Int? @map("approved_version")
+  approvedBy String? @map("approved_by") @db.Uuid
+  approvalExpiresAt DateTime? @map("approval_expires_at") @db.Timestamptz(6)
+  sourceRevision String? @map("source_revision") @db.VarChar(64)
+  candidateDigest String? @map("candidate_digest") @db.Char(64)
+  previewUrl String? @map("preview_url") @db.VarChar(2048)
+  errorCode String? @map("error_code") @db.VarChar(100)
+  resultMessageId String? @map("result_message_id") @db.Uuid
+  leaseVersion Int @default(0) @map("lease_version")
+  heartbeatAt DateTime @default(now()) @map("heartbeat_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
+  agents CareAgentRun[]
+  @@unique([tenantId, websiteId, requestKey])
+  @@unique([tenantId, websiteId, id])
+  @@index([tenantId, websiteId, state])
+  @@map("care_jobs")
+}
+
+model CareAgentRun {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  jobId String @map("job_id") @db.Uuid
+  roleId String @map("role_id") @db.VarChar(8)
+  roleVersion Int @default(1) @map("role_version")
+  task String @db.VarChar(1000)
+  state String @default("QUEUED") @db.VarChar(32)
+  resultMessageId String? @map("result_message_id") @db.Uuid
+  heartbeatAt DateTime @default(now()) @map("heartbeat_at") @db.Timestamptz(6)
+  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  job CareJob @relation(fields: [tenantId, websiteId, jobId], references: [tenantId, websiteId, id], onDelete: Cascade)
+  @@index([tenantId, websiteId, jobId])
+  @@map("care_agent_runs")
+}
+
+// Committed events are the durable outbox. SSE reads by sequence; Redis is optional fan-out.
+model CareEvent {
+  sequence Int @id @default(autoincrement())
+  id String @unique @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  jobId String? @map("job_id") @db.Uuid
+  agentRunId String? @map("agent_run_id") @db.Uuid
+  eventType String @map("event_type") @db.VarChar(64)
+  state String @db.VarChar(32)
+  summary String @db.VarChar(1000)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
+  @@index([tenantId, websiteId, sequence])
+  @@map("care_events")
 }
 
 model WebsiteVerification {
@@ -539,6 +657,8 @@ model WebsiteVerification {
 }
 
 model WebsiteAccessCredential {
+  vaultCredentialId String? @unique @map("vault_credential_id") @db.Uuid
+  vaultCredential CareCredential? @relation(fields: [vaultCredentialId], references: [id], onDelete: SetNull)
   id              String   @id @default(uuid()) @db.Uuid
   tenantId        String   @map("tenant_id") @db.Uuid
   websiteId       String   @unique @map("website_id") @db.Uuid
@@ -1022,6 +1142,7 @@ model Report {
 }
 
 model ChatMessage {
+  environment String @default("PRODUCTION") @db.VarChar(16)
   id           String           @id @default(uuid()) @db.Uuid
   tenantId     String           @map("tenant_id") @db.Uuid
   websiteId    String           @map("website_id") @db.Uuid

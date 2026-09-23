@@ -1,7 +1,7 @@
 import Redis from 'ioredis';
 import { database } from '@zerochack/database';
 import { decryptSecret } from '@zerochack/auth';
-import { AI_ADAPTER_KEYS, AiGatewayError, CentralAiGateway, isProviderHealthFailure, OpenAiResponsesAdapter, type AiLimitStore, type AiProviderAdapter, type AiProviderConfiguration, type AiRequest, type AiUsageStore, type ProviderCompletion, type UsageFinish, type UsageStart } from '@zerochack/ai-gateway';
+import { AI_ADAPTER_KEYS, AnthropicMessagesAdapter, AiGatewayError, CentralAiGateway, isProviderHealthFailure, OpenAiResponsesAdapter, type AiLimitStore, type AiProviderAdapter, type AiProviderConfiguration, type AiRequest, type AiUsageStore, type ProviderCompletion, type UsageFinish, type UsageStart } from '@zerochack/ai-gateway';
 import type { Environment } from '@zerochack/config';
 import { ApiError } from '../../errors.js';
 
@@ -29,7 +29,7 @@ class PrismaUsageStore implements AiUsageStore {
 export class AiService {
   private readonly gateway: CentralAiGateway;
   readonly adapters: AiProviderAdapter[];
-  constructor(environment: Environment, redis?: Redis, adapters?: AiProviderAdapter[]) { this.adapters = adapters ?? [new OpenAiResponsesAdapter()]; this.gateway = new CentralAiGateway({ adapters: this.adapters, limits: redis ? new RedisLimitStore(redis) : new MemoryLimitStore(), usage: new PrismaUsageStore(), decryptCredential: (encrypted) => decryptSecret(encrypted, environment.AI_CREDENTIAL_ENCRYPTION_KEY) }); }
+  constructor(environment: Environment, redis?: Redis, adapters?: AiProviderAdapter[]) { this.adapters = adapters ?? [new OpenAiResponsesAdapter(), new AnthropicMessagesAdapter()]; this.gateway = new CentralAiGateway({ adapters: this.adapters, limits: redis ? new RedisLimitStore(redis) : new MemoryLimitStore(), usage: new PrismaUsageStore(), decryptCredential: (encrypted) => decryptSecret(encrypted, environment.AI_CREDENTIAL_ENCRYPTION_KEY) }); }
 
   async configuration(tenantId: string, requested?: { providerId?: string; modelId?: string }): Promise<AiProviderConfiguration> {
     const policy = await database.aiTenantPolicy.findUnique({ where: { tenantId } });

@@ -27,7 +27,7 @@ textarea { font: inherit; }
 .brand--footer .brand-logo { width: 11rem; }
 .app-footer--branded { display: flex; align-items: center; justify-content: center; gap: 1rem; }
 .app-footer--branded .brand-logo { width: 6.5rem; }
-.app-header nav { display: flex; gap: var(--space-4); font-size: .875rem; color: var(--gray-700); }
+.app-header nav { display: flex; flex-wrap: wrap; min-width: 0; gap: var(--space-4); font-size: .875rem; color: var(--gray-700); }
 .app-header nav a { text-decoration: none; }
 .app-header nav a:hover { color: var(--black); }
 .app-main { width: min(100% - 2rem, 72rem); margin-inline: auto; padding-block: var(--space-12); }
@@ -149,8 +149,8 @@ h2 { margin: 0 0 var(--space-6); font-size: 1.5rem; letter-spacing: -.025em; }
 @media (min-width: 64rem) { .card-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; } }
 
-.customer-layout { display: grid; gap: var(--space-6); margin-block: calc(var(--space-12) * -1); min-height: calc(100vh - 10rem); }
-.customer-sidebar { padding: var(--space-4) 0; border-bottom: 1px solid var(--gray-200); display: grid; gap: var(--space-3); }
+.customer-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-6); margin-block: calc(var(--space-12) * -1); min-height: calc(100vh - 10rem); }
+.customer-sidebar { min-width: 0; padding: var(--space-4) 0; border-bottom: 1px solid var(--gray-200); display: grid; gap: var(--space-3); }
 .customer-sidebar-title { padding-inline: var(--space-2); font-weight: 750; }
 .customer-sidebar nav { display: flex; gap: var(--space-2); overflow-x: auto; padding: var(--space-1) var(--space-2) var(--space-2); scrollbar-width: thin; }
 .customer-sidebar nav a { flex: 0 0 auto; padding: .5rem .75rem; border-radius: .45rem; text-decoration: none; color: var(--gray-700); font-size: .875rem; }

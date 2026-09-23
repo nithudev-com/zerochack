@@ -1,3 +1,4 @@
+import { maintainCareRecords } from './care-maintenance.js';
 import { createLogger, loadEnvironment } from '@zerochack/config';
 import { createQueueRegistry, queueNames } from './queues.js';
 import { createScanWorker } from './scan-worker.js';
@@ -24,6 +25,8 @@ const schedules = await reconcileSchedulers(registry.queues);
 const heartbeatRedis = new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
 const heartbeat = async () => heartbeatRedis.set('zerochack:worker:heartbeat', new Date().toISOString(), 'EX', 90);
 await heartbeat();
+let careMaintenanceBusy = false;
+const careMaintenance = setInterval(() => { if (!environment.CARE_ENABLED || careMaintenanceBusy) return; careMaintenanceBusy = true; void maintainCareRecords().catch(() => logger.error({ errorCode: 'CARE_MAINTENANCE_FAILED' }, 'care.maintenance_failed')).finally(() => { careMaintenanceBusy = false; }); }, 60000);
 const heartbeatTimer = setInterval(() => void heartbeat().catch((error) => logger.error({ err: error, errorCode: 'WORKER_HEARTBEAT_FAILED' }, 'worker.heartbeat_failed')), 30_000);
 
 for (const events of registry.events) {
@@ -35,6 +38,7 @@ logger.info({ queues: queueNames, schedules }, 'worker.ready');
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'service.shutdown');
   clearInterval(heartbeatTimer);
+  clearInterval(careMaintenance);
   await scanWorker.close();
   await backupWorker.close();
   await monitoringWorker.close();

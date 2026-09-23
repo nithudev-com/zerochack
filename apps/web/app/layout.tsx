@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { ApplicationShell } from '../components/application-shell';
 import { Providers } from './providers';
 import './globals.css';
+import '@fontsource/noto-sans-tamil/400.css';
+import './care.css';
 
 const siteUrl = process.env.APP_URL ?? 'http://localhost:3000';
 

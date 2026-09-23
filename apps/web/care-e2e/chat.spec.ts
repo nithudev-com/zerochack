@@ -1,0 +1,91 @@
+import { expect, test } from '@playwright/test';
+const id = 'e33690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
+const site = { id, name: 'Care UI fixture', url: 'https://example.test', normalizedHost: 'example.test', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] };
+test.beforeEach(async ({ page }) => {
+  await page.route('**/v1/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    const data = path.endsWith('/auth/me') ? { roles: ['Customer'], displayName: 'UI test customer' } : path.endsWith('/care') ? { credentials: [], accessRequests: [], jobs: [], capabilities: { attachments: false, isolatedRepair: false, deployment: false } } : path.endsWith(`/websites/${id}`) ? site : [];
+    if (path.endsWith('/activity/stream')) return route.fulfill({ status: 200, contentType: 'text/event-stream', body: ': connected\n\n' });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(data) });
+  });
+});
+test('secure capture never renders submitted credentials as a bubble', async ({ page }) => {
+  let submitted: Record<string, unknown> | undefined;
+  await page.route('**/chat/ingest', async (route) => { submitted = route.request().postDataJSON(); return route.fulfill({ status: 201, contentType: 'application/json', body: '{"connectionStatus":"NOT_CHECKED"}' }); });
+  await page.goto(`/customer/websites/${id}`);
+  await expect(page.getByRole('heading', { name: 'Care UI fixture' })).toBeVisible();
+  await page.getByLabel('Secure access details').fill('Host: server.example.test\nUsername: deploy\nPassword: synthetic-browser-marker');
+  await expect(page.getByRole('button', { name: 'Store securely' })).toBeDisabled();
+  await page.getByLabel('I’m authorized to provide').check();
+  await page.getByRole('button', { name: 'Store securely' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Access stored securely' })).toBeVisible();
+  expect(submitted).toMatchObject({ mode: 'SECURE', authorizationConfirmed: true });
+  await expect(page.getByLabel('Conversation history')).not.toContainText('synthetic-browser-marker');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-browser-marker');
+});
+test('mobile, reduced motion and Tamil content remain within the viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 }); await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto(`/customer/websites/${id}`);
+  await page.getByRole('button', { name: 'Secure capture' }).click();
+  await page.getByLabel('Message ZeroRoot').fill('என் இணையதளத்தில் மொபைல் மெனு சரியாக வேலை செய்யவில்லை.');
+  await expect(page.getByRole('button', { name: 'Send', exact: false })).toBeVisible();
+  const overflow = await page.evaluate(() => ({ width: innerWidth, pageWidth: document.documentElement.scrollWidth, elements: Array.from(document.querySelectorAll('body *')).filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(element).position !== 'absolute').slice(0, 8).map((element) => ({ tag: element.tagName, class: element.className, right: element.getBoundingClientRect().right })) }));
+  expect(overflow.pageWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.width);
+  await page.screenshot({ path: 'test-results/care-mobile.png', fullPage: true });
+});
+test('environment changes clear draft and receipt context', async ({ page }) => {
+  await page.goto(`/customer/websites/${id}`); await page.getByLabel('Secure access details').fill('sensitive draft');
+  await page.getByLabel('Environment', { exact: true }).selectOption('STAGING');
+  await expect(page.getByLabel('Secure access details')).toHaveValue('');
+  await page.getByRole('button', { name: /Your AI team/ }).click();
+  await expect(page.getByText('No AI role has been assigned yet.')).toBeVisible();
+  await page.screenshot({ path: 'test-results/care-desktop.png', fullPage: true });
+});
+test('untrusted Markdown cannot load remote images or render raw HTML', async ({ page }) => {
+  await page.route('**/chat?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ id: 'fixture-message', type: 'AI', content: '<button>Forged approval</button>\n\n![tracking](https://invalid.example.test/pixel)\n\n[unsafe](javascript:alert(1))', createdAt: new Date().toISOString() }]) }));
+  await page.goto(`/customer/websites/${id}`);
+  await expect(page.getByLabel('Conversation history')).toContainText('Image omitted');
+  await expect(page.getByRole('button', { name: 'Forged approval' })).toHaveCount(0);
+  await expect(page.locator('.care-message img')).toHaveCount(0);
+  await expect(page.locator('.care-message a[href^="javascript:"]')).toHaveCount(0);
+});
+
+for (const width of [390, 768, 1280, 1440]) {
+  test(`chat fits ${width}px and keeps navigation accessible`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/customer/websites/${id}`);
+    await expect(page.getByLabel('Secure access details')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    if (width < 1024) {
+      await page.getByRole('button', { name: 'Menu', exact: true }).click();
+      await expect(page.getByRole('navigation', { name: 'Customer navigation' })).toBeVisible();
+      await page.getByRole('button', { name: 'Close menu', exact: true }).click();
+    }
+    await page.getByRole('button', { name: 'Switch to dark theme' }).click();
+    await expect(page.locator('.care-chat')).toHaveClass(/care-theme-dark/);
+  });
+}
+test('IME Enter does not submit a message', async ({ page }) => {
+  let submitted = 0;
+  await page.route('**/chat/ingest', (route) => { submitted += 1; return route.fulfill({ contentType: 'application/json', body: '{}' }); });
+  await page.goto(`/customer/websites/${id}`);
+  await page.getByRole('button', { name: 'Secure capture' }).click();
+  const input = page.getByLabel('Message ZeroRoot'); await input.fill('தமிழ் composing input');
+  await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, bubbles: true });
+  await expect(input).toHaveValue('தமிழ் composing input'); expect(submitted).toBe(0);
+  await input.press('Shift+Enter'); expect(submitted).toBe(0);
+});
+test('specialist reveal stays hidden until requested and clears on blur', async ({ page }) => {
+  const grantId = 'approved-fixture-grant';
+  await page.route('**/auth/me', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ roles: ['Cybersecurity Specialist'], displayName: 'Assigned specialist' }) }));
+  await page.route('**/specialist/care/access', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tickets: [], credentials: [], grants: [{ id: grantId, status: 'APPROVED', reason: 'Inspect approved configuration', expiresAt: new Date(Date.now() + 600000).toISOString(), credential: { id: 'account', websiteId: id, kind: 'SSH', host: 'server.example.test', environment: 'PRODUCTION', version: 1 } }] }) }));
+  await page.route(`**/credential-grants/${grantId}/reveal`, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ secret: 'synthetic-disclosure-marker' }) }));
+  await page.goto('/specialist/access');
+  await expect(page.getByRole('button', { name: 'Reveal approved credential' })).toBeVisible();
+  await expect(page.getByLabel('Approved credential', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Reveal approved credential' }).click();
+  await expect(page.getByLabel('Approved credential', { exact: true })).toHaveValue('synthetic-disclosure-marker');
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await expect(page.getByLabel('Approved credential', { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-disclosure-marker');
+});

@@ -57,7 +57,7 @@ export const mfaRoutes: FastifyPluginAsync<{ environment: Environment }> = async
 
   app.post('/auth/mfa/setup', { preHandler: (request) => authenticate(request, environment) }, async (request) => {
     if ((request.roleNames ?? []).includes('Owner')) throw new ApiError(403, 'OWNER_MFA_REQUIRED', 'Owner MFA is managed during sign in');
-    if (!(request.roleNames ?? []).some((role) => ['Customer', 'Agency', 'Affiliate'].includes(role))) throw new ApiError(403, 'MFA_NOT_AVAILABLE', 'Optional MFA is unavailable for this role');
+    if (!(request.roleNames ?? []).some((role) => ['Customer', 'Agency', 'Affiliate', 'Cybersecurity Specialist'].includes(role))) throw new ApiError(403, 'MFA_NOT_AVAILABLE', 'Optional MFA is unavailable for this role');
     const user = await database.user.findUniqueOrThrow({ where: { id: request.userId! }, select: { email: true, mfaEnabledAt: true } });
     if (user.mfaEnabledAt) throw new ApiError(409, 'MFA_ALREADY_ENABLED', 'Authenticator MFA is already enabled');
     const secret = generateTotpSecret(); await database.user.update({ where: { id: request.userId! }, data: { mfaSecretEncrypted: encryptSecret(secret, environment.MFA_ENCRYPTION_KEY) } });
@@ -82,8 +82,8 @@ export const mfaRoutes: FastifyPluginAsync<{ environment: Environment }> = async
   });
 
   app.post('/auth/mfa/step-up', { preHandler: (request) => authenticate(request, environment), config: { rateLimit: { max: 5, timeWindow: '5 minutes' } } }, async (request) => {
-    requireOwnerRole(request); const body = parse({ safeParse: (input: unknown) => typeof input === 'object' && input !== null && 'code' in input && typeof input.code === 'string' ? { success: true as const, data: { code: input.code } } : { success: false as const, error: { flatten: () => ({ fieldErrors: { code: ['Required'] } }) } } }, request.body);
-    const user = await database.user.findUniqueOrThrow({ where: { id: request.userId! } }); if (!user.mfaSecretEncrypted || !verifyTotp(decryptSecret(user.mfaSecretEncrypted, environment.MFA_ENCRYPTION_KEY), body.code)) throw new ApiError(401, 'MFA_CODE_INVALID', 'MFA code is invalid');
+    if (!(request.roleNames ?? []).includes('Cybersecurity Specialist')) requireOwnerRole(request); const body = parse({ safeParse: (input: unknown) => typeof input === 'object' && input !== null && 'code' in input && typeof input.code === 'string' ? { success: true as const, data: { code: input.code } } : { success: false as const, error: { flatten: () => ({ fieldErrors: { code: ['Required'] } }) } } }, request.body);
+    const user = await database.user.findUniqueOrThrow({ where: { id: request.userId! } }); if (!user.mfaEnabledAt || !user.mfaSecretEncrypted || !verifyTotp(decryptSecret(user.mfaSecretEncrypted, environment.MFA_ENCRYPTION_KEY), body.code)) throw new ApiError(401, 'MFA_CODE_INVALID', 'MFA code is invalid');
     await database.session.update({ where: { id: request.sessionId! }, data: { mfaVerifiedAt: new Date() } }); await writeAudit({ tenantId: request.tenantId, actorUserId: request.userId, requestId: request.id, action: 'auth.mfa_step_up', resourceType: 'session', resourceId: request.sessionId, ipAddress: request.ip }); return { status: 'VERIFIED' };
   });
 
