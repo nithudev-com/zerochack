@@ -12,7 +12,7 @@ export default defineConfig({
   workers: 1,
   use: { baseURL: webOrigin, trace: 'retain-on-failure' },
   webServer: [
-    { command: 'npm run dev -w @zerochack/api', url: `${apiUrl}/health/live`, env: { API_HOST: '127.0.0.1', API_PORT: '4000', CORS_ORIGINS: webOrigin }, reuseExistingServer: !process.env.CI },
+    { command: 'npm run dev -w @zerochack/api', url: `${apiUrl}/health/live`, env: { API_HOST: '127.0.0.1', API_PORT: '4000', CORS_ORIGINS: webOrigin, CARE_ENABLED: 'true' }, reuseExistingServer: !process.env.CI },
     { command: 'npm run dev -w @zerochack/web -- --hostname 127.0.0.1 --port 3000', url: webOrigin, env: { NEXT_PUBLIC_API_URL: apiUrl }, reuseExistingServer: !process.env.CI }
   ]
 });
