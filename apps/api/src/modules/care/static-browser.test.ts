@@ -18,6 +18,9 @@ describe('static browser boundaries', () => {
     await expect(captureStaticDocument(browser, { ...input, source: '<script>fixture()</script>' })).rejects.toMatchObject({ code: 'UNSUPPORTED_STACK' });
     await expect(captureStaticDocument(browser, { ...input, privateIds: ['bad selector'] })).rejects.toMatchObject({ code: 'BROWSER_INPUT_INVALID' });
     await expect(captureStaticDocument(browser, { ...input, source: '<img src="https://example.test/photo.png" alt="Fixture">' })).rejects.toMatchObject({ code: 'EXTERNAL_DEPENDENCY' });
+    const mislabeledImage = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>').toString('base64');
+    const entityEncoded = `&#${mislabeledImage.charCodeAt(0)};${mislabeledImage.slice(1)}`;
+    for (const image of [mislabeledImage, entityEncoded]) await expect(captureStaticDocument(browser, { ...input, source: `<img alt="Fixture" src="data:image/png;base64,${image}">` })).rejects.toMatchObject({ code: 'BROWSER_IMAGE_LIMIT' });
     expect(browser.newContext).not.toHaveBeenCalled();
   });
 });

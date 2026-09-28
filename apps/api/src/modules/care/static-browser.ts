@@ -39,13 +39,15 @@ export const runStaticBrowser: BrowserAdapter = async (input) => {
 export async function captureStaticDocument(browser: Browser, input: BrowserInput): Promise<BrowserResult> {
   const inspection = inspectStaticHtml(input.source);
   if (!(input.viewport in viewports) || input.privateIds.length > 20 || new Set(input.privateIds).size !== input.privateIds.length || input.privateIds.some((id) => !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(id))) throw new ApiError(400, 'BROWSER_INPUT_INVALID', 'Use an approved viewport and unique simple element IDs.');
+  // Parse/serialize first so entity-encoded attributes receive the same raster checks.
+  const sanitized = staticPreview(input.source);
   // Bound embedded raster decoding before Chromium sees it. Metadata is not carried into evidence.
   let images = 0; let imagePixels = 0;
-  for (const match of input.source.matchAll(/data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)/gi)) {
+  for (const match of sanitized.matchAll(/data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)/gi)) {
     if (++images > 20) throw new ApiError(400, 'BROWSER_IMAGE_LIMIT', 'Use at most 20 embedded images.');
     const metadata = await sharp(Buffer.from(match[1]!, 'base64'), { limitInputPixels: 4_000_000 }).metadata();
     imagePixels += (metadata.width ?? 0) * (metadata.height ?? 0);
-    if (imagePixels > 8_000_000 || !metadata.width || !metadata.height || metadata.width * metadata.height > 4_000_000 || (metadata.pages ?? 1) !== 1) throw new ApiError(400, 'BROWSER_IMAGE_LIMIT', 'Use single-frame embedded images below four million pixels.');
+    if (!['png', 'jpeg', 'webp'].includes(metadata.format ?? '') || imagePixels > 8_000_000 || !metadata.width || !metadata.height || metadata.width * metadata.height > 4_000_000 || (metadata.pages ?? 1) !== 1) throw new ApiError(400, 'BROWSER_IMAGE_LIMIT', 'Use single-frame embedded images below four million pixels.');
   }
   const context = await browser.newContext({ viewport: viewports[input.viewport], deviceScaleFactor: 1, javaScriptEnabled: false, offline: true, serviceWorkers: 'block', acceptDownloads: false, permissions: [], locale: 'en-US', timezoneId: 'UTC', colorScheme: 'light', reducedMotion: 'reduce' });
   const timer = setTimeout(() => { void context.close().catch(() => undefined); }, 20000);
@@ -53,7 +55,7 @@ export async function captureStaticDocument(browser: Browser, input: BrowserInpu
   try {
     await context.route('**/*', (route) => { blockedRequests++; return route.abort(); });
     const page = await context.newPage(); page.setDefaultTimeout(3000);
-    const preview = staticPreview(input.source).replace('</head>', '<style>*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}</style></head>');
+    const preview = sanitized.replace('</head>', '<style>*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}</style></head>');
     await page.setContent(preview, { waitUntil: 'domcontentloaded', timeout: 5000 });
     const masks = input.privateIds.map((id) => page.locator(`[id="${id}"]`));
     for (const mask of masks) {
