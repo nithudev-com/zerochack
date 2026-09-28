@@ -1,5 +1,8 @@
 /** Browser-safe bindings. A binding is implementation evidence, not deployment activation. */
 export const workflowToolBindings: Record<string, { entrypoint: string; boundary: string; requirements: string[] }> = {
+  T20: { entrypoint: 'POST /jobs/:id/observations (T20)', boundary: 'Match explicitly selected exact npm/Composer snapshot versions against OSV; external package-metadata sharing requires separate consent. Not a deployed-version or exploitability claim.', requirements: ['CARE_ADVISORIES_ENABLED and CARE_REVIEW_ENABLED', 'Current exact source-review approval', 'Explicit selection and OSV disclosure consent', 'Retained encrypted result storage'] },
+  T23: { entrypoint: 'POST /jobs/:id/observations (T23)', boundary: 'One unauthenticated HEAD request to the verified production website root; fixed ports, pinned public resolution, bounded headers, no redirects or cookies.', requirements: ['CARE_OBSERVATIONS_ENABLED', 'Verified production website binding', 'Explicit target-bound observation consent', 'Retained encrypted result storage'] },
+  T24: { entrypoint: 'POST /jobs/:id/observations (T24)', boundary: 'One validated TLS handshake with original-hostname and certificate-chain checks; no cipher enumeration or application testing.', requirements: ['CARE_OBSERVATIONS_ENABLED', 'Verified HTTPS production website', 'Explicit target-bound observation consent', 'Retained encrypted result storage'] },
   T08: { entrypoint: 'POST /jobs/:id/change-plan; POST /websites/:websiteId/reviews', boundary: 'Persist a static HTML or uploaded-source plan; customer approval starts work.', requirements: ['CARE_REPAIR_ENABLED or CARE_REVIEW_ENABLED', 'Configured model and prices', 'Authorized source and budget'] },
   T13: { entrypoint: 'POST /jobs/:id/workspaces', boundary: 'Create a customer-authorized staging text snapshot with encrypted, retained versions. No filesystem checkout or executable sandbox.', requirements: ['CARE_REVIEW_ENABLED', 'Exact current staging source selection', 'websites.manage and explicit text-copy consent'] },
   T14: { entrypoint: 'POST /workspaces/:id/patches', boundary: 'Apply bounded literal edits to existing approved paths with exact revision/digest checks; append a retained version. No code execution or live change.', requirements: ['CARE_REVIEW_ENABLED', 'Open staging text workspace', 'Exact source digest and explicit patch consent'] },
@@ -38,9 +41,6 @@ export const limitedToolBoundaries: Record<string, string> = {
   T62: 'Prepare a summary from actual retained source reports with artifact references.'
 };
 export const unavailableToolRequirements: Record<string, string> = {
-  T20: 'No approved advisory dataset/feed adapter is connected. Needs ecosystem/version normalization, freshness, provenance and applicability tests.',
-  T23: 'No Care-bound HTTP observation adapter is implemented. Needs fixed verified targets, DNS/redirect/response limits and consent; no arbitrary URL tool.',
-  T24: 'No Care-bound TLS adapter is implemented. Needs a fixed verified host, certificate-chain validation and timestamped evaluation.',
   T25: 'No disposable restricted preview browser service is provisioned. Static HTML iframe preview is available through T52.',
   T26: 'Needs T25 plus sanitized browser accessibility-tree extraction and privacy tests.',
   T27: 'Needs T25 plus approved viewports, reliable private-region masking, retention and screenshot evidence tests.',

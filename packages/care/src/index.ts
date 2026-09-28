@@ -11,3 +11,4 @@ export * from './review-knowledge.js';
 export * from './source-workspace.js';
 export * from './source-quality.js';
 export * from './screenshot-compare.js';
+export * from './dependency-inventory.js';

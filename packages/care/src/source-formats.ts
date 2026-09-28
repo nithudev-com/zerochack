@@ -1,6 +1,6 @@
 /** Browser-safe intake contract. File contents are screened separately on the server. */
 export const sourceTextExtensions = ['html','htm','css','scss','sass','less','js','jsx','ts','tsx','mjs','cjs','mts','cts','mjsx','cjsx','mtsx','ctsx','json','yaml','yml','md','txt','log','sql','prisma','php','py','rb','go','rs','java','cs','csproj','cshtml','razor','vue','svelte','astro','liquid','twig','hbs','ejs','tpl','toml','xml','graphql','gql','proto','tf','hcl','conf','config','ini','service','properties'] as const;
-export const sourceTextBasenames = ['Dockerfile','Containerfile','Caddyfile','Jenkinsfile','Makefile','Gemfile','.htaccess'] as const;
+export const sourceTextBasenames = ['Dockerfile','Containerfile','Caddyfile','Jenkinsfile','Makefile','Gemfile','composer.lock','.htaccess'] as const;
 
 export function isSupportedReviewPath(path: string): boolean {
   if (!path || path.length > 180 || !/^[A-Za-z0-9_@./-]+$/.test(path)) return false;

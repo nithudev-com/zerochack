@@ -92,3 +92,12 @@ See [CARE-SOURCE-REVIEWS.md](CARE-SOURCE-REVIEWS.md). Set `CARE_REVIEW_ENABLED=t
 The web proxy generates a fresh script nonce for every document request and supplies the same policy to Next.js rendering and the response. Root layout waits for the request; documents therefore render dynamically. Keep these responses private/no-store through the reverse proxy or CDN; do not reuse cached nonce-bearing HTML between visitors. Static build assets remain cacheable. Set NEXT_PUBLIC_API_URL consistently at build and runtime to the actual API origin. The JSON-LD script uses the request nonce. Production does not permit unsafe-inline or unsafe-eval in script-src.
 
 After a production build, run `CARE_WEB_PRODUCTION=true npm run test:e2e:care` to verify the same Care and homepage flows under the production CSP. This is an API-fixture suite; ordinary real-API portal journeys and real provider/deployment evaluations remain separate.
+
+
+## Explicit-consent advisory and website observations
+
+Apply the additive `20260928000000_care_observations` migration with both new flags off. Keep API/web versions matched. `CARE_OBSERVATIONS_ENABLED=true` enables T23/T24 for verified production website bindings; `CARE_ADVISORIES_ENABLED=true` additionally requires source-review enablement and permits only explicitly selected exact dependency coordinates. Both require CARE_ENABLED and a persistent, distinct CARE_ARTIFACT_KEY. Existing encrypted history is preserved.
+
+Neither flag grants an AI agent network access. Each external request requires a separate affirmative customer action in the job. An idempotency retry returns the prior operation; it never repeats its network call. A crashed call projects INTERRUPTED after its deadline and is not replayed. Inspect saved status before creating a new request. Network requests are unauthenticated and bounded to one root HEAD or verified TLS handshake; OSV receives only approved package coordinates. See [CARE-OBSERVATIONS.md](CARE-OBSERVATIONS.md).
+
+Local fixture tests are not a live OSV availability check or proof that a particular hosting environment is reachable. Validate connectivity and policy on a disposable authorized target before rollout. No live customer server, credential or production data is needed for the new CI tests. The 15 wider unavailable tools still require implementation/evaluation.

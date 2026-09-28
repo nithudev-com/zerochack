@@ -15,6 +15,7 @@ import { authorizationRoutes } from './modules/authorization/routes.js';
 import { SmtpEmailProvider, type EmailProvider } from '@zerochack/email';
 import Redis from 'ioredis';
 import { Queue } from 'bullmq';
+import type { ObservationAdapters } from './modules/care/external-observations.js';
 import { careRoutes } from './modules/care/routes.js';
 import { customerRoutes } from './modules/customer/routes.js';
 import { aiRoutes } from './modules/ai/routes.js';
@@ -30,7 +31,7 @@ import { ownerRoutes } from './modules/owner/routes.js';
 import { communicationRoutes } from './modules/communications/routes.js';
 import { authenticateMetricsToken, observeRequest, renderMetrics } from './metrics.js';
 
-export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[] }) {
+export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters }) {
   const logger = createLogger('api', environment.LOG_LEVEL);
   const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
   const rateLimitRedis = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
@@ -88,7 +89,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     await v1.register(mfaRoutes, { environment });
     await v1.register(authorizationRoutes, { environment, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
     await v1.register(aiRoutes, { environment, ai });
-    await v1.register(careRoutes, { environment, ai });
+    await v1.register(careRoutes, { environment, ai, ...(dependencies?.careObservations ? { observationAdapters: dependencies.careObservations } : {}) });
     await v1.register(customerRoutes, { environment, ai, ...(customerQueues ? { queues: customerQueues } : {}) });
     await v1.register(specialistRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, scans: customerQueues.scans, notifications:customerQueues.notifications,reports:customerQueues.reports } } : {}) });
     await v1.register(commercialRoutes, { environment, ...(dependencies?.paymentProviders ? { providers: dependencies.paymentProviders } : {}),...(customerQueues?{notificationsQueue:customerQueues.notifications}:{}) });

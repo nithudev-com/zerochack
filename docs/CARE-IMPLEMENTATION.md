@@ -4,6 +4,10 @@ This branch implements the secure connection and specialist disclosure journey, 
 
 Baseline: `e82be579fdcca3e6139cc74f74bc0e980ab69dab`. The original unit suite passed 89 tests in 16 files. Existing release-readiness documents are historical evidence; this branch does not convert their outstanding production gates into passes.
 
+## Consented observation increment
+
+The current registry has 52 bounded implementations/workflow bindings and 15 unavailable contracts. T20 uses explicit selected-package disclosure consent for the fixed OSV service; T23/T24 make one scoped unauthenticated observation of the verified production website. Source declarations now support exact npm lockfile and Composer coordinates. Credential and specialist-grant metadata follow the selected Care environment. New observations have separate default-off flags, durable consent/result/error records, idempotent retries and post-operation authorization rechecks. See [CARE-OBSERVATIONS.md](CARE-OBSERVATIONS.md). These additions do not provide general autonomous repair or complete the 100-item plan. Dated test totals below describe previous increments, not this change.
+
 ## Implemented behavior
 
 The website conversation is the main workspace. It supports safe Markdown, code copying, scoped production/staging history, light/dark appearance, reduced motion, Tamil fonts, mobile menus, IME-safe input, and follow-at-bottom scrolling. Existing website pricing, findings, access, tickets, and settings remain reachable through Website options on small screens. Existing assessment actions navigate back to chat.
@@ -30,7 +34,7 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 | Other stored account types / staging connectors | Storage only; connection execution unavailable |
 | Claude provider | Adapter and contract tests implemented; live smoke test outstanding |
 | AI role catalogue | All 24 roles execute bounded source reviews; A02 chat and A08 static HTML repair remain separate modes |
-| Proposed tool catalogue | 44 bounded source/evidence/workflow contracts; 23 wider interfaces unavailable; see CARE-TOOL-CONTRACTS.md |
+| Proposed tool catalogue | 52 bounded source/evidence/workflow contracts; 15 wider interfaces unavailable; see CARE-TOOL-CONTRACTS.md |
 | Existing assessment tools | Existing scoped tools remain separate from the proposed catalogue |
 | Repair execution and source patches | Static HTML data-only runner implemented; disposable execution workers unavailable |
 | Attachments | Validated encrypted HTML, screenshots and redacted logs; privacy review required |
@@ -79,7 +83,7 @@ Failed candidate health triggers the specifically approved conditional restore, 
 
 ## Remaining implementation and external gates
 
-General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 23 proposed general tool interfaces, dynamic coordinator graphs, external reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
+General frameworks, JavaScript applications, multi-file repositories, databases and build systems still need a provisioned disposable execution worker and independent runtime/browser verification. The wider engineering capabilities of review-only roles, 15 proposed general tool interfaces, dynamic coordinator graphs, external reviewed knowledge retrieval, full infrastructure billing, asynchronous attachment quarantine and broader operational controls remain incomplete. No implementation catalogue entry substitutes for these services.
 
 Before enabling production release, run the full integration suite against PostgreSQL 16/Redis, use a real provider account with configured prices, test a disposable SFTP/static-host target and rollback, establish an exclusive deployment window, verify key/backup retention, and complete crash/failover and authorization-expiry drills. A separate external writer can race SFTP; it must be excluded operationally because ordinary SFTP cannot atomically compare and swap against unrelated writers. Neither static checks nor this branch certify production readiness.
 

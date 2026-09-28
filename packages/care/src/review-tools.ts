@@ -1,3 +1,4 @@
+import { inventoryDependencies } from './dependency-inventory.js';
 import { z } from 'zod';
 import { CareError, looksSensitive } from './vault.js';
 import type { ReviewSnapshot } from './source-review.js';
@@ -63,14 +64,7 @@ function reviewToolOutput(id: typeof implementedReviewTools[number], args: unkno
       if (input.path && !snapshot.files.some((file) => file.path === input.path)) throw new CareError('SOURCE_PATH_DENIED', 'This path is outside the approved snapshot.');
       return snapshot.files.filter((file) => !input.path || file.path === input.path).flatMap((file) => file.content.split('\n').flatMap((line, index) => line.includes(input.text) ? [{ path: file.path, line: index + 1, excerpt: line.slice(0, 300) }] : [])).slice(0, 50);
     }
-    case 'T19': return snapshot.files.filter((file) => /(^|\/)package\.json$/.test(file.path)).map((file) => {
-      try {
-        const value: unknown = JSON.parse(file.content);
-        const manifest = z.object({ dependencies: z.record(z.string().max(200), z.string().max(200)).optional(), devDependencies: z.record(z.string().max(200), z.string().max(200)).optional() }).passthrough().parse(value);
-        const dependencies = Object.entries({ ...manifest.devDependencies, ...manifest.dependencies });
-        return { path: file.path, dependencies: dependencies.slice(0, 300).map(([name, declaredVersion]) => ({ name, declaredVersion })), truncated: dependencies.length > 300, evidence: 'DECLARED_ONLY', advisoryCheck: 'NOT_RUN' };
-      } catch { return { path: file.path, error: 'INVALID_MANIFEST', advisoryCheck: 'NOT_RUN' }; }
-    });
+    case 'T19': return inventoryDependencies(snapshot);
     case 'T21': return { screenedFiles: snapshot.files.length, suspectedPaths: snapshot.files.filter((file) => looksSensitive(file.content)).map((file) => file.path), limitation: 'Pattern screening cannot identify every secret. Customer privacy review remains required.' };
     case 'T59': return { state: context.state, completedRoles: context.completedRoles, sourceDigest: context.sourceDigest };
     case 'T53': return context.recovery ?? { state: 'NOT_OBSERVED', checks: [], limitation: 'The server has not supplied scoped recovery evidence. No recovery readiness is claimed.' };

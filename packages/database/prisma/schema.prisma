@@ -601,6 +601,7 @@ model CareJob {
   agents CareAgentRun[]
   revisions CareRevision[]
   releases CareRelease[]
+  observations CareToolObservation[]
   leaseOwner String? @map("lease_owner") @db.Uuid
   leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
   @@unique([tenantId, websiteId, requestKey])
@@ -2152,4 +2153,27 @@ model CareRelease {
   @@unique([tenantId, websiteId, requestKey])
   @@index([tenantId, websiteId, state])
   @@map("care_releases")
+}
+
+// Immutable consent/input binding; plaintext source/credentials are never stored here.
+model CareToolObservation {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  jobId String @map("job_id") @db.Uuid
+  actorId String @map("actor_id") @db.Uuid
+  requestKey String @map("request_key") @db.Uuid
+  toolId String @map("tool_id") @db.VarChar(8)
+  inputDigest String @map("input_digest") @db.Char(64)
+  targetBinding String @map("target_binding") @db.Char(64)
+  state String @db.VarChar(32)
+  errorCode String? @map("error_code") @db.VarChar(100)
+  resultArtifactId String? @map("result_artifact_id") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  job CareJob @relation(fields: [tenantId, websiteId, jobId], references: [tenantId, websiteId, id], onDelete: Cascade)
+  @@unique([jobId, requestKey])
+  @@index([tenantId, websiteId, state])
+  @@map("care_tool_observations")
 }

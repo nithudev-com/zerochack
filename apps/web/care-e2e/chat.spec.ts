@@ -302,3 +302,47 @@ test('specialist reveal stays hidden until requested and clears on blur', async 
   await expect(page.getByLabel('Approved credential', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-disclosure-marker');
 });
+
+test('consented HTTP observation shows retained results and never reruns when the page reloads', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const runId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b'; let calls = 0;
+  await page.route('**/care?**', route => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REPAIR', summary: 'Observe the approved website', state: 'COMPLETED', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/observation-options', route => route.fulfill({ json: { target: 'https://example.org/', environment: 'PRODUCTION', networkAvailable: true, advisoriesAvailable: false, revisionId: null, sourceDigest: null, inventory: null, history: calls ? [{ id: runId, toolId: 'T23', state: 'COMPLETED', createdAt: new Date().toISOString() }] : [], nextCursor: null } }));
+  await page.route(`**/observations/${runId}`, route => route.fulfill({ json: { state: 'COMPLETED', result: { status: 200, limitation: 'No application-security assessment was performed.' } } }));
+  await page.route('**/observations', route => { calls++; expect(route.request().postDataJSON()).toEqual({ requestKey: expect.any(String), toolId: 'T23', confirmTarget: 'https://example.org/', authorizeReadOnlyObservation: true }); return route.fulfill({ status: 201, json: { runId, state: 'COMPLETED' } }); });
+  await page.goto(`/customer/websites/${id}`);
+  await page.getByText('Authorized website observations & advisory matching', { exact: true }).click();
+  const run = page.getByRole('button', { name: 'Run this observation', exact: true });
+  await expect(run).toBeDisabled(); await page.getByLabel('I am authorized for this website and approve this single read-only observation of the displayed target.').check(); await run.click();
+  await expect(page.getByText(/No application-security assessment was performed/)).toBeVisible(); expect(calls).toBe(1);
+  await page.reload(); await page.getByText('Authorized website observations & advisory matching', { exact: true }).click();
+  await page.getByRole('button', { name: /^T23 · COMPLETED ·/ }).click();
+  await expect(page.getByText(/No application-security assessment was performed/)).toBeVisible(); expect(calls).toBe(1);
+});
+
+test('advisory matching requires selected exact packages and separate disclosure consent', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const runId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b'; const revisionId = 'b941c1ca-782a-4104-8819-fde9b1b97c7b'; let calls = 0;
+  await page.route('**/care?**', route => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REVIEW', summary: 'Review exact dependencies', state: 'COMPLETED', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/observation-options', route => route.fulfill({ json: { target: 'https://example.org/', environment: 'PRODUCTION', networkAvailable: false, advisoriesAvailable: true, revisionId, sourceDigest: 'a'.repeat(64), inventory: { entries: [{ ecosystem: 'npm', name: 'sample', version: '1.2.3', evidence: 'LOCKFILE', path: 'package-lock.json' }, { ecosystem: 'npm', name: 'private-package', version: '2.0.0', evidence: 'LOCKFILE', path: 'package-lock.json' }], skipped: 1, truncated: false, limitation: 'Declared versions only.' }, history: [], nextCursor: null } }));
+  await page.route('**/observations', route => { calls++; expect(route.request().postDataJSON()).toEqual({ requestKey: expect.any(String), toolId: 'T20', revisionId, sourceDigest: 'a'.repeat(64), packages: [{ ecosystem: 'npm', name: 'sample', version: '1.2.3' }], consentToSharePackageVersions: true }); return route.fulfill({ status: 201, json: { runId, state: 'COMPLETED' } }); });
+  await page.route(`**/observations/${runId}`, route => route.fulfill({ json: { state: 'COMPLETED', result: { state: 'NO_MATCHES_REPORTED', limitation: 'Not proof of a vulnerability-free website.' } } }));
+  await page.goto(`/customer/websites/${id}`); await page.getByText('Authorized website observations & advisory matching', { exact: true }).click();
+  await page.getByLabel('Observation', { exact: true }).selectOption('T20');
+  const consent = page.getByLabel('I approve sharing only these selected package versions with OSV for this lookup.');
+  await expect(consent).toBeDisabled(); await page.getByLabel('sample 1.2.3 (npm; lockfile)').check();
+  await expect(page.getByRole('button', { name: 'Run this observation', exact: true })).toBeDisabled(); await consent.check();
+  const accessibility = await new AxeBuilder({ page }).include('[aria-label="Approved observations"]').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze(); expect(accessibility.violations).toEqual([]);
+  await page.getByRole('button', { name: 'Run this observation', exact: true }).click();
+  await expect(page.getByText(/Not proof of a vulnerability-free website/)).toBeVisible(); expect(calls).toBe(1);
+});
+
+test('observation consent becomes invalid when the displayed target changes after refresh', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; let currentTarget = 'https://example.org/';
+  await page.route('**/care?**', route => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REPAIR', summary: 'Review target binding', state: 'COMPLETED', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/observation-options', route => route.fulfill({ json: { target: currentTarget, environment: 'PRODUCTION', networkAvailable: true, advisoriesAvailable: false, revisionId: null, sourceDigest: null, inventory: null, history: [], nextCursor: null } }));
+  await page.goto(`/customer/websites/${id}`); const details = page.getByText('Authorized website observations & advisory matching', { exact: true }); await details.click();
+  const consent = page.getByLabel('I am authorized for this website and approve this single read-only observation of the displayed target.'); await consent.check();
+  await expect(page.getByRole('button', { name: 'Run this observation', exact: true })).toBeEnabled();
+  await details.click(); currentTarget = 'https://changed.example.org/'; await details.click();
+  await expect(page.getByText(currentTarget, { exact: true })).toBeVisible();
+  await expect(consent).not.toBeChecked(); await expect(page.getByRole('button', { name: 'Run this observation', exact: true })).toBeDisabled();
+});

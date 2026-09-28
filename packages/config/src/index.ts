@@ -8,6 +8,8 @@ const environmentSchema = z.object({
   CARE_ENABLED: booleanString.default(false),
   CARE_REPAIR_ENABLED: booleanString.default(false),
   CARE_REVIEW_ENABLED: booleanString.default(false),
+  CARE_OBSERVATIONS_ENABLED: booleanString.default(false),
+  CARE_ADVISORIES_ENABLED: booleanString.default(false),
   CARE_REVIEW_BUDGET_MICROS: z.coerce.number().int().min(1000).max(100000000).default(5000000),
   CARE_RELEASE_ENABLED: booleanString.default(false),
   CARE_ARTIFACT_KEY: z.string().optional().refine((value) => value === undefined || Buffer.from(value, "base64").length === 32, "Must be a base64-encoded 32-byte key"),
@@ -75,7 +77,9 @@ export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Enviro
     throw new Error('Invalid environment configuration. Check: METRICS_TOKEN');
   }
   if (result.data.NODE_ENV === 'production' && result.data.CARE_ENABLED && (!result.data.CARE_VAULT_KEY || result.data.CARE_VAULT_KEY === defaultEncryptionKey || [result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY, result.data.MFA_ENCRYPTION_KEY].includes(result.data.CARE_VAULT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_VAULT_KEY');
-  if (result.data.NODE_ENV === 'production' && (result.data.CARE_REPAIR_ENABLED || result.data.CARE_REVIEW_ENABLED) && (!result.data.CARE_ARTIFACT_KEY || result.data.CARE_ARTIFACT_KEY === defaultEncryptionKey || [result.data.CARE_VAULT_KEY, result.data.MFA_ENCRYPTION_KEY, result.data.PAYMENT_CREDENTIAL_ENCRYPTION_KEY, result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY].includes(result.data.CARE_ARTIFACT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_ARTIFACT_KEY');
+  if (result.data.NODE_ENV === 'production' && (result.data.CARE_REPAIR_ENABLED || result.data.CARE_REVIEW_ENABLED || result.data.CARE_OBSERVATIONS_ENABLED || result.data.CARE_ADVISORIES_ENABLED) && (!result.data.CARE_ARTIFACT_KEY || result.data.CARE_ARTIFACT_KEY === defaultEncryptionKey || [result.data.CARE_VAULT_KEY, result.data.MFA_ENCRYPTION_KEY, result.data.PAYMENT_CREDENTIAL_ENCRYPTION_KEY, result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY].includes(result.data.CARE_ARTIFACT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_ARTIFACT_KEY');
+  if ((result.data.CARE_OBSERVATIONS_ENABLED || result.data.CARE_ADVISORIES_ENABLED) && !result.data.CARE_ENABLED) throw new Error('Care observations require CARE_ENABLED.');
+  if (result.data.CARE_ADVISORIES_ENABLED && !result.data.CARE_REVIEW_ENABLED) throw new Error('Advisory matching requires CARE_REVIEW_ENABLED.');
   if (result.data.CARE_REVIEW_ENABLED && !result.data.CARE_ENABLED) throw new Error('Care source reviews require CARE_ENABLED.');
   if (result.data.CARE_RELEASE_ENABLED && !result.data.CARE_REPAIR_ENABLED || result.data.CARE_REPAIR_ENABLED && !result.data.CARE_ENABLED) throw new Error('Care release requires repair and care flags.');
   const corsOrigins = [...new Set(result.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean))];

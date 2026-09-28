@@ -1,14 +1,18 @@
 # Care tool contracts: implementation and setup
 
-All 67 contracts are accounted for. **49 have bounded implementations or dedicated workflow bindings; 18 remain unavailable.** The latest increment implements T13, T14, T29, T33 and T34 on top of the previous 44. Narrower v2 contracts preserve the wider proposal in `proposedPurpose`; they do not claim the entire original roadmap.
+All 67 contracts are accounted for. **52 have bounded implementations or dedicated workflow bindings; 15 remain unavailable.** The latest increment adds explicit-consent T20 advisory matching and T23/T24 registered-website HTTP/TLS observations to the previous 49. Narrower v2 contracts preserve the wider proposal in `proposedPurpose`; they do not claim the entire original roadmap.
 
 - 24 source/policy tools: 23 offline handlers and T53 scoped recovery metadata.
 - 9 tools read actual retained evidence and workflow records.
 - 1 stored-image comparison tool.
-- 15 dedicated workflows retain their own permissions, setup and approval gates.
+- 18 dedicated workflows retain their own permissions, setup and approval gates.
 - No model-directed tool loop, generic shell, uploaded test execution or offensive workflow is enabled.
 
-Implementation is distinct from deployment activation. The owner capability view reports deployment flags and requirements. Provider, CMS, commerce, browser and recovery evaluations cannot be certified by this registry. Existing history and encrypted artifacts remain retained; Apply the additive text-workspace constraint migration before rollout. TypeScript 5.9.3 is now also an explicit API runtime dependency; no new library family is introduced.
+Implementation is distinct from deployment activation. The owner capability view reports deployment flags and requirements. Provider, CMS, commerce, browser and recovery evaluations cannot be certified by this registry. Existing history and encrypted artifacts remain retained; Apply the additive text-workspace constraint migration before rollout. TypeScript 5.9.3 remains an explicit API runtime dependency. The observation increment adds no new third-party dependencies.
+
+## Explicit-consent external observations
+
+T20/T23/T24 use a separate human-approved workflow, not the generic tool dispatcher or AI loop. Open **Authorized website observations & advisory matching** in a job. Review the exact target or select exact packages; no packages are preselected. Results, failures and idempotency records are retained. See [CARE-OBSERVATIONS.md](CARE-OBSERVATIONS.md) for all limits, flags, migration and live-evaluation requirements.
 
 ## Customer use
 
@@ -73,7 +77,7 @@ CARE_ENABLED and CARE_REVIEW_ENABLED gate the workspace service. Same request ke
 - API tests exercise real authentication and disposable PostgreSQL-compatible storage: tool approvals, cross-job/tenant rejection, artifact integrity, persisted findings, stale monitoring, redacted error codes, idempotent proposals and retained cancellation. Model and remote adapters remain fixtures.
 - Browser tests exercise evidence controls, consent before saving proposals, reload continuity, source/repair journeys, homepage coverage and accessibility checks in development and production.
 - Deploy API/web/worker together. Source-review policy is v4: unfinished older plans must be recreated and approved; their saved results remain readable. Existing preserved-history migration and matching encryption keys remain required.
-- Remaining 18 contracts need actual implementation/evaluation and the prerequisites listed below. Installing library names or connecting a ChatGPT plugin does not provision those services inside this application.
+- Remaining 15 contracts need actual implementation/evaluation and the prerequisites listed below. Installing library names or connecting a ChatGPT plugin does not provision those services inside this application.
 
 ## Complete implementation matrix
 
@@ -97,12 +101,12 @@ CARE_ENABLED and CARE_REVIEW_ENABLED gate the workspace service. Same request ke
 | T16 | workspace_check_conflicts | Check persisted plan version and source digest conflicts; no live Git merge or ownership checks. | POST /jobs/:id/tools/T16. Requires: Authenticated tenant/site access; Recorded evidence in this job or environment |
 | T17 | security_review_source | Reviewed JS/TS AST patterns for dynamic evaluation and raw HTML sinks; no data-flow or exploit analysis. | POST /jobs/:id/tools/T17. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
 | T18 | security_review_config | Versioned defensive configuration line patterns; observations require contextual review. | POST /jobs/:id/tools/T18. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
-| T19 | dependencies_inventory | Read manifests and lockfiles into a normalized package inventory. | POST /jobs/:id/tools/T19. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
-| T20 | dependencies_match_advisories | **Unavailable** | No approved advisory dataset/feed adapter is connected. Needs ecosystem/version normalization, freshness, provenance and applicability tests. |
+| T19 | dependencies_inventory | Exact npm package.json versions, npm lockfile v1–v3 entries, shrinkwrap and Composer lockfile entries. Ranges, links and unsupported versions are explicitly omitted. These are declarations, not deployed facts. | POST /jobs/:id/tools/T19; current source-review approval. |
+| T20 | dependencies_match_advisories | Match 1–50 customer-selected exact npm/Packagist coordinates from approved manifests/lockfiles against the fixed OSV batch endpoint. IDs/modified timestamps only; incomplete pagination is explicit. Not installed-version or exploitability verification. | POST /jobs/:id/observations; separate package disclosure consent; CARE_ADVISORIES_ENABLED; exact source approval. |
 | T21 | secrets_scan_local | Check authorized source for secrets; return redacted locations only. | POST /jobs/:id/tools/T21. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
 | T22 | supplychain_inventory_image | Inventory top-level CycloneDX/SPDX JSON declarations; no image extraction or advisory feed. | POST /jobs/:id/tools/T22. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
-| T23 | http_check_configuration | **Unavailable** | No Care-bound HTTP observation adapter is implemented. Needs fixed verified targets, DNS/redirect/response limits and consent; no arbitrary URL tool. |
-| T24 | tls_get_summary | **Unavailable** | No Care-bound TLS adapter is implemented. Needs a fixed verified host, certificate-chain validation and timestamped evaluation. |
+| T23 | http_check_configuration | One unauthenticated HEAD at the verified production website root, pinned to validated public DNS results; no redirects, bodies or cookies. Safe header-presence observations only. | POST /jobs/:id/observations; separate exact-target consent; CARE_OBSERVATIONS_ENABLED. |
+| T24 | tls_get_summary | One certificate-validated TLS handshake to the verified production HTTPS host with original-hostname checks and public-IP pinning. No cipher enumeration or revocation-status validation. | POST /jobs/:id/observations; separate exact-target consent; CARE_OBSERVATIONS_ENABLED. |
 | T25 | preview_open_bound | **Unavailable** | No disposable restricted preview browser service is provisioned. Static HTML iframe preview is available through T52. |
 | T26 | browser_get_accessibility_snapshot | **Unavailable** | Needs T25 plus sanitized browser accessibility-tree extraction and privacy tests. |
 | T27 | browser_capture_sanitized_screenshot | **Unavailable** | Needs T25 plus approved viewports, reliable private-region masking, retention and screenshot evidence tests. |
