@@ -1,11 +1,12 @@
 'use client';
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 type Coordinate = { ecosystem: 'npm' | 'Packagist'; name: string; version: string; evidence: string; path: string };
 type Options = { target: string | null; environment: string; networkAvailable: boolean; advisoriesAvailable: boolean; revisionId: string | null; sourceDigest: string | null; inventory: { entries: Coordinate[]; skipped: number; truncated: boolean; limitation: string } | null; history: Array<{ id: string; toolId: string; state: string; createdAt: string }>; nextCursor: string | null };
 const key = (p: Coordinate) => `${p.ecosystem}:${p.name}@${p.version}`;
 export function CareObservations({ jobId, websiteId }: { jobId: string; websiteId: string }) {
+  const observationId = useId();
   const client = useQueryClient(); const [opened, setOpened] = useState(false);
   const [before, setBefore] = useState<string | null>(null);
   const options = useQuery({ queryKey: ['care-observations', jobId, before], queryFn: () => api<Options>(`/jobs/${jobId}/observation-options${before ? `?before=${before}` : ''}`), enabled: opened, staleTime: 0 });
@@ -36,7 +37,7 @@ export function CareObservations({ jobId, websiteId }: { jobId: string; websiteI
     {options.isError && <p role="alert">Observation options are unavailable. Existing saved evidence remains unchanged.</p>}
     {options.isLoading && <p role="status">Loading authorized observation options…</p>}
     {data && <><form aria-label="Approved observations" className="care-issue-form" onSubmit={(event) => { event.preventDefault(); void run(); }}>
-      <label>Observation<select disabled={busy} value={tool} onChange={(event) => { setTool(event.target.value as typeof tool); reset(); }}><option value="T23">Website root HTTP headers</option><option value="T24">Website TLS certificate</option><option value="T20">OSV dependency advisory matches</option></select></label>
+      <label htmlFor={observationId}>Observation</label><select id={observationId} disabled={busy} value={tool} onChange={(event) => { setTool(event.target.value as typeof tool); reset(); }}><option value="T23">Website root HTTP headers</option><option value="T24">Website TLS certificate</option><option value="T20">OSV dependency advisory matches</option></select>
       {tool === 'T20' ? <><p>Only the package names, exact versions and ecosystems you select will be sent to OSV. Private package names may identify your project. No source, credentials or website URLs are shared.</p>
         {!data.advisoriesAvailable && <p>Requires an enabled advisory adapter and a current exact source-review approval.</p>}
         <fieldset disabled={busy || !data.advisoriesAvailable}><legend>Select up to 50 exact package versions</legend><div style={{ maxHeight: 260, overflow: 'auto' }}>{data.inventory?.entries.map((p) => <label className="care-consent" key={key(p)}><input type="checkbox" checked={selection.includes(key(p))} disabled={!selection.includes(key(p)) && selection.length >= 50} onChange={(event) => { const checked = event.target.checked; setSelection((old) => checked ? [...old, key(p)] : old.filter((id) => id !== key(p))); reset(); }}/>{p.name} {p.version} ({p.ecosystem}; {p.evidence.toLowerCase()})</label>)}</div></fieldset>

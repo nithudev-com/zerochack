@@ -2,7 +2,7 @@ name: Care observation validation
 on:
   push:
     branches: ['codex/care-observation-validation']
-    paths: ['.github/workflows/care-observation-validation.yml', '.github/apply-care-increment.py']
+    paths: ['.github/workflows/care-observation-validation.yml', '.github/apply-care-increment.py', 'apps/web/components/care-observations.tsx']
 permissions:
   contents: write
 concurrency:
@@ -99,6 +99,8 @@ jobs:
         if: always()
         with:
           name: care-observation-validation-${{ github.run_id }}
-          path: ${{ runner.temp }}/care-validation/
+          path: |
+            ${{ runner.temp }}/care-validation/
+            test-results/
           retention-days: 3
           if-no-files-found: warn
