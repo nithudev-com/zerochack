@@ -1,3 +1,4 @@
+import type { BrowserAdapter } from './modules/care/static-browser.js';
 import Fastify, { LogController } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -31,7 +32,7 @@ import { ownerRoutes } from './modules/owner/routes.js';
 import { communicationRoutes } from './modules/communications/routes.js';
 import { authenticateMetricsToken, observeRequest, renderMetrics } from './metrics.js';
 
-export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters }) {
+export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters; careBrowser?: BrowserAdapter }) {
   const logger = createLogger('api', environment.LOG_LEVEL);
   const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
   const rateLimitRedis = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
@@ -89,7 +90,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     await v1.register(mfaRoutes, { environment });
     await v1.register(authorizationRoutes, { environment, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
     await v1.register(aiRoutes, { environment, ai });
-    await v1.register(careRoutes, { environment, ai, ...(dependencies?.careObservations ? { observationAdapters: dependencies.careObservations } : {}) });
+    await v1.register(careRoutes, { environment, ai, ...(dependencies?.careBrowser ? { browserAdapter: dependencies.careBrowser } : {}), ...(dependencies?.careObservations ? { observationAdapters: dependencies.careObservations } : {}) });
     await v1.register(customerRoutes, { environment, ai, ...(customerQueues ? { queues: customerQueues } : {}) });
     await v1.register(specialistRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, scans: customerQueues.scans, notifications:customerQueues.notifications,reports:customerQueues.reports } } : {}) });
     await v1.register(commercialRoutes, { environment, ...(dependencies?.paymentProviders ? { providers: dependencies.paymentProviders } : {}),...(customerQueues?{notificationsQueue:customerQueues.notifications}:{}) });

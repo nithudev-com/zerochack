@@ -23,6 +23,9 @@ try {
   const observationTable = await database.$queryRaw<Array<{ relation: string | null }>>`SELECT to_regclass('public.care_tool_observations')::text AS relation`;
   checks.push({ name: 'observation_schema', state: observationTable[0]?.relation ? 'PASS' : 'BLOCKED', detail: 'Apply migration 20260928000000_care_observations before enabling approved external observations.' });
   checks.push({ name: 'external_observation_activation', state: 'NOT_VERIFIED', detail: `Website observations flag: ${env.CARE_OBSERVATIONS_ENABLED}; advisory flag: ${env.CARE_ADVISORIES_ENABLED}. Each call still needs customer consent; this preflight makes no live request.` });
+  const browserTable = await database.$queryRaw<Array<{ relation: string | null }>>`SELECT to_regclass('public.care_browser_runs')::text AS relation`;
+  checks.push({ name: 'browser_schema', state: browserTable[0]?.relation ? 'PASS' : 'BLOCKED', detail: 'Apply migration 20260928010000_care_browser before enabling static browser tools.' });
+  checks.push({ name: 'browser_runtime', state: 'NOT_VERIFIED', detail: `Browser flag: ${env.CARE_BROWSER_ENABLED}. Run npm run care:browser-preflight as the non-root service identity and validate deployment resource/network isolation. This command does not certify browser readiness.` });
   const retention = await database.$queryRaw<Array<{ is_nullable: string }>>`SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'care_artifacts' AND column_name = 'expires_at'`;
   checks.push({ name: 'saved_history_schema', state: retention[0]?.is_nullable === 'YES' ? 'PASS' : 'BLOCKED', detail: 'The history-preservation migration must be applied and all old maintenance workers stopped.' });
   redis = new Redis(env.REDIS_URL, { lazyConnect: true, connectTimeout: 3000, commandTimeout: 3000, maxRetriesPerRequest: 0, retryStrategy: () => null });

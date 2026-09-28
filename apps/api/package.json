@@ -41,7 +41,8 @@
     "ssh2": "^1.17.0",
     "zod": "^4.1.0",
     "@zerochack/care": "*",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "playwright": "1.62.1"
   },
   "devDependencies": {
     "@types/node": "^22.15.0"

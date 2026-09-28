@@ -56,6 +56,7 @@ jobs:
       - run: npm run openapi:generate
       - run: git diff --exit-code -- docs/openapi.json
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:care-browser
       - run: npm run test:e2e
       - run: npm run test:e2e:care
       - run: npm run test:e2e:care

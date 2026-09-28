@@ -1,5 +1,9 @@
 /** Browser-safe bindings. A binding is implementation evidence, not deployment activation. */
 export const workflowToolBindings: Record<string, { entrypoint: string; boundary: string; requirements: string[] }> = {
+  T28: { entrypoint: 'POST /jobs/:id/browser-runs (T28)', boundary: "Run the fixed static-document-v1 journey: document structure, horizontal overflow and one visible native disclosure keyboard toggle. No customer scripts, navigation, forms or business transactions.", requirements: ["T25 runtime requirements", "Exact source and privacy-reviewed consent", "Retained synthetic journey findings"] },
+  T27: { entrypoint: 'POST /jobs/:id/browser-runs (T27)', boundary: "Capture one fixed mobile/tablet/desktop viewport with opaque private-region masking, sanitized PNG storage and renderer/source provenance. No full-page or live-site capture.", requirements: ["T25 runtime requirements", "Exact viewport and privacy-region consent", "Encrypted screenshot retention and quota"] },
+  T26: { entrypoint: 'POST /jobs/:id/browser-runs (T26)', boundary: "Extract the rendered accessibility tree of the same static page after removing approved private regions and their ARIA references. Not a WCAG audit or dynamic-app accessibility assessment.", requirements: ["T25 runtime requirements", "Exact privacy-region consent", "Encrypted report retention"] },
+  T25: { entrypoint: 'POST /jobs/:id/browser-runs (T25)', boundary: "Render one current saved, scriptless standalone staging HTML document in a disposable offline Chromium context, then close it and retain renderer evidence. No interactive remote browser endpoint.", requirements: ["CARE_BROWSER_ENABLED and source workflow flag", "Non-root Linux, pinned Chromium and working sandbox", "Exact source and privacy-reviewed consent"] },
   T20: { entrypoint: 'POST /jobs/:id/observations (T20)', boundary: 'Match explicitly selected exact npm/Composer snapshot versions against OSV; external package-metadata sharing requires separate consent. Not a deployed-version or exploitability claim.', requirements: ['CARE_ADVISORIES_ENABLED and CARE_REVIEW_ENABLED', 'Current exact source-review approval', 'Explicit selection and OSV disclosure consent', 'Retained encrypted result storage'] },
   T23: { entrypoint: 'POST /jobs/:id/observations (T23)', boundary: 'One unauthenticated HEAD request to the verified production website root; fixed ports, pinned public resolution, bounded headers, no redirects or cookies.', requirements: ['CARE_OBSERVATIONS_ENABLED', 'Verified production website binding', 'Explicit target-bound observation consent', 'Retained encrypted result storage'] },
   T24: { entrypoint: 'POST /jobs/:id/observations (T24)', boundary: 'One validated TLS handshake with original-hostname and certificate-chain checks; no cipher enumeration or application testing.', requirements: ['CARE_OBSERVATIONS_ENABLED', 'Verified HTTPS production website', 'Explicit target-bound observation consent', 'Retained encrypted result storage'] },
@@ -41,10 +45,6 @@ export const limitedToolBoundaries: Record<string, string> = {
   T62: 'Prepare a summary from actual retained source reports with artifact references.'
 };
 export const unavailableToolRequirements: Record<string, string> = {
-  T25: 'No disposable restricted preview browser service is provisioned. Static HTML iframe preview is available through T52.',
-  T26: 'Needs T25 plus sanitized browser accessibility-tree extraction and privacy tests.',
-  T27: 'Needs T25 plus approved viewports, reliable private-region masking, retention and screenshot evidence tests.',
-  T28: 'Needs T25 plus a reviewed journey registry, synthetic fixtures and bounded execution. Customer scripts are not executed.',
   T35: 'No isolated registered unit-test worker is provisioned. Application CI tests this product; it does not execute uploaded customer tests.',
   T36: 'No isolated integration-test worker with disposable test services is provisioned.',
   T37: 'No isolated reproducible build worker with pinned dependencies and restricted package scripts is provisioned.',

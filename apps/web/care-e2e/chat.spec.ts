@@ -346,3 +346,31 @@ test('observation consent becomes invalid when the displayed target changes afte
   await expect(page.getByText(currentTarget, { exact: true })).toBeVisible();
   await expect(consent).not.toBeChecked(); await expect(page.getByRole('button', { name: 'Run this observation', exact: true })).toBeDisabled();
 });
+
+test('offline browser tools bind consent to the source and viewport, retain evidence and never replay on reload', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const runId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b'; let calls = 0;
+  const selected = { revisionId: 'b941c1ca-782a-4104-8819-fde9b1b97c7b', artifactId: 'c941c1ca-782a-4104-8819-fde9b1b97c7b', sourceDigest: 'a'.repeat(64), path: 'index.html', label: 'Version 1: index.html' };
+  await page.route('**/care?**', route => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REVIEW', summary: 'Browser fixture', state: 'COMPLETED', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/browser-options', route => route.fulfill({ json: { enabled: true, policy: 'offline-static-browser-v1', sources: [selected], history: calls ? [{ id: runId, toolId: 'T26', state: 'COMPLETED', errorCode: null, createdAt: new Date().toISOString() }] : [], nextCursor: null } }));
+  await page.route(`**/browser-runs/${runId}`, route => route.fulfill({ json: { state: 'COMPLETED', result: { accessibilitySnapshot: 'Public fixture heading', boundary: 'Static browser evidence only.' }, screenshot: null } }));
+  await page.route('**/browser-runs', route => { calls++; expect(route.request().postDataJSON()).toEqual({ requestKey: expect.any(String), toolId: 'T26', revisionId: selected.revisionId, artifactId: selected.artifactId, sourceDigest: selected.sourceDigest, path: 'index.html', viewport: 'MOBILE', privateIds: ['customer-details'], authorizeStaticBrowser: true, privacyReviewed: true }); return route.fulfill({ status: 201, json: { runId, state: 'COMPLETED' } }); });
+  await page.goto(`/customer/websites/${id}`); await page.getByText('Offline HTML browser tools', { exact: true }).click();
+  const run = page.getByRole('button', { name: 'Run approved browser check', exact: true }); const consent = page.getByLabel('I reviewed this page for private information', { exact: false });
+  await expect(run).toBeDisabled(); await page.getByLabel('Saved HTML version').selectOption({ label: selected.label }); await page.getByLabel('Browser check', { exact: true }).selectOption('T26');
+  await consent.check(); await page.getByLabel('Viewport', { exact: true }).selectOption('MOBILE'); await expect(consent).not.toBeChecked();
+  await page.getByLabel('Private region HTML IDs (optional)').fill('customer-details'); await consent.check();
+  const accessibility = await new AxeBuilder({ page }).include('[aria-label="Offline browser check"]').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze(); expect(accessibility.violations).toEqual([]);
+  await run.click(); await expect(page.getByText(/Public fixture heading/)).toBeVisible(); expect(calls).toBe(1);
+  await page.reload(); await page.getByText('Offline HTML browser tools', { exact: true }).click(); await page.getByRole('button', { name: /^Accessibility snapshot · COMPLETED/ }).click();
+  await expect(page.getByText(/Public fixture heading/)).toBeVisible(); expect(calls).toBe(1);
+});
+
+test('saved browser evidence remains visible with new runs disabled', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const runId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b';
+  await page.route('**/care?**', route => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REPAIR', summary: 'Retained browser evidence', state: 'CANCELLED', environment: 'PRODUCTION', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/browser-options', route => route.fulfill({ json: { enabled: false, policy: 'offline-static-browser-v1', sources: [], history: [{ id: runId, toolId: 'T28', state: 'COMPLETED', errorCode: null, createdAt: new Date().toISOString() }], nextCursor: null } }));
+  await page.route(`**/browser-runs/${runId}`, route => route.fulfill({ json: { state: 'COMPLETED', result: { journey: { id: 'static-document-v1', passed: false }, boundary: 'This saved check found viewport overflow.' }, screenshot: null } }));
+  await page.goto(`/customer/websites/${id}`); await page.getByText('Offline HTML browser tools', { exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Run approved browser check', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: /^Static document journey · COMPLETED/ }).click(); await expect(page.getByText(/This saved check found viewport overflow/)).toBeVisible();
+});

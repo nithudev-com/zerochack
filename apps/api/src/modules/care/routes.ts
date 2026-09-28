@@ -8,6 +8,8 @@ import { authenticate, requirePermission, requireOwnerMfa } from '../auth/securi
 import { ApiError } from '../../errors.js';
 import type { AiService } from '../ai/service.js';
 import { reviewRoutes } from './review-routes.js';
+import { careBrowserRoutes } from './browser-routes.js';
+import type { BrowserAdapter } from './static-browser.js';
 import { careObservationRoutes } from './observation-routes.js';
 import type { ObservationAdapters } from './external-observations.js';
 import { careToolRoutes } from './tool-routes.js';
@@ -27,13 +29,14 @@ const websiteParams = z.object({ websiteId: uuid });
 const activeTicket = { notIn: ['RESOLVED', 'CLOSED', 'CANCELLED', 'QUEUED'] as ['RESOLVED', 'CLOSED', 'CANCELLED', 'QUEUED'] };
 const safeGrant = { id: true, tenantId: true, websiteId: true, credentialId: true, credentialVersion: true, specialistId: true, ticketId: true, reason: true, status: true, expiresAt: true, createdAt: true, credential: { select: credentialMetadata } } as const;
 
-export async function careRoutes(app: FastifyInstance, options: { environment: Environment; ai: AiService; observationAdapters?: ObservationAdapters }) {
+export async function careRoutes(app: FastifyInstance, options: { environment: Environment; ai: AiService; observationAdapters?: ObservationAdapters; browserAdapter?: BrowserAdapter }) {
   app.setErrorHandler((error, _request, reply) => { if (error instanceof CareError) return reply.code(400).send({ error: { code: error.code, message: error.message } }); throw error; });
   app.addHook('onSend', async (_request, reply, payload) => { reply.header('cache-control', 'private, no-store'); return payload; });
   app.addHook('preHandler', async (request) => {
     await authenticate(request, options.environment);
     if (!options.environment.CARE_ENABLED) throw new ApiError(503, 'CAPABILITY_DISABLED', 'The new care workspace is not enabled.');
   });
+  await app.register(careBrowserRoutes, { environment: options.environment, ...(options.browserAdapter ? { adapter: options.browserAdapter } : {}) });
   await app.register(careObservationRoutes, { environment: options.environment, ...(options.observationAdapters ? { adapters: options.observationAdapters } : {}) });
   app.get('/websites/:websiteId/care', async (request) => {
     requirePermission(request, 'chat.read');
@@ -221,7 +224,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
   await app.register(careWorkspaceRoutes, options);
   app.get('/owner/care/capabilities', async (request) => {
     requireOwnerMfa(request);
-    const tools = toolCatalogue.map((tool) => ({ ...tool, deploymentState: !tool.enabled ? 'UNIMPLEMENTED' : tool.id === 'T20' ? options.environment.CARE_ADVISORIES_ENABLED ? 'EXPLICIT_PACKAGE_CONSENT_REQUIRED' : 'DISABLED' : ['T23','T24'].includes(tool.id) ? options.environment.CARE_OBSERVATIONS_ENABLED ? 'VERIFIED_TARGET_AND_CONSENT_REQUIRED' : 'DISABLED' : tool.implementation === 'OFFLINE_SOURCE_REVIEW' || ['T13','T14','T33','T34','T53'].includes(tool.id) ? options.environment.CARE_REVIEW_ENABLED ? 'APPROVAL_REQUIRED' : 'DISABLED' : ['T08','T15','T49','T50','T52'].includes(tool.id) ? options.environment.CARE_REPAIR_ENABLED || (tool.id === 'T08' && options.environment.CARE_REVIEW_ENABLED) ? 'SETUP_AND_APPROVAL_REQUIRED' : 'DISABLED' : ['T54','T55'].includes(tool.id) ? options.environment.CARE_REPAIR_ENABLED && options.environment.CARE_RELEASE_ENABLED ? 'SETUP_AND_APPROVAL_REQUIRED' : 'DISABLED' : 'AUTHORIZED_REQUEST_REQUIRED' }));
+    const tools = toolCatalogue.map((tool) => ({ ...tool, deploymentState: !tool.enabled ? 'UNIMPLEMENTED' : ['T25','T26','T27','T28'].includes(tool.id) ? options.environment.CARE_BROWSER_ENABLED ? 'SANDBOX_AND_SOURCE_CONSENT_REQUIRED' : 'DISABLED' : tool.id === 'T20' ? options.environment.CARE_ADVISORIES_ENABLED ? 'EXPLICIT_PACKAGE_CONSENT_REQUIRED' : 'DISABLED' : ['T23','T24'].includes(tool.id) ? options.environment.CARE_OBSERVATIONS_ENABLED ? 'VERIFIED_TARGET_AND_CONSENT_REQUIRED' : 'DISABLED' : tool.implementation === 'OFFLINE_SOURCE_REVIEW' || ['T13','T14','T33','T34','T53'].includes(tool.id) ? options.environment.CARE_REVIEW_ENABLED ? 'APPROVAL_REQUIRED' : 'DISABLED' : ['T08','T15','T49','T50','T52'].includes(tool.id) ? options.environment.CARE_REPAIR_ENABLED || (tool.id === 'T08' && options.environment.CARE_REVIEW_ENABLED) ? 'SETUP_AND_APPROVAL_REQUIRED' : 'DISABLED' : ['T54','T55'].includes(tool.id) ? options.environment.CARE_REPAIR_ENABLED && options.environment.CARE_RELEASE_ENABLED ? 'SETUP_AND_APPROVAL_REQUIRED' : 'DISABLED' : 'AUTHORIZED_REQUEST_REQUIRED' }));
     return { roles: agentCatalogue, tools, vault: 'CONFIGURED', sourceReview: options.environment.CARE_REVIEW_ENABLED ? 'APPROVED_TEXT_SOURCE' : 'DISABLED', isolatedRepair: options.environment.CARE_REPAIR_ENABLED ? 'STATIC_HTML' : 'DISABLED', deployment: options.environment.CARE_RELEASE_ENABLED ? 'SINGLE_FILE_SFTP' : 'DISABLED', limitations: ['All 24 roles support source review; this does not implement the wider autonomous repair roadmap.', `${tools.filter((tool) => tool.enabled).length} bounded contracts have implementations or dedicated workflow bindings; ${tools.filter((tool) => !tool.enabled).length} contracts remain unavailable with explicit requirements.`, 'Implementation does not prove deployment setup or live-provider success. Dedicated approval workflows are customer actions, not autonomous model tools.', 'No model tool can disclose credentials or approve a release.'] };
   });
 }

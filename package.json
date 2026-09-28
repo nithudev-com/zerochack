@@ -28,7 +28,9 @@
     "docker:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
     "test:e2e:care": "playwright test --config playwright.care.config.ts",
     "care:preflight": "tsx apps/api/src/scripts/care-preflight.ts",
-    "test:accessibility": "playwright test --config playwright.care.config.ts --grep \"automated WCAG\""
+    "test:accessibility": "playwright test --config playwright.care.config.ts --grep \"automated WCAG\"",
+    "test:care-browser": "playwright test --config playwright.static.config.ts",
+    "care:browser-preflight": "tsx apps/api/src/scripts/care-browser-preflight.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

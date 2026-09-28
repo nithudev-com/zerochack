@@ -1,14 +1,18 @@
 # Care tool contracts: implementation and setup
 
-All 67 contracts are accounted for. **52 have bounded implementations or dedicated workflow bindings; 15 remain unavailable.** The latest increment adds explicit-consent T20 advisory matching and T23/T24 registered-website HTTP/TLS observations to the previous 49. Narrower v2 contracts preserve the wider proposal in `proposedPurpose`; they do not claim the entire original roadmap.
+All 67 contracts are accounted for. **56 have bounded implementations or dedicated workflow bindings; 11 remain unavailable.** The latest increment adds explicit-consent offline static-browser workflows T25–T28 to the previous 52. Narrower v2 contracts preserve the wider proposal in `proposedPurpose`; they do not claim the entire original roadmap.
 
 - 24 source/policy tools: 23 offline handlers and T53 scoped recovery metadata.
 - 9 tools read actual retained evidence and workflow records.
 - 1 stored-image comparison tool.
-- 18 dedicated workflows retain their own permissions, setup and approval gates.
+- 22 dedicated workflows retain their own permissions, setup and approval gates.
 - No model-directed tool loop, generic shell, uploaded test execution or offensive workflow is enabled.
 
-Implementation is distinct from deployment activation. The owner capability view reports deployment flags and requirements. Provider, CMS, commerce, browser and recovery evaluations cannot be certified by this registry. Existing history and encrypted artifacts remain retained; Apply the additive text-workspace constraint migration before rollout. TypeScript 5.9.3 remains an explicit API runtime dependency. The observation increment adds no new third-party dependencies.
+Implementation is distinct from deployment activation. The owner capability view reports deployment flags and requirements. Provider, CMS, commerce, browser and recovery evaluations cannot be certified by this registry. Existing history and encrypted artifacts remain retained; Apply the additive text-workspace constraint migration before rollout. TypeScript 5.9.3 remains an explicit API runtime dependency. The browser increment pins Playwright 1.62.1 as an API runtime dependency; a matching Chromium installation and working non-root sandbox are separate activation prerequisites.
+
+## Offline static browser tools
+
+T25–T28 render one current saved staging HTML page, retain a sanitized accessibility snapshot or masked screenshot, or run the registered static document journey. They have separate source/privacy consent, durable history and a default-off runtime flag. See [CARE-STATIC-BROWSER.md](CARE-STATIC-BROWSER.md) for supported inputs, setup, limits and deployment verification.
 
 ## Explicit-consent external observations
 
@@ -77,7 +81,7 @@ CARE_ENABLED and CARE_REVIEW_ENABLED gate the workspace service. Same request ke
 - API tests exercise real authentication and disposable PostgreSQL-compatible storage: tool approvals, cross-job/tenant rejection, artifact integrity, persisted findings, stale monitoring, redacted error codes, idempotent proposals and retained cancellation. Model and remote adapters remain fixtures.
 - Browser tests exercise evidence controls, consent before saving proposals, reload continuity, source/repair journeys, homepage coverage and accessibility checks in development and production.
 - Deploy API/web/worker together. Source-review policy is v4: unfinished older plans must be recreated and approved; their saved results remain readable. Existing preserved-history migration and matching encryption keys remain required.
-- Remaining 15 contracts need actual implementation/evaluation and the prerequisites listed below. Installing library names or connecting a ChatGPT plugin does not provision those services inside this application.
+- Remaining 11 contracts need actual implementation/evaluation and the prerequisites listed below. Installing library names or connecting a ChatGPT plugin does not provision those services inside this application.
 
 ## Complete implementation matrix
 
@@ -107,10 +111,10 @@ CARE_ENABLED and CARE_REVIEW_ENABLED gate the workspace service. Same request ke
 | T22 | supplychain_inventory_image | Inventory top-level CycloneDX/SPDX JSON declarations; no image extraction or advisory feed. | POST /jobs/:id/tools/T22. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
 | T23 | http_check_configuration | One unauthenticated HEAD at the verified production website root, pinned to validated public DNS results; no redirects, bodies or cookies. Safe header-presence observations only. | POST /jobs/:id/observations; separate exact-target consent; CARE_OBSERVATIONS_ENABLED. |
 | T24 | tls_get_summary | One certificate-validated TLS handshake to the verified production HTTPS host with original-hostname checks and public-IP pinning. No cipher enumeration or revocation-status validation. | POST /jobs/:id/observations; separate exact-target consent; CARE_OBSERVATIONS_ENABLED. |
-| T25 | preview_open_bound | **Unavailable** | No disposable restricted preview browser service is provisioned. Static HTML iframe preview is available through T52. |
-| T26 | browser_get_accessibility_snapshot | **Unavailable** | Needs T25 plus sanitized browser accessibility-tree extraction and privacy tests. |
-| T27 | browser_capture_sanitized_screenshot | **Unavailable** | Needs T25 plus approved viewports, reliable private-region masking, retention and screenshot evidence tests. |
-| T28 | browser_run_registered_journey | **Unavailable** | Needs T25 plus a reviewed journey registry, synthetic fixtures and bounded execution. Customer scripts are not executed. |
+| T25 | preview_open_bound | Disposable offline render of one saved standalone staging HTML page; close context and retain renderer evidence. No interactive browser endpoint. | POST /jobs/:id/browser-runs; CARE_BROWSER_ENABLED; exact staging source/privacy consent; pinned Chromium and non-root sandbox. |
+| T26 | browser_get_accessibility_snapshot | Private-region-redacted accessibility snapshot of the rendered static page; not a full accessibility audit. | POST /jobs/:id/browser-runs; CARE_BROWSER_ENABLED; exact staging source/privacy consent; pinned Chromium and non-root sandbox. |
+| T27 | browser_capture_sanitized_screenshot | Sanitized PNG of a fixed approved viewport with explicit private-region masking and source/renderer provenance. | POST /jobs/:id/browser-runs; CARE_BROWSER_ENABLED; exact staging source/privacy consent; pinned Chromium and non-root sandbox. |
+| T28 | browser_run_registered_journey | Registered static-document-v1 journey: structural checks, viewport overflow and one native disclosure keyboard toggle. | POST /jobs/:id/browser-runs; CARE_BROWSER_ENABLED; exact staging source/privacy consent; pinned Chromium and non-root sandbox. |
 | T29 | design_compare_viewports | Compare pixels of two same-job sanitized PNG artifacts with a fixed threshold and dimension checks. Capture provenance and renderer reproducibility remain unverified. | POST /jobs/:id/tools/T29. Requires: Authenticated tenant/site access; Recorded evidence in this job or environment |
 | T30 | design_compare_tokens | Compare custom-property declarations in two supplied CSS files; no rendering or computed cascade. | POST /jobs/:id/tools/T30. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
 | T31 | accessibility_run_checks | Check static HTML language, alt, iframe title and ID references; browser accessibility assessment is separate. | POST /jobs/:id/tools/T31. Requires: Current exact source-review approval; CARE_REVIEW_ENABLED; Authorized sanitized source |
