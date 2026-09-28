@@ -91,7 +91,7 @@ export async function captureStaticDocument(browser: Browser, input: BrowserInpu
         { name: 'primary-heading', passed: document.querySelectorAll('h1').length === 1 },
         { name: 'viewport-overflow', passed: document.documentElement.scrollWidth <= window.innerWidth + 1 }
       ]);
-      const summary = page.locator('details:not([data-care-private]) > summary:not([data-care-private])').first();
+      const summary = page.locator('details:not([data-care-private]) > summary:not([data-care-private]):visible').first();
       let disclosure: { state: string; passed?: boolean } = { state: 'NOT_APPLICABLE' };
       if (await summary.count() && await summary.isVisible()) {
         const previous = await summary.evaluate((node) => (node.parentElement as HTMLDetailsElement).open);

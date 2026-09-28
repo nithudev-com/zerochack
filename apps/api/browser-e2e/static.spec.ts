@@ -27,6 +27,8 @@ test('captures the approved viewport with opaque black masking and sanitized PNG
 test('executes the registered disclosure journey and detects viewport overflow', async ({ browser }) => {
   const result = await captureStaticDocument(browser, { ...input, toolId: 'T28' });
   expect(result.report.journey).toMatchObject({ id: 'static-document-v1', passed: true, disclosure: { state: 'CHECKED', passed: true } });
+  const hiddenFirst = await captureStaticDocument(browser, { ...input, toolId: 'T28', source: source.replace('<details>', '<details style="display:none"><summary>Hidden fixture</summary><p>Hidden</p></details><details>') });
+  expect(hiddenFirst.report.journey).toMatchObject({ disclosure: { state: 'CHECKED', passed: true } });
   const overflow = await captureStaticDocument(browser, { ...input, toolId: 'T28', viewport: 'MOBILE', source: source.replace('<main>', '<main style="width:2000px">') });
   expect(overflow.report.journey).toMatchObject({ passed: false, checks: expect.arrayContaining([{ name: 'viewport-overflow', passed: false }]) });
 });
