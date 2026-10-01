@@ -13,6 +13,12 @@ function setup(complete = vi.fn().mockResolvedValue({ text: 'safe', inputTokens:
 }
 
 describe('central AI gateway', () => {
+  it('blocks model tools in source reviews and never replays a failed review invocation', async () => {
+    const tool = { name: 'unexpected', description: 'Unexpected tool', parameters: {}, execute: vi.fn() };
+    const denied = setup(); await expect(denied.gateway.execute({ ...request, purpose: 'SOURCE_REVIEW', tools: [tool] }, config)).rejects.toMatchObject({ code: 'AI_TOOLS_DENIED' }); expect(denied.complete).not.toHaveBeenCalled();
+    const complete = vi.fn().mockRejectedValue(new AiProviderError('AI_PROVIDER_HTTP_ERROR', 'temporary', true, 502));
+    await expect(setup(complete).gateway.execute({ ...request, purpose: 'SOURCE_REVIEW' }, config)).rejects.toMatchObject({ code: 'AI_PROVIDER_HTTP_ERROR' }); expect(complete).toHaveBeenCalledTimes(1);
+  });
   it('redacts common secrets before provider access', async () => { const { gateway, complete } = setup(); await gateway.execute({ ...request, prompt: 'password=hunter2 Bearer abcdefghijklmnop', untrustedContext: 'api_key=abcdef1234567890' }, config); const sent = complete.mock.calls[0]![0]!.prompt as string; expect(sent).not.toContain('hunter2'); expect(sent).not.toContain('abcdef1234567890'); });
   it('blocks Affiliate security context', async () => { await expect(setup().gateway.execute({ ...request, roles: ['Affiliate'] }, config)).rejects.toMatchObject({ code: 'AI_SECURITY_CONTEXT_DENIED' }); });
   it('does not rotate or retry credentials after provider rate limits', async () => { const complete = vi.fn().mockRejectedValue(new AiProviderError('AI_PROVIDER_RATE_LIMITED', 'limited', false, 429)); await expect(setup(complete).gateway.execute(request, config)).rejects.toMatchObject({ code: 'AI_PROVIDER_RATE_LIMITED' }); expect(complete).toHaveBeenCalledTimes(1); });

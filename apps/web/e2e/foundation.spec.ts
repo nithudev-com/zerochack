@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 
-test('renders the security homepage and every role login', async ({ page }) => {
-  await page.goto('/'); await expect(page.getByRole('heading', { level: 1 })).toContainText('security command center');
+test('renders the whole-stack care homepage and every role login', async ({ page }) => {
+  await page.goto('/'); await expect(page.getByRole('heading', { level: 1 })).toContainText('Your web stack.');
+  await expect(page.getByRole('button', { name: 'All technologies', exact: true })).toBeVisible();
   for (const path of ['customer', 'agency', 'affiliate', 'specialist', 'owner']) {
     await page.goto(`/${path}/login`); await expect(page.getByRole('heading', { level: 1 })).toContainText('Welcome back'); await expect(page.locator('.customer-sidebar')).toHaveCount(0); await expect(page.getByRole('link', { name: 'Sessions' })).toHaveCount(0);
   }

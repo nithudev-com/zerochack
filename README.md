@@ -55,3 +55,9 @@ See [Owner control center](docs/OWNER-CONTROL-CENTER.md) for MFA-gated administr
 See [Notifications, email automation, and reporting](docs/COMMUNICATIONS-REPORTING.md) for the idempotent communication outbox, channel preferences, safe template versions, delivery retries, and signed tenant-scoped reports.
 
 The current release verdict and remaining gates are in the [Phase 12 release report](docs/RELEASE-REPORT.md), with detailed [security](docs/SECURITY-TEST-REPORT.md) and [performance](docs/PERFORMANCE-REPORT.md) results. The project is not claimed production-ready while those gates remain open.
+
+The current care upgrade adds secure chat/access, static HTML repair and approved **text-source reviews across 24 AI roles**. Source review provides cited advice and does not execute code or apply general repairs. See [source-review usage and rollout](docs/CARE-SOURCE-REVIEWS.md), the [current implementation record](docs/CARE-IMPLEMENTATION.md), and the [100-item requirement ledger](docs/upgrade-ledger.json). The 67-contract registry has 24 bounded source/policy tools, 9 saved-evidence tools, 1 stored-image comparator and 15 dedicated workflow bindings; 18 wider contracts remain unavailable. See the [complete tool contract and setup matrix](docs/CARE-TOOL-CONTRACTS.md). Run `npm run care:preflight -- TENANT_UUID` with deployment configuration loaded to inspect setup without invoking a model.
+
+தமிழில் application பயன்பாடு, 24 AI roles மற்றும் approval flow: [பயன்பாட்டு வழிகாட்டி](docs/USAGE-TA.md).
+
+Saved work, new design/code checks, recovery evidence and MCP boundaries: [tools and recovery setup](docs/CARE-TOOLS-AND-RECOVERY.md).
