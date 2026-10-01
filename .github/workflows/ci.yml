@@ -63,3 +63,23 @@ jobs:
         name: Production Care and homepage browser checks
         env:
           CARE_WEB_PRODUCTION: 'true'
+
+  verification-fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:care-verification
+        name: Trusted synthetic profile tests on Node 24
+      - run: docker build -t care-verification-base infrastructure/verification
+      - run: docker build -f infrastructure/verification/Dockerfile.fixture --build-arg RUNNER_IMAGE=care-verification-base -t care-verification-fixture infrastructure/verification
+      - name: Run all profiles in offline bounded fixture containers
+        run: |
+          export CARE_PROFILE_TEST_BASE_IMAGE=$(docker image inspect --format='{{.Id}}' care-verification-base)
+          export CARE_PROFILE_TEST_IMAGE=$(docker image inspect --format='{{.Id}}' care-verification-fixture)
+          npm run test:care-verification

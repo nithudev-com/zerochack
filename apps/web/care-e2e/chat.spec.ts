@@ -374,3 +374,23 @@ test('saved browser evidence remains visible with new runs disabled', async ({ p
   await expect(page.getByRole('button', { name: 'Run approved browser check', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: /^Static document journey · COMPLETED/ }).click(); await expect(page.getByText(/This saved check found viewport overflow/)).toBeVisible();
 });
+
+test('isolated verification binds approval, displays failed checks and retains history across reload and disabled execution', async ({ page }) => {
+  const jobId = '31d7b8b9-79a0-4025-a2fb-9d5908e31ee5'; const runId = 'a941c1ca-782a-4104-8819-fde9b1b97c7b'; let calls = 0; let enabled = true;
+  const source = { revisionId: 'b941c1ca-782a-4104-8819-fde9b1b97c7b', artifactId: 'c941c1ca-782a-4104-8819-fde9b1b97c7b', sourceDigest: 'a'.repeat(64), label: 'Version 1: source.json' };
+  const imageDigest = `sha256:${'b'.repeat(64)}`;
+  await page.route('**/care?**', route => route.fulfill({ json: { credentials: [], accessRequests: [], roles: [], jobs: [{ id: jobId, kind: 'REVIEW', summary: 'Verification fixture', state: 'COMPLETED', environment: 'STAGING', agents: [], createdAt: new Date().toISOString() }], capabilities: {} } }));
+  await page.route('**/verification-options', route => route.fulfill({ json: { enabled, policy: 'offline-verification-v1', imageDigest, sources: [source], baselines: [], history: calls ? [{ id: runId, toolId: 'T35', state: 'COMPLETED', errorCode: null, createdAt: new Date().toISOString() }] : [], nextCursor: null } }));
+  await page.route(`**/verification-runs/${runId}`, route => route.fulfill({ json: { id: runId, state: 'COMPLETED', errorCode: null, result: { outcome: 'FAILED', checks: [{ name: 'expected-total', passed: false }], limitations: ['Only the supplied offline fixture was checked.'] } } }));
+  await page.route('**/verification-runs', route => { calls++; expect(route.request().postDataJSON()).toEqual({ requestKey: expect.any(String), toolId: 'T35', revisionId: source.revisionId, artifactId: source.artifactId, sourceDigest: source.sourceDigest, imageDigest, authorizeVerification: true, syntheticDataOnly: true }); return route.fulfill({ status: 201, json: { runId, state: 'COMPLETED' } }); });
+  await page.goto(`/customer/websites/${id}`); await page.getByLabel('Environment', { exact: true }).selectOption('STAGING'); await page.getByText('Isolated verification tools · 11 profiles', { exact: true }).click();
+  const run = page.getByRole('button', { name: 'Run approved verification', exact: true }); const consent = page.getByLabel('I authorize this exact saved-source check', { exact: false });
+  await expect(run).toBeDisabled(); await page.getByLabel('Saved source version', { exact: true }).selectOption(source.artifactId); await consent.check();
+  await page.getByLabel('Verification profile').selectOption('T36'); await expect(consent).not.toBeChecked(); await expect(run).toBeDisabled();
+  await page.getByLabel('Verification profile').selectOption('T35'); await consent.check();
+  const accessibility = await new AxeBuilder({ page }).include('[aria-label="Isolated source verification"]').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze(); expect(accessibility.violations).toEqual([]);
+  await run.click(); await expect(page.getByText('Result: FAILED', { exact: true })).toBeVisible(); await expect(page.getByText('Failed · expected-total', { exact: true })).toBeVisible(); expect(calls).toBe(1);
+  enabled = false; await page.reload(); await page.getByLabel('Environment', { exact: true }).selectOption('STAGING'); await page.getByText('Isolated verification tools · 11 profiles', { exact: true }).click(); await expect(run).toBeDisabled();
+  await page.getByRole('button', { name: /^T35 · COMPLETED/ }).click(); await expect(page.getByText('Result: FAILED', { exact: true })).toBeVisible(); expect(calls).toBe(1);
+  const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download retained verification result' }).click(); expect((await download).suggestedFilename()).toBe(`verification-${runId}.json`);
+});

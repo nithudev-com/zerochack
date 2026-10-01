@@ -1,6 +1,7 @@
 'use client';
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { CareVerificationTools } from './care-verification-tools';
 import { CareBrowserTools } from './care-browser-tools';
 import { CareObservations } from './care-observations';
 import { api } from '../lib/api';
@@ -27,7 +28,7 @@ export function CareTools({ jobId, websiteId, environment, review }: { jobId: st
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'The request could not complete.'); }
     finally { setBusy(false); }
   }
-  return <><CareBrowserTools key={`browser-${jobId}`} jobId={jobId} websiteId={websiteId}/><CareObservations key={jobId} jobId={jobId} websiteId={websiteId}/><details className="care-panel"><summary>Saved evidence & source tools</summary><p>Read this job’s saved evidence. Source comparisons require a current source-review approval. These tools do not contact your website.</p>
+  return <><CareVerificationTools key={`verification-${jobId}`} jobId={jobId} websiteId={websiteId}/><CareBrowserTools key={`browser-${jobId}`} jobId={jobId} websiteId={websiteId}/><CareObservations key={jobId} jobId={jobId} websiteId={websiteId}/><details className="care-panel"><summary>Saved evidence & source tools</summary><p>Read this job’s saved evidence. Source comparisons require a current source-review approval. These tools do not contact your website.</p>
     <form className="care-issue-form" onSubmit={(event) => { event.preventDefault(); void run(); }}><label>Evidence to read<select value={tool} onChange={(event) => { setTool(event.target.value); setResult(''); setError(''); }}>{evidenceTools.map(([id, title]) => <option key={id} value={id}>{title}</option>)}{review && <option value="T30">Compare approved CSS token declarations</option>}</select></label>
       {tool === 'T29' && <><p>Use the IDs of two sanitized screenshots uploaded to this job. This checks supplied pixels; it does not capture a browser.</p><label>Baseline screenshot artifact ID<input required value={baseline} onChange={(event) => setBaseline(event.target.value)}/></label><label>Candidate screenshot artifact ID<input required value={candidate} onChange={(event) => setCandidate(event.target.value)}/></label></>}
       {tool === 'T30' && <><label>Baseline CSS path<input required maxLength={180} value={baseline} onChange={(event) => setBaseline(event.target.value)}/></label><label>Candidate CSS path<input required maxLength={180} value={candidate} onChange={(event) => setCandidate(event.target.value)}/></label></>}

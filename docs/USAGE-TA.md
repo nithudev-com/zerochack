@@ -149,3 +149,12 @@ Owner **Care capabilities**-ல் ஒவ்வொரு tool-க்கும்
 6. Screenshot comparison-க்கு அதே job-ல் upload செய்யப்பட்ட இரண்டு sanitized screenshot artifact IDs பயன்படுத்தவும். Pixel differences கிடைக்கும்; browser rendering அல்லது capture provenance சோதிக்கப்பட்டதாகக் கருத வேண்டாம்.
 
 Deployment-க்கு `20260923040000_care_text_workspace` migration, matching API/web, persistent encryption keys, CARE_ENABLED/CARE_REVIEW_ENABLED மற்றும் pinned TypeScript runtime தேவை. மீதமுள்ள 18 tools-ன் code/service/account தேவைகள் [முழு contract matrix](CARE-TOOL-CONTRACTS.md)-ல் உள்ளன.
+
+
+## புதிய 11 verification profiles
+
+Staging source review அல்லது text workspace-ல் **Isolated verification tools · 11 profiles** திறக்கவும். Profile, saved source version, தேவையானால் baseline version தேர்வு செய்து scope-ஐப் படித்து ஒப்புதல் கொடுக்கவும். முடிவில் `COMPLETED` என்பது report சேமிக்கப்பட்டது என்று மட்டுமே பொருள்; `Result: FAILED` என்றால் check தோல்வி. Browser-ஐ மூடித் திறந்தாலும் பழைய history/report இருக்கும்.
+
+Node unit/integration tests, TypeScript build, local API/performance, WordPress saved-file inventory/checksum/update candidate, local checkout/integration mock, SQLite migration/restore ஆகியவை supported profiles. WordPress live site-க்கு login செய்யாது; payment provider-ஐ அழைக்காது; production update செய்யாது. T43 ஒரு partial source candidate மட்டுமே.
+
+67 contracts-க்கும் bounded implementation உள்ளது என்பதால் 67 live services active என்று பொருள் இல்லை. Operator rootless runtime, reviewed image மற்றும் தேவையான WordPress reference setup செய்து deployment preflight முடித்த பிறகே புதிய execution-ஐ enable செய்ய வேண்டும். முழு source format/setup: [CARE-VERIFICATION.md](CARE-VERIFICATION.md).

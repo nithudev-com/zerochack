@@ -30,7 +30,9 @@
     "care:preflight": "tsx apps/api/src/scripts/care-preflight.ts",
     "test:accessibility": "playwright test --config playwright.care.config.ts --grep \"automated WCAG\"",
     "test:care-browser": "playwright test --config playwright.static.config.ts",
-    "care:browser-preflight": "tsx apps/api/src/scripts/care-browser-preflight.ts"
+    "care:browser-preflight": "tsx apps/api/src/scripts/care-browser-preflight.ts",
+    "test:care-verification": "node --test infrastructure/verification/profiles.check.mjs",
+    "care:verification-preflight": "tsx apps/api/src/scripts/care-verification-preflight.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",

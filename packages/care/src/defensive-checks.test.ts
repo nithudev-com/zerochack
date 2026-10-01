@@ -72,8 +72,8 @@ describe('bounded defensive source tools', () => {
     const implemented = [...implementedReviewTools, ...implementedRecordTools, ...Object.keys(workflowToolBindings)];
     expect(new Set(implemented).size).toBe(implemented.length);
     expect([...implemented, ...Object.keys(unavailableToolRequirements)].sort()).toEqual(toolCatalogue.map((t) => t.id).sort());
-    expect(toolCatalogue.filter((t) => t.enabled)).toHaveLength(56);
-    expect(toolCatalogue.filter((t) => !t.enabled)).toHaveLength(11);
+    expect(toolCatalogue.filter((t) => t.enabled)).toHaveLength(67);
+    expect(toolCatalogue.filter((t) => !t.enabled)).toHaveLength(0);
     for (const tool of toolCatalogue) expect(tool.enabled ? tool.entrypoint : tool.unavailableReason).toBeTruthy();
   });
 });

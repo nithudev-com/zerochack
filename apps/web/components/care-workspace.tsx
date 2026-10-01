@@ -1,4 +1,5 @@
 'use client';
+import { CareVerificationTools } from './care-verification-tools';
 
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -57,7 +58,7 @@ export function CareWorkspace({ jobId, websiteId }: { jobId: string; websiteId: 
     finally { setBusy(false); }
   }
   return <section aria-label="Text workspace"><button aria-expanded={open} onClick={() => setOpen(!open)}>{open ? 'Hide text workspace' : 'Open text workspace'}</button>
-    {open && <div className="care-panel">
+    {open && <div className="care-panel"><CareVerificationTools key={jobId} jobId={jobId} websiteId={websiteId}/>
       <p>Saved text versions remain available when you close this page. Static checks do not run your application or approve deployment.</p>
       {query.isLoading && <p role="status">Loading saved workspace…</p>}
       {(error || query.error) && <p role="alert" className="care-alert">{error || query.error?.message}</p>}

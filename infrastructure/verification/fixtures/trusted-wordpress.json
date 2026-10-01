@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "reviewedByOperator": true,
+  "synthetic": true,
+  "wordpressVersion": "6.1.0",
+  "phpMinimum": "7.4",
+  "provenance": {
+    "url": "https://wordpress.org/wordpress-6.1.0.zip",
+    "archiveSha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+  },
+  "files": [
+    {
+      "path": "wp-includes/version.php",
+      "content": "<?php $wp_version = '6.1.0';",
+      "sha256": "90697bedc9169c5a0e09fad025e5a7cd6438ec9f917837c50e4869a231813770"
+    },
+    {
+      "path": "wp-includes/example.php",
+      "content": "<?php function fixture() { return 1; }",
+      "sha256": "d0f64eef72dab7c9faa74d1728a056777885e5577b2a258a525c77db2876b52b"
+    }
+  ]
+}

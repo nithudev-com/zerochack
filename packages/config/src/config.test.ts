@@ -18,6 +18,12 @@ describe('environment configuration', () => {
     expect(() => loadEnvironment({ ...valid, CARE_BROWSER_ENABLED: 'true' })).toThrow(/CARE_ENABLED/);
     expect(loadEnvironment({ ...valid, CARE_ENABLED: 'true', CARE_BROWSER_ENABLED: 'true' }).CARE_BROWSER_ENABLED).toBe(true);
   });
+  it('requires explicit verification activation, source reviews and an immutable image', () => {
+    expect(loadEnvironment(valid).CARE_VERIFICATION_ENABLED).toBe(false);
+    expect(() => loadEnvironment({ ...valid, CARE_VERIFICATION_ENABLED: 'true' })).toThrow();
+    expect(() => loadEnvironment({ ...valid, CARE_ENABLED: 'true', CARE_REVIEW_ENABLED: 'true', CARE_VERIFICATION_ENABLED: 'true', CARE_VERIFICATION_IMAGE: 'runner:latest' })).toThrow();
+    expect(loadEnvironment({ ...valid, CARE_ENABLED: 'true', CARE_REVIEW_ENABLED: 'true', CARE_VERIFICATION_ENABLED: 'true', CARE_VERIFICATION_IMAGE: `sha256:${'a'.repeat(64)}` }).CARE_VERIFICATION_ENABLED).toBe(true);
+  });
   it('rejects short secrets', () => expect(() => loadEnvironment({ ...valid, SESSION_SECRET: 'short' })).toThrow());
   it('rejects development MFA and SMTP defaults in production', () => expect(() => loadEnvironment({ ...valid, NODE_ENV: 'production' })).toThrow());
   it('requires encrypted production transports and non-placeholder secrets', () => {

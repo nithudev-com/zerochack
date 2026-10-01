@@ -1,5 +1,7 @@
+import { verificationProfiles } from './verification-profiles';
 /** Browser-safe bindings. A binding is implementation evidence, not deployment activation. */
 export const workflowToolBindings: Record<string, { entrypoint: string; boundary: string; requirements: string[] }> = {
+  ...Object.fromEntries(verificationProfiles.map((profile) => [profile.id, { entrypoint: `POST /jobs/:id/verification-runs (${profile.id})`, boundary: profile.boundary, requirements: ['CARE_VERIFICATION_ENABLED and CARE_REVIEW_ENABLED', 'Reviewed immutable image; non-root Linux, rootless Podman, seccomp and delegated cgroup v2', 'Exact saved staging source/runtime consent; synthetic fixtures only', ...(profile.id === 'T40' ? ['Different same-job baseline and identical performance profile'] : []), ...(['T42','T43'].includes(profile.id) ? ['Operator-reviewed WordPress reference baked into the selected image'] : [])] }])),
   T28: { entrypoint: 'POST /jobs/:id/browser-runs (T28)', boundary: "Run the fixed static-document-v1 journey: document structure, horizontal overflow and one visible native disclosure keyboard toggle. No customer scripts, navigation, forms or business transactions.", requirements: ["T25 runtime requirements", "Exact source and privacy-reviewed consent", "Retained synthetic journey findings"] },
   T27: { entrypoint: 'POST /jobs/:id/browser-runs (T27)', boundary: "Capture one fixed mobile/tablet/desktop viewport with opaque private-region masking, sanitized PNG storage and renderer/source provenance. No full-page or live-site capture.", requirements: ["T25 runtime requirements", "Exact viewport and privacy-region consent", "Encrypted screenshot retention and quota"] },
   T26: { entrypoint: 'POST /jobs/:id/browser-runs (T26)', boundary: "Extract the rendered accessibility tree of the same static page after removing approved private regions and their ARIA references. Not a WCAG audit or dynamic-app accessibility assessment.", requirements: ["T25 runtime requirements", "Exact privacy-region consent", "Encrypted report retention"] },
@@ -44,16 +46,4 @@ export const limitedToolBoundaries: Record<string, string> = {
   T58: 'Read saved production monitoring signals with timestamps and staleness; no live check.',
   T62: 'Prepare a summary from actual retained source reports with artifact references.'
 };
-export const unavailableToolRequirements: Record<string, string> = {
-  T35: 'No isolated registered unit-test worker is provisioned. Application CI tests this product; it does not execute uploaded customer tests.',
-  T36: 'No isolated integration-test worker with disposable test services is provisioned.',
-  T37: 'No isolated reproducible build worker with pinned dependencies and restricted package scripts is provisioned.',
-  T39: 'No registered API fixture runner exists. Needs isolated services, synthetic data and explicit expected outcomes.',
-  T40: 'No controlled performance-profile runner/baseline store exists. No production load testing is supported.',
-  T41: 'No CMS-specific read-only inventory connector is connected or evaluated.',
-  T42: 'Needs a supported CMS connector and authenticated trusted package manifests/artifacts. User-supplied files alone do not establish trusted provenance.',
-  T43: 'Needs a supported CMS staging connector, exact update approval, compatibility evaluation and recovery evidence.',
-  T44: 'Needs a supported commerce sandbox account, registered synthetic checkout journey and proof that real transactions/messages are disabled.',
-  T46: 'Needs isolated disposable database profiles, synthetic fixtures and approved migration/recovery checks. No customer database is queried.',
-  T48: 'Needs a provider-specific registered fixture adapter and test account configuration. No generic external request runner is available.'
-};
+export const unavailableToolRequirements: Record<string, string> = {};

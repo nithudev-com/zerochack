@@ -12,3 +12,5 @@ export * from './source-workspace.js';
 export * from './source-quality.js';
 export * from './screenshot-compare.js';
 export * from './dependency-inventory.js';
+
+export * from './verification-profiles.js';

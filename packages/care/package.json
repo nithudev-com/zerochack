@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./verification-profiles": "./src/verification-profiles.ts",
     "./catalogue": "./src/catalogue.ts",
     "./technology-coverage": "./src/technology-coverage.ts",
     "./source-formats": "./src/source-formats.ts"

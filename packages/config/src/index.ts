@@ -8,6 +8,8 @@ const environmentSchema = z.object({
   CARE_ENABLED: booleanString.default(false),
   CARE_REPAIR_ENABLED: booleanString.default(false),
   CARE_REVIEW_ENABLED: booleanString.default(false),
+  CARE_VERIFICATION_ENABLED: booleanString.default(false),
+  CARE_VERIFICATION_IMAGE: z.string().regex(/^sha256:[a-f0-9]{64}$/).optional(),
   CARE_BROWSER_ENABLED: booleanString.default(false),
   CARE_OBSERVATIONS_ENABLED: booleanString.default(false),
   CARE_ADVISORIES_ENABLED: booleanString.default(false),
@@ -78,7 +80,8 @@ export function loadEnvironment(source: NodeJS.ProcessEnv = process.env): Enviro
     throw new Error('Invalid environment configuration. Check: METRICS_TOKEN');
   }
   if (result.data.NODE_ENV === 'production' && result.data.CARE_ENABLED && (!result.data.CARE_VAULT_KEY || result.data.CARE_VAULT_KEY === defaultEncryptionKey || [result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY, result.data.MFA_ENCRYPTION_KEY].includes(result.data.CARE_VAULT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_VAULT_KEY');
-  if (result.data.NODE_ENV === 'production' && (result.data.CARE_BROWSER_ENABLED || result.data.CARE_REPAIR_ENABLED || result.data.CARE_REVIEW_ENABLED || result.data.CARE_OBSERVATIONS_ENABLED || result.data.CARE_ADVISORIES_ENABLED) && (!result.data.CARE_ARTIFACT_KEY || result.data.CARE_ARTIFACT_KEY === defaultEncryptionKey || [result.data.CARE_VAULT_KEY, result.data.MFA_ENCRYPTION_KEY, result.data.PAYMENT_CREDENTIAL_ENCRYPTION_KEY, result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY].includes(result.data.CARE_ARTIFACT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_ARTIFACT_KEY');
+  if (result.data.NODE_ENV === 'production' && (result.data.CARE_VERIFICATION_ENABLED || result.data.CARE_BROWSER_ENABLED || result.data.CARE_REPAIR_ENABLED || result.data.CARE_REVIEW_ENABLED || result.data.CARE_OBSERVATIONS_ENABLED || result.data.CARE_ADVISORIES_ENABLED) && (!result.data.CARE_ARTIFACT_KEY || result.data.CARE_ARTIFACT_KEY === defaultEncryptionKey || [result.data.CARE_VAULT_KEY, result.data.MFA_ENCRYPTION_KEY, result.data.PAYMENT_CREDENTIAL_ENCRYPTION_KEY, result.data.AI_CREDENTIAL_ENCRYPTION_KEY, result.data.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY].includes(result.data.CARE_ARTIFACT_KEY))) throw new Error('Invalid environment configuration. Check: distinct CARE_ARTIFACT_KEY');
+  if (result.data.CARE_VERIFICATION_ENABLED && (!result.data.CARE_ENABLED || !result.data.CARE_REVIEW_ENABLED || !result.data.CARE_VERIFICATION_IMAGE)) throw new Error('Care verification requires Care, source reviews and an immutable runner image.');
   if (result.data.CARE_BROWSER_ENABLED && !result.data.CARE_ENABLED) throw new Error('Care browser tools require CARE_ENABLED.');
   if ((result.data.CARE_OBSERVATIONS_ENABLED || result.data.CARE_ADVISORIES_ENABLED) && !result.data.CARE_ENABLED) throw new Error('Care observations require CARE_ENABLED.');
   if (result.data.CARE_ADVISORIES_ENABLED && !result.data.CARE_REVIEW_ENABLED) throw new Error('Advisory matching requires CARE_REVIEW_ENABLED.');

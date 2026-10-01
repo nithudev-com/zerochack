@@ -6,7 +6,7 @@ Baseline: `e82be579fdcca3e6139cc74f74bc0e980ab69dab`. The original unit suite pa
 
 ## Consented observation increment
 
-The current registry has 56 bounded implementations/workflow bindings and 11 unavailable contracts. T25–T28 add consented offline static HTML browser evidence with encrypted history, privacy masking and a fixed document journey; see [CARE-STATIC-BROWSER.md](CARE-STATIC-BROWSER.md). Runtime activation requires a separately verified non-root sandbox. T20 uses explicit selected-package disclosure consent for the fixed OSV service; T23/T24 make one scoped unauthenticated observation of the verified production website. Source declarations now support exact npm lockfile and Composer coordinates. Credential and specialist-grant metadata follow the selected Care environment. New observations have separate default-off flags, durable consent/result/error records, idempotent retries and post-operation authorization rechecks. See [CARE-OBSERVATIONS.md](CARE-OBSERVATIONS.md). These additions do not provide general autonomous repair or complete the 100-item plan. Dated test totals below describe previous increments, not this change.
+The current registry has 67 bounded implementations/workflow bindings. The latest eleven are narrow offline verification profiles, not live CMS/provider connectors or automatically active production services; see [CARE-VERIFICATION.md](CARE-VERIFICATION.md). T25–T28 add consented offline static HTML browser evidence with encrypted history, privacy masking and a fixed document journey; see [CARE-STATIC-BROWSER.md](CARE-STATIC-BROWSER.md). Runtime activation requires a separately verified non-root sandbox. T20 uses explicit selected-package disclosure consent for the fixed OSV service; T23/T24 make one scoped unauthenticated observation of the verified production website. Source declarations now support exact npm lockfile and Composer coordinates. Credential and specialist-grant metadata follow the selected Care environment. New observations have separate default-off flags, durable consent/result/error records, idempotent retries and post-operation authorization rechecks. See [CARE-OBSERVATIONS.md](CARE-OBSERVATIONS.md). These additions do not provide general autonomous repair or complete the 100-item plan. Dated test totals below describe previous increments, not this change.
 
 ## Implemented behavior
 
@@ -34,7 +34,7 @@ Actual model-backed chat creates persisted A02 Customer Liaison activity. Heartb
 | Other stored account types / staging connectors | Storage only; connection execution unavailable |
 | Claude provider | Adapter and contract tests implemented; live smoke test outstanding |
 | AI role catalogue | All 24 roles execute bounded source reviews; A02 chat and A08 static HTML repair remain separate modes |
-| Proposed tool catalogue | 56 bounded source/evidence/workflow contracts; 11 wider interfaces unavailable; see CARE-TOOL-CONTRACTS.md |
+| Proposed tool catalogue | 67 bounded source/evidence/workflow contracts; setup and wider live integrations remain unverified; see CARE-TOOL-CONTRACTS.md |
 | Existing assessment tools | Existing scoped tools remain separate from the proposed catalogue |
 | Repair execution and source patches | Static HTML data-only runner implemented; disposable execution workers unavailable |
 | Attachments | Validated encrypted HTML, screenshots and redacted logs; privacy review required |
