@@ -1,0 +1,116 @@
+name: CodeBandage rebrand and validation
+on:
+  push:
+    branches: ['codex/zeroroot-chat-care-upgrade']
+    paths: ['.github/workflows/codebandage-rebrand.yml', 'scripts/apply-codebandage-rebrand.py']
+permissions:
+  contents: write
+concurrency:
+  group: codebandage-rebrand
+  cancel-in-progress: false
+jobs:
+  rebrand:
+    if: github.repository == 'nithudev-com/zerochack' && github.ref == 'refs/heads/codex/zeroroot-chat-care-upgrade'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: zerochack
+          POSTGRES_PASSWORD: zerochack_test
+          POSTGRES_DB: zerochack_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U zerochack -d zerochack_test" --health-interval 10s --health-timeout 5s --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      NODE_ENV: test
+      NEXT_TELEMETRY_DISABLED: '1'
+      API_HOST: 127.0.0.1
+      API_PORT: 4000
+      WEB_PORT: 3000
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:4000/v1
+      DATABASE_URL: postgresql://zerochack:zerochack_test@127.0.0.1:5432/zerochack_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      SESSION_SECRET: ci-only-secret-that-is-at-least-32-characters
+      CORS_ORIGINS: http://127.0.0.1:3000
+      LOG_LEVEL: silent
+      TRUST_PROXY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Restore and verify supplied logo bytes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/nithudev-com/zerochack/git/blobs/e0c1fc0facc5740f8d5235af0543311a5b753acb > /tmp/codebandage-logo.json
+          python - <<'PY'
+          import json,base64,hashlib
+          from pathlib import Path
+          bad=base64.b64decode(json.loads(Path('/tmp/codebandage-logo.json').read_text())['content'])
+          assert hashlib.sha256(bad).hexdigest()=='5537f4cee7bce94f252642241b4e7233319dad284254926024b2f0e4d8af82a3'
+          text=base64.b64encode(bad).decode()
+          assert text[615:617]=='qq'
+          good=base64.b64decode(text[:615]+text[617:]+'==',validate=True)
+          assert hashlib.sha256(good).hexdigest()=='4cc14fe063f69b66785e44f10e5645ae9b70e608feed93492dd385e56735965b'
+          p=Path('apps/web/public/brand/codebandage-source.webp');p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(good)
+          PY
+      - name: Apply reviewed branding and generate assets
+        run: |
+          python scripts/apply-codebandage-rebrand.py
+          node scripts/generate-brand-assets.mjs
+          git diff --check
+      - name: Record existing dependency-audit gate separately
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/codebandage-validation
+          npm audit --json > /tmp/codebandage-validation/dependency-audit.json
+      - run: npm run db:migrate:deploy
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run build
+      - run: npm run openapi:generate
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - run: npm run test:e2e:care
+      - name: Production-build branding and Care browser checks
+        run: npm run test:e2e:care
+        env:
+          CARE_WEB_PRODUCTION: 'true'
+      - name: Commit validated rebrand to the requested branch only
+        run: |
+          set -euo pipefail
+          git fetch origin "$GITHUB_REF_NAME"
+          test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+          git rm scripts/apply-codebandage-rebrand.py .github/workflows/codebandage-rebrand.yml .github/workflows/codebandage-prepare.yml
+          git add apps packages docs README.md scripts/generate-brand-assets.mjs
+          git diff --cached --check
+          git diff --cached --stat > /tmp/codebandage-validation/changes.txt
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "feat(branding): rebrand application as CodeBandage with supplied logo"
+          git push origin "HEAD:$GITHUB_REF_NAME"
+          git rev-parse HEAD > /tmp/codebandage-validation/COMMIT.txt
+      - name: Save review artifacts even on validation failure
+        if: always()
+        run: |
+          mkdir -p /tmp/codebandage-validation
+          git diff --binary > /tmp/codebandage-validation/working-changes.patch
+          tar --exclude=node_modules --exclude=.git --exclude=.next --exclude=dist --exclude=test-results --exclude=playwright-report -czf /tmp/codebandage-validation/source.tar.gz apps packages scripts docs README.md package.json package-lock.json tsconfig.base.json vitest.config.ts vitest.integration.config.ts playwright.config.ts playwright.care.config.ts eslint.config.mjs
+          if test -d test-results; then cp -r test-results /tmp/codebandage-validation/browser-evidence; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: codebandage-rebrand-validation
+          path: /tmp/codebandage-validation/
+          retention-days: 7
+          if-no-files-found: error
