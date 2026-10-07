@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { BrandLogo } from './brand-logo';
 import { useForm } from 'react-hook-form';
 import { Button, Input, Alert } from '@zerochack/ui';
 
@@ -26,7 +27,7 @@ export function AuthForm({ mode, role, portal }: { mode: 'login' | 'register'; r
       if (mode === 'register') { router.push('/verify-email?sent=1'); return; }
       if (body.mfaRequired) { sessionStorage.setItem('zerochack_mfa_challenge', body.challengeToken); router.push(body.enrollmentRequired ? '/mfa?enroll=1' : body.enrollmentPending ? '/mfa?confirm=1' : '/mfa'); return; }
       router.push(role === 'Customer' ? '/customer/overview' : role === 'Agency' ? '/agency/overview' : role === 'Affiliate' ? '/affiliate/overview' : role === 'Cybersecurity Specialist' ? '/specialist/overview' : '/account');
-    } catch { setServerError('Unable to reach ZeroRoot. Check your connection and try again.'); }
+    } catch { setServerError('Unable to reach CodeBandage. Check your connection and try again.'); }
   });
   return <form className="auth-form" onSubmit={submit} noValidate>
     {serverError && <Alert title="Unable to continue" tone="danger">{serverError}</Alert>}
@@ -41,5 +42,5 @@ export function AuthForm({ mode, role, portal }: { mode: 'login' | 'register'; r
 }
 
 export function AuthPage({ mode, role, portal }: { mode: 'login' | 'register'; role: Role; portal: string }) {
-  return <div className={`auth-layout auth-layout--${portal}`}><section className="auth-copy"><span className="eyebrow">{role} portal</span><h1>{mode === 'login' ? 'Welcome back.' : 'Create your secure account.'}</h1><p>{mode === 'register' && role !== 'Customer' ? 'After email verification, an Owner must approve this account before access is enabled.' : 'Authentication, role, account status, and tenant access are verified by the ZeroRoot API.'}</p><div className="auth-art" aria-hidden="true"><i/><i/><i/><span>{role[0]}</span></div></section><div className="auth-panel"><div className="auth-panel__head"><span>{mode === 'login' ? 'SECURE SIGN IN' : 'ACCOUNT SETUP'}</span><p>{mode === 'login' ? 'Enter your account credentials to continue.' : 'Start your protected ZeroRoot workspace.'}</p></div><AuthForm mode={mode} role={role} portal={portal} /></div></div>;
+  return <div className={`auth-layout auth-layout--${portal}`}><section className="auth-copy"><BrandLogo variant="full" /><span className="eyebrow">{role} portal</span><h1>{mode === 'login' ? 'Welcome back.' : 'Create your secure account.'}</h1><p>{mode === 'register' && role !== 'Customer' ? 'After email verification, an Owner must approve this account before access is enabled.' : 'Authentication, role, account status, and tenant access are verified by the CodeBandage API.'}</p><div className="auth-art" aria-hidden="true"><i/><i/><i/><span>{role[0]}</span></div></section><div className="auth-panel"><div className="auth-panel__head"><span>{mode === 'login' ? 'SECURE SIGN IN' : 'ACCOUNT SETUP'}</span><p>{mode === 'login' ? 'Enter your account credentials to continue.' : 'Start your protected CodeBandage workspace.'}</p></div><AuthForm mode={mode} role={role} portal={portal} /></div></div>;
 }

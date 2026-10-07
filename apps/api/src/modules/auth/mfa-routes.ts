@@ -18,7 +18,7 @@ export const mfaRoutes: FastifyPluginAsync<{ environment: Environment }> = async
     const secret = record.user.mfaSecretEncrypted ? decryptSecret(record.user.mfaSecretEncrypted, environment.MFA_ENCRYPTION_KEY) : generateTotpSecret();
     if (!record.user.mfaSecretEncrypted) await database.user.update({ where: { id: record.userId }, data: { mfaSecretEncrypted: encryptSecret(secret, environment.MFA_ENCRYPTION_KEY), mfaEnabledAt: null } });
     await writeAudit({ actorUserId: record.userId, requestId: request.id, action: 'auth.mfa_enrollment_started', resourceType: 'user', resourceId: record.userId, ipAddress: request.ip });
-    return { secret, otpauthUri: `otpauth://totp/ZeroRoot:${encodeURIComponent(record.user.email)}?secret=${secret}&issuer=ZeroRoot&algorithm=SHA1&digits=6&period=30` };
+    return { secret, otpauthUri: `otpauth://totp/CodeBandage:${encodeURIComponent(record.user.email)}?secret=${secret}&issuer=CodeBandage&algorithm=SHA1&digits=6&period=30` };
   });
 
   app.post('/auth/mfa/confirm', { config: { rateLimit: { max: 5, timeWindow: '5 minutes' } } }, async (request, reply) => {
@@ -62,7 +62,7 @@ export const mfaRoutes: FastifyPluginAsync<{ environment: Environment }> = async
     if (user.mfaEnabledAt) throw new ApiError(409, 'MFA_ALREADY_ENABLED', 'Authenticator MFA is already enabled');
     const secret = generateTotpSecret(); await database.user.update({ where: { id: request.userId! }, data: { mfaSecretEncrypted: encryptSecret(secret, environment.MFA_ENCRYPTION_KEY) } });
     await writeAudit({ tenantId: request.tenantId, actorUserId: request.userId, requestId: request.id, action: 'auth.optional_mfa_setup_started', resourceType: 'user', resourceId: request.userId, ipAddress: request.ip });
-    return { secret, otpauthUri: `otpauth://totp/ZeroRoot:${encodeURIComponent(user.email)}?secret=${secret}&issuer=ZeroRoot&algorithm=SHA1&digits=6&period=30` };
+    return { secret, otpauthUri: `otpauth://totp/CodeBandage:${encodeURIComponent(user.email)}?secret=${secret}&issuer=CodeBandage&algorithm=SHA1&digits=6&period=30` };
   });
 
   app.post('/auth/mfa/enable', { preHandler: (request) => authenticate(request, environment) }, async (request) => {

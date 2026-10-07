@@ -1,4 +1,6 @@
-# ZeroRoot
+# CodeBandage
+
+<img src="apps/web/public/brand/codebandage-logo.webp" alt="CodeBandage" width="240" />
 
 Production-oriented multi-tenant cybersecurity SaaS foundation and operational platform. Implemented workflows through Phase 10 use authoritative database/provider state and contain no fabricated users, scans, metrics, payments, or integrations.
 
@@ -61,3 +63,7 @@ The current care upgrade adds secure chat/access, static HTML repair and approve
 தமிழில் application பயன்பாடு, 24 AI roles மற்றும் approval flow: [பயன்பாட்டு வழிகாட்டி](docs/USAGE-TA.md).
 
 Saved work, new design/code checks, recovery evidence and MCP boundaries: [tools and recovery setup](docs/CARE-TOOLS-AND-RECOVERY.md).
+
+## Branding
+
+CodeBandage is the product brand. Stable `zerochack` package/repository identifiers are retained. See [branding and compatibility](docs/CODEBANDAGE-BRANDING.md).

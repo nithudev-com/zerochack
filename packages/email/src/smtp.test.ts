@@ -36,7 +36,7 @@ describe('SMTP transport compatibility with the patched mailer', () => {
     const provider = new SmtpEmailProvider({ host: '127.0.0.1', port, secure: false, from: 'sender@example.test' });
     const result = await provider.send({ to: 'recipient@example.test', subject: 'Synthetic fixture', text: 'Synthetic delivery check', idempotencyKey: 'synthetic-1' });
     expect(result.providerMessageId).toBe('<synthetic-1@zerochack.delivery>');
-    expect(messages).toHaveLength(1); expect(messages[0]).toContain('Subject: Synthetic fixture'); expect(messages[0]).toContain('Synthetic delivery check');
+    expect(messages).toHaveLength(1); expect(messages[0]).toContain('From: CodeBandage <sender@example.test>'); expect(messages[0]).toContain('Content-ID: <codebandage-logo>'); expect(messages[0]).toContain('Subject: Synthetic fixture'); expect(messages[0]).toContain('Synthetic delivery check');
   }));
   it('reports a rejected synthetic recipient as a failure', () => fixture(true, async (port, messages) => {
     const provider = new SmtpEmailProvider({ host: '127.0.0.1', port, secure: false, from: 'sender@example.test' });

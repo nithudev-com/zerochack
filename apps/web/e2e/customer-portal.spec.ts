@@ -29,10 +29,10 @@ test('customer can navigate the workspace, store approved access, and persist a 
   await expect(page.getByRole('region', { name: 'Stored access' })).toContainText('CMS · cms.example.test');
   // Published-price responses use the real database and require no external model account.
   const message = 'What pricing is available for my E2E Website?';
-  await page.getByLabel('Message ZeroRoot').fill(message);
+  await page.getByLabel('Message CodeBandage').fill(message);
   await page.getByRole('button', { name: /^Send/ }).click();
   await expect(page.getByLabel('Conversation history')).toContainText(message);
-  await expect(page.getByText('ZeroRoot · AI assistant', { exact: true })).toBeVisible();
+  await expect(page.getByText('CodeBandage · AI assistant', { exact: true })).toBeVisible();
   await page.reload();
   await expect(page.getByLabel('Conversation history')).toContainText(message);
   await expect(page.getByLabel('Conversation history')).not.toContainText('synthetic-e2e-vault-marker');

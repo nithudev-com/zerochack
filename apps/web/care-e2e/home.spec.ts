@@ -47,7 +47,7 @@ test('technology search, filters and file-support details describe the implement
 
 test('homepage examples respond to keyboard and retain structured SEO and working section links', async ({ page }) => {
   await page.goto('/');
-  await expect(page).toHaveTitle('ZeroRoot | AI Website, API, Server & DevOps Care');
+  await expect(page).toHaveTitle('CodeBandage | AI Website, API, Server & DevOps Care');
   const preview = page.locator('.zr-preview');
   const api = preview.getByRole('button', { name: 'API', exact: true });
   await api.focus(); await page.keyboard.press('Enter');

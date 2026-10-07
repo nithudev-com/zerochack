@@ -1,4 +1,5 @@
 'use client';
+import { BrandLogo } from './brand-logo';
 
 import { useState } from 'react';
 
@@ -14,7 +15,7 @@ export function HomePreview() {
   const [selected, setSelected] = useState(2);
   const example = examples[selected] ?? examples[0];
   return <div className="zr-preview">
-    <div className="zr-preview-heading"><span><span className="zr-mini-mark">Z</span> ZeroRoot Care</span><span className="zr-demo-label">Interactive example</span></div>
+    <div className="zr-preview-heading"><span><BrandLogo variant="mark" decorative /> CodeBandage Care</span><span className="zr-demo-label">Interactive example</span></div>
     <div className="zr-preview-tabs" aria-label="Explore a technology care example">{examples.map((item, index) => <button type="button" key={item.name} aria-pressed={selected === index} onClick={() => setSelected(index)}>{item.name}<span aria-hidden="true">↗</span></button>)}</div>
     <div className="zr-preview-body" aria-live="polite" aria-atomic="true">
       <div className="zr-preview-prompt"><span className="zr-avatar">You</span><p>{example.prompt}</p></div>

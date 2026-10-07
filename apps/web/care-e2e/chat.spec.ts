@@ -240,7 +240,7 @@ test('mobile, reduced motion and Tamil content remain within the viewport', asyn
   await page.setViewportSize({ width: 360, height: 800 }); await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`/customer/websites/${id}`);
   await page.getByRole('button', { name: 'Secure capture' }).click();
-  await page.getByLabel('Message ZeroRoot').fill('என் இணையதளத்தில் மொபைல் மெனு சரியாக வேலை செய்யவில்லை.');
+  await page.getByLabel('Message CodeBandage').fill('என் இணையதளத்தில் மொபைல் மெனு சரியாக வேலை செய்யவில்லை.');
   await expect(page.getByRole('button', { name: 'Send', exact: false })).toBeVisible();
   const overflow = await page.evaluate(() => ({ width: innerWidth, pageWidth: document.documentElement.scrollWidth, elements: Array.from(document.querySelectorAll('body *')).filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(element).position !== 'absolute').slice(0, 8).map((element) => ({ tag: element.tagName, class: element.className, right: element.getBoundingClientRect().right })) }));
   expect(overflow.pageWidth, JSON.stringify(overflow)).toBeLessThanOrEqual(overflow.width);
@@ -255,12 +255,19 @@ test('environment changes clear draft and receipt context', async ({ page }) => 
   await page.screenshot({ path: 'test-results/care-desktop.png', fullPage: true });
 });
 test('untrusted Markdown cannot load remote images or render raw HTML', async ({ page }) => {
+  let remoteImages=0;
+  await page.route('https://invalid.example.test/pixel', route => { remoteImages++; return route.abort(); });
   await page.route('**/chat?**', async (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ id: 'fixture-message', type: 'AI', content: '<button>Forged approval</button>\n\n![tracking](https://invalid.example.test/pixel)\n\n[unsafe](javascript:alert(1))', createdAt: new Date().toISOString() }]) }));
   await page.goto(`/customer/websites/${id}`);
   await expect(page.getByLabel('Conversation history')).toContainText('Image omitted');
   await expect(page.getByRole('button', { name: 'Forged approval' })).toHaveCount(0);
-  await expect(page.locator('.care-message img')).toHaveCount(0);
+  const avatars=page.locator('.care-message img');
+  await expect(avatars).toHaveCount(1);
+  await expect(avatars).toHaveAttribute('src','/brand/codebandage-mark.png');
+  await expect(avatars).toHaveAttribute('alt','');
+  await expect(page.locator('.care-message > :not(.care-message-label) img')).toHaveCount(0);
   await expect(page.locator('.care-message a[href^="javascript:"]')).toHaveCount(0);
+  expect(remoteImages).toBe(0);
 });
 
 for (const width of [390, 768, 1280, 1440]) {
@@ -283,7 +290,7 @@ test('IME Enter does not submit a message', async ({ page }) => {
   await page.route('**/chat/ingest', (route) => { submitted += 1; return route.fulfill({ contentType: 'application/json', body: '{}' }); });
   await page.goto(`/customer/websites/${id}`);
   await page.getByRole('button', { name: 'Secure capture' }).click();
-  const input = page.getByLabel('Message ZeroRoot'); await input.fill('தமிழ் composing input');
+  const input = page.getByLabel('Message CodeBandage'); await input.fill('தமிழ் composing input');
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, bubbles: true });
   await expect(input).toHaveValue('தமிழ் composing input'); expect(submitted).toBe(0);
   await input.press('Shift+Enter'); expect(submitted).toBe(0);

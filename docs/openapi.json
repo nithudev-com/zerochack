@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "ZeroRoot API",
+    "title": "CodeBandage API",
     "version": "1.0.0",
     "description": "Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API."
   },

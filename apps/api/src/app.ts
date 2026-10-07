@@ -52,7 +52,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
   await app.register(cors, { origin: environment.corsOrigins, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
   await app.register(rateLimit, { max: environment.NODE_ENV === 'test' ? 10_000 : 100, timeWindow: '1 minute', keyGenerator: (request) => request.ip, ...(rateLimitRedis ? { redis: rateLimitRedis } : {}) });
   await app.register(cookie);
-  await app.register(swagger, { openapi: { info: { title: 'ZeroRoot API', version: '1.0.0', description: 'Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API.' }, servers: [{ url: '/v1' }] } });
+  await app.register(swagger, { openapi: { info: { title: 'CodeBandage API', version: '1.0.0', description: 'Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API.' }, servers: [{ url: '/v1' }] } });
   await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
 
   app.addHook('onRequest', async (request, reply) => {

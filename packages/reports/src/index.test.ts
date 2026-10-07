@@ -6,3 +6,15 @@ describe('report integrity', () => {
   it('detects content and signature tampering', () => { const hash = reportIntegrity(report); const signature = signReport(report, 'a sufficiently long signing secret'); expect(verifyReport(report, hash, signature, 'a sufficiently long signing secret')).toBe(true); expect(verifyReport({ ...report, data: { findings: 3 } }, hash, signature, 'a sufficiently long signing secret')).toBe(false); });
   it('is stable across JSON object key reordering',()=>{const reordered={...report,data:{b:2,a:1}};const roundTrip={...report,data:{a:1,b:2}};expect(reportIntegrity(reordered)).toBe(reportIntegrity(roundTrip));expect(signReport(reordered,'secret')).toBe(signReport(roundTrip,'secret'));});
 });
+
+
+describe('CodeBandage report identity', () => {
+  it('keeps old signed documents valid and binds the publisher on new documents', () => {
+    const legacy: ReportDocument = { schemaVersion:1, reportId:'legacy', type:'SECURITY_SCAN', tenantId:'t', website:{id:'w',name:'Site',origin:'https://example.test'}, generatedAt:'2026-09-03T00:00:00Z',data:{} };
+    const secret='synthetic-signing-secret';
+    expect(verifyReport(legacy,reportIntegrity(legacy),signReport(legacy,secret),secret)).toBe(true);
+    const branded={...legacy,publisher:{name:'CodeBandage',logoPath:'/brand/codebandage-logo.webp'}};
+    expect(verifyReport(branded,reportIntegrity(branded),signReport(branded,secret),secret)).toBe(true);
+    expect(verifyReport({...branded,publisher:{...branded.publisher,name:'Other'}},reportIntegrity(branded),signReport(branded,secret),secret)).toBe(false);
+  });
+});

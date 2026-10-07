@@ -126,7 +126,7 @@ YAML கோப்புகளுக்கு T67 syntax/duplicate-key check ச�
 
 புதிய review policy v3. முடிவடையாத பழைய v1/v2 plan-க்கு புதிய plan உருவாக்கி approve செய்ய வேண்டும். பழைய saved conversations/reports அழிக்கப்படாது. Tab மூடியபின் அதே account மற்றும் website-ஐத் திறந்து submitted work-ஐத் தொடரலாம்.
 
-Production-ல் பக்கம் “Loading ZeroRoot” நிலையில் நிற்கச் செய்த CSP பிரச்சினையும் சரிசெய்யப்பட்டுள்ளது. ஒவ்வொரு page request-க்கும் தனி script nonce உருவாகிறது. Deploy செய்யும்போது API/web/worker-ஐ ஒன்றாக update செய்யவும்; nonce உள்ள HTML-ஐ CDN shared cache-ல் சேமிக்க வேண்டாம். CI-ல் development மற்றும் production browser checks இரண்டும் ஓடும்.
+Production-ல் பக்கம் “Loading CodeBandage” நிலையில் நிற்கச் செய்த CSP பிரச்சினையும் சரிசெய்யப்பட்டுள்ளது. ஒவ்வொரு page request-க்கும் தனி script nonce உருவாகிறது. Deploy செய்யும்போது API/web/worker-ஐ ஒன்றாக update செய்யவும்; nonce உள்ள HTML-ஐ CDN shared cache-ல் சேமிக்க வேண்டாம். CI-ல் development மற்றும் production browser checks இரண்டும் ஓடும்.
 
 ### புதிய tool வசதிகள்
 

@@ -1,7 +1,7 @@
 import { database } from '@zerochack/database';
 import { hashPassword, normalizeEmail, validatePassword } from '@zerochack/auth';
 
-const email = process.env.OWNER_EMAIL; const password = process.env.OWNER_PASSWORD; const displayName = process.env.OWNER_NAME; const tenantName = process.env.OWNER_TENANT_NAME ?? 'ZeroRoot';
+const email = process.env.OWNER_EMAIL; const password = process.env.OWNER_PASSWORD; const displayName = process.env.OWNER_NAME; const tenantName = process.env.OWNER_TENANT_NAME ?? 'CodeBandage';
 if (!email || !password || !displayName) throw new Error('OWNER_EMAIL, OWNER_PASSWORD, and OWNER_NAME are required');
 if (!validatePassword(password)) throw new Error('OWNER_PASSWORD must be 12-128 characters and include upper, lower, number, and symbol');
 

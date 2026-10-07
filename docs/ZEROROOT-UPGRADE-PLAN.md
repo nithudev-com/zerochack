@@ -1,11 +1,11 @@
-# ZeroRoot — Complete 0-to-100 Changes Plan
+# CodeBandage — Complete 0-to-100 Changes Plan
 
 ## Product, chat interface, animation, agent team, tools, security, architecture, and delivery
 
 **Version:** Consolidated implementation blueprint, 23 September 2026
 **Repository:** `https://github.com/nithudev-com/zerochack`
 **Status:** Proposed changes, not implemented features or a security certification. Selected current repository files and official technical documentation were read; application tests were not executed for this plan.
-**Supersedes:** The previous ZeroRoot AI Remediation Master Plan for the requirements discussed in this conversation.
+**Supersedes:** The previous CodeBandage AI Remediation Master Plan for the requirements discussed in this conversation.
 This document preserves the requested single-chat experience, conversational access intake, customer-approved actual credential disclosure to company specialists, Claude integration, AI-led repairs, visible agent teamwork, design repairs, independent verification, customer feedback, and controlled deployment. It adds implementation contracts, motion specifications, failure handling, operational controls, and a 100-item acceptance checklist.
 “Cloud model” is interpreted as Anthropic Claude, as in the previous plan. No claim is made that changing providers removes security obligations. Numeric design tokens, animation timings, concurrency settings, and performance targets below are proposed starting values, not measured results or universal requirements.
 
@@ -48,7 +48,7 @@ Add provider/model policies, role definitions, knowledge-pack versions, tool reg
 
 ### Overall direction
 
-Use a calm, original ZeroRoot identity with a high-quality conversational layout. Avoid copying ChatGPT logos, assets, or proprietary branding. Avoid hacker-themed terminals, excessive neon, distracting particles, and fake security scores. Preserve the customer's existing site design when repairing it; a repair request is not permission for a redesign.
+Use a calm, original CodeBandage identity with a high-quality conversational layout. Avoid copying ChatGPT logos, assets, or proprietary branding. Avoid hacker-themed terminals, excessive neon, distracting particles, and fake security scores. Preserve the customer's existing site design when repairing it; a repair request is not permission for a redesign.
 
 ### Proposed design tokens
 
@@ -86,7 +86,7 @@ The component catalogue should include `WebsiteChatShell`, `WebsiteContextHeader
 
 ## 05. Animation and motion specification
 
-Use CSS for simple transitions and one animation library for coordinated UI state. Motion for React supports reduced-motion controls; use the user preference by default and also offer a ZeroRoot “Reduce motion” preference. [S1][S2] The durations below are design proposals.
+Use CSS for simple transitions and one animation library for coordinated UI state. Motion for React supports reduced-motion controls; use the user preference by default and also offer a CodeBandage “Reduce motion” preference. [S1][S2] The durations below are design proposals.
 
 | UI eventProposed normal motionReduced-motion / failure behavior |                                                              |                                                            |
 | --------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------- |
@@ -117,7 +117,7 @@ Show a compact “Your AI team” strip inside chat. Expand it into a team panel
 Illustrative interface only:
 
 ```
-ZeroRoot / example.com                      STAGING — Live site unchanged
+CodeBandage / example.com                      STAGING — Live site unchanged
 
 YOUR AI TEAM
 Frontend Engineer · AI       Preparing the approved menu repair
@@ -270,7 +270,7 @@ The first 18 roles retain the previous plan. Roles A19–A24 add explicit CMS/co
 ## 14. Knowledge, memory, and evaluation design
 
 Use versioned knowledge packs instead of one huge prompt. Each pack records supported versions, trusted references, prerequisites, allowed checks, repair patterns, validation requirements, recovery constraints, known failure modes, last review, owner, and evaluation cases.
-Maintain four separate stores: reviewed public technical knowledge; ZeroRoot-approved playbooks; tenant/website facts and customer design preferences; and the current case's evidence/decisions. Enforce tenant permissions before retrieval, not after generation. Scope caches and search results by tenant, website, version, and authorization. Never index secrets, production session files, or unredacted customer exports.
+Maintain four separate stores: reviewed public technical knowledge; CodeBandage-approved playbooks; tenant/website facts and customer design preferences; and the current case's evidence/decisions. Enforce tenant permissions before retrieval, not after generation. Scope caches and search results by tenant, website, version, and authorization. Never index secrets, production session files, or unredacted customer exports.
 Start with structured metadata and framework-version-aware document search. Add vector retrieval only where evaluation shows it helps. Do not treat a popular web page or repository instruction file as trusted system policy. Store source provenance and freshness; conflicting evidence remains visible.
 Agents may propose reusable lessons after a repair, but promotion into shared knowledge requires sanitization, reviewer approval, and regression evaluation. A successful outcome for one site is not proof that the same change is appropriate for another. Customer data must not silently become shared training or global memory.
 Use a capability matrix per stack and connector: inspection, source collection, local build, preview, patch, deployment, backup, rotation, and recovery. Start with Git-based React/Next.js/Node and a separately validated WordPress/PHP path. Unsupported paths go to a specialist rather than speculative automation.
@@ -286,7 +286,7 @@ Local tool processes run with restricted filesystem/network permissions. Remote 
 
 ### Proposed 64-tool catalogue
 
-The names below are ZeroRoot interface proposals, not claims that existing libraries expose identical methods. Return structured results and artifact references. Implement the subset needed for the first working repair path before expanding.
+The names below are CodeBandage interface proposals, not claims that existing libraries expose identical methods. Return structured results and artifact references. Implement the subset needed for the first working repair path before expanding.
 
 #### Case and trusted context
 
@@ -431,7 +431,7 @@ Playwright MCP can be considered behind the same browser isolation and scope pol
 
 Create per-job disposable engineering and browser environments. Prefer a VM/microVM or equivalently reviewed stronger isolation boundary for multi-tenant untrusted execution; a privileged shared container is unacceptable. No host Docker socket, platform database credentials, cloud metadata access, shared home directories, or production `.env` files are mounted.
 Apply CPU, memory, disk, process, runtime, output-size, and network limits. Provide a sanitized source tree, minimal dependencies, and synthetic fixtures. Package install/build hooks remain untrusted. Use reviewed dependency mirrors/caches and deny unapproved outbound destinations. Scope caches so one tenant cannot poison another tenant's build.
-Keep production access in a separate broker/connector with narrowly compiled operations. A customer's website may itself be compromised; do not load remote scripts or plugins into the ZeroRoot control plane. Browser contexts are fresh per job, test-only credentials are scoped, and navigation/subresource requests follow network policy.
+Keep production access in a separate broker/connector with narrowly compiled operations. A customer's website may itself be compromised; do not load remote scripts or plugins into the CodeBandage control plane. Browser contexts are fresh per job, test-only credentials are scoped, and navigation/subresource requests follow network policy.
 Previews run on a separate origin without platform cookies or production credentials. Prefer short-lived authorized access over public unguessable links. Sandboxed embedding must not grant both inappropriate script execution and same-origin access. Validate any preview-to-parent messages by exact origin and narrow schema.
 Publish a support matrix. For Git-based deployments, require a source revision, build contract, preview target, release connector, and recovery method. For SSH/SFTP/CMS deployments, require validated web-root mapping, consistent source/configuration capture, a supported change method, backup verification, and external drift detection. Shared hosting without a reliable staging/recovery path remains limited or human-assisted.
 
@@ -513,7 +513,7 @@ Use typed error codes such as `AUTHORIZATION_REQUIRED`, `SECRET_CAPTURE_AMBIGUOU
 
 ## 22. Real-time events and animation synchronization
 
-Persist domain events before fan-out. Use authenticated SSE for the browser experience already present in the repository. [R2] This is a ZeroRoot UI transport choice, separate from the transport/version used for MCP.
+Persist domain events before fan-out. Use authenticated SSE for the browser experience already present in the repository. [R2] This is a CodeBandage UI transport choice, separate from the transport/version used for MCP.
 A public activity event should carry `eventId`, `sequence`, `occurredAt`, `websiteId`, `environmentId`, `jobId`, optional `agentRunId`, `eventType`, `state`, a sanitized `summary`, and authorized `artifactRefs`. Keep sensitive server authorization metadata out of unnecessary client payloads. The server validates the subscriber's current access on connect and when relevant grants change.
 Typical event names: `job.created`, `agent.assigned`, `agent.started`, `tool.started`, `tool.completed`, `agent.blocked`, `approval.required`, `approval.resolved`, `verification.completed`, `release.started`, `release.observed`, `job.paused`, `job.completed`, and `job.failed`.
 Resume from an event cursor after disconnect and deduplicate by event ID/sequence. Fall back to a current-state snapshot if the cursor has expired. Browser disconnection does not cancel a job, and reconnection does not restart it. Detect stale worker heartbeats and render uncertainty instead of an endless running animation.
@@ -770,7 +770,7 @@ Each item requires implementation evidence, not just a checked box. The separate
 
 | Requirement from the conversationWhere specified                 |                                                    |
 | ---------------------------------------------------------------- | -------------------------------------------------- |
-| One ChatGPT-style conversation after adding a website            | Sections 02–04 and 07; original ZeroRoot branding. |
+| One ChatGPT-style conversation after adding a website            | Sections 02–04 and 07; original CodeBandage branding. |
 | Chatbot colors, typography, responsive layout, and components    | Sections 03–04.                                    |
 | Chat animations and accessible motion                            | Section 05 and checklist ZR-021–ZR-030.            |
 | Beautiful visible AI-agent cards and role animations             | Sections 05–06 and 22.                             |
