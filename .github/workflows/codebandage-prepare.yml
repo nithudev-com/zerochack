@@ -8,32 +8,18 @@ permissions:
 jobs:
   inventory:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Inventory source and installed public dependencies
-        shell: bash
+      - name: Inspect uploaded artwork blob
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
           mkdir -p /tmp/codebandage-source
-          git archive --format=tar.gz HEAD > /tmp/codebandage-source/source.tar.gz
-          git rev-parse HEAD > /tmp/codebandage-source/COMMIT.txt
-          git grep -n -i -E 'zeroroot|zero root|zero-root|zerochack' -- apps packages docs README.md .env.example > /tmp/codebandage-source/brand-inventory.txt || test "$?" = 1
-          tar --exclude='node_modules/.cache' -czf /tmp/codebandage-source/dependencies.tar.gz node_modules
-          npm audit --json > /tmp/codebandage-source/dependency-audit.json || true
-          sha256sum /tmp/codebandage-source/*.tar.gz
-          echo 'Tracked source and public lockfile dependencies only; no git credentials or environment files added.'
+          gh api repos/nithudev-com/zerochack/git/blobs/e0c1fc0facc5740f8d5235af0543311a5b753acb --jq .content | base64 --decode > /tmp/codebandage-source/transferred-logo.webp
+          sha256sum /tmp/codebandage-source/transferred-logo.webp
       - uses: actions/upload-artifact@v4
         with:
-          name: codebandage-source
+          name: codebandage-logo-integrity
           path: /tmp/codebandage-source/
           retention-days: 1
-          compression-level: 0
           if-no-files-found: error
