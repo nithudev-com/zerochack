@@ -1,0 +1,31 @@
+name: CodeBandage source inventory
+on:
+  push:
+    branches: ['codex/zeroroot-chat-care-upgrade']
+    paths: ['.github/workflows/codebandage-prepare.yml']
+permissions:
+  contents: read
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inventory branding and archive tracked source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/codebandage-source
+          git archive --format=tar.gz HEAD > /tmp/codebandage-source/source.tar.gz
+          git rev-parse HEAD > /tmp/codebandage-source/COMMIT.txt
+          git grep -n -i -E 'zeroroot|zero root|zero-root|zerochack' -- apps packages docs README.md .env.example > /tmp/codebandage-source/brand-inventory.txt || test "$?" = 1
+          sha256sum /tmp/codebandage-source/source.tar.gz
+          echo 'Tracked source only; no git credentials or environment files added.'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codebandage-source
+          path: /tmp/codebandage-source/
+          retention-days: 1
+          if-no-files-found: error
