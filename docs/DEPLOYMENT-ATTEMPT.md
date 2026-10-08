@@ -80,8 +80,17 @@ perl-base entries with an indicated Debian update, zlib classification requiring
 Debian applicability review, and high OS/npm-toolchain entries. Production npm
 audit does not cover OS packages or npm bundled in the base image. Full applicability
 review, compatible base/toolchain remediation and repeat image scans remain required.
-Worker/web scans were also requested; consult retained scanner JSON rather than
-assuming they passed. Database/Redis/tools scans remain required.
+Worker and later web image scans also completed with failure: each reported 4
+critical and 54 high OS-package entries, plus 11 high Node-package entries. These
+are scanner entries, not an exploitability conclusion or necessarily unique CVEs.
+Database/Redis/tools scans remain required. Retained API/worker/web JSON is under
+`/tmp/codebandage-audit-tools/` on the test workstation; it is not a CI artifact.
+
+Final 13:46 UTC origin check again validated TLS, returned apex 503 and www 308
+with path/query preserved. Disposable test containers were stopped, not deleted;
+the user's original PostgreSQL/Redis/Mailpit and e-commerce PostgreSQL stayed up.
+Final unused-builder-cache cleanup reclaimed 3.056 GB; workstation available disk
+space was 3.8 GB. No test data volumes or candidate images were deleted.
 
 No production database exists or migrations/persistence have been verified there.
 Backup encryption/HMAC, disposable restoration scripts and timer templates are
