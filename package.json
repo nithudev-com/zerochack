@@ -50,7 +50,10 @@
     "vitest": "4.1.11"
   },
   "overrides": {
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "shell-quote": "1.12.0",
+    "source-map-js": "1.2.2",
+    "sharp": "0.35.5"
   },
   "dependencies": {
     "@prisma/client": "^6.12.0"
