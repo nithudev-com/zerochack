@@ -34,7 +34,7 @@ export function renderBrandedEmail(text: string): string {
 export class SmtpEmailProvider implements EmailProvider {
   private readonly transport;
   constructor(options: { host: string; port: number; secure: boolean; user?: string; password?: string; from: string }) {
-    this.transport = { client: nodemailer.createTransport({ host: options.host, port: options.port, secure: options.secure, ...(options.user && options.password ? { auth: { user: options.user, pass: options.password } } : {}) }), from: options.from };
+    this.transport = { client: nodemailer.createTransport({ host: options.host, port: options.port, secure: options.secure, requireTLS: process.env.NODE_ENV === 'production' && !options.secure, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 30000, ...(options.user && options.password ? { auth: { user: options.user, pass: options.password } } : {}) }), from: options.from };
   }
   async send(message: EmailMessage): Promise<{ providerMessageId: string }> {
     const result = await this.transport.client.sendMail({ from: { name: 'CodeBandage', address: this.transport.from }, to: message.to, subject: message.subject, text: message.text, html: renderBrandedEmail(message.text), attachments: [{ filename: 'codebandage-logo.png', content: Buffer.from(emailLogoBase64, 'base64'), contentType: 'image/png', cid: 'codebandage-logo', contentDisposition: 'inline' }], ...(message.idempotencyKey ? { messageId: `<${message.idempotencyKey}@zerochack.delivery>` } : {}), disableFileAccess: true, disableUrlAccess: true });

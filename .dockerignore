@@ -11,3 +11,14 @@ test-results
 playwright-report
 .env*
 !.env.example
+**/*.key
+**/*.pem
+**/*.p12
+**/*.dump
+**/*.sql.gz
+**/secrets
+**/backups
+**/storage-state*.json
+**/auth-state*.json
+**/playwright-report
+**/test-results

@@ -7,7 +7,13 @@ if (!validatePassword(password)) throw new Error('OWNER_PASSWORD must be 12-128 
 
 const normalizedEmail = normalizeEmail(email); const passwordHash = await hashPassword(password);
 await database.$transaction(async (transaction) => {
-  if (await transaction.user.findUnique({ where: { email: normalizedEmail } })) throw new Error('Owner email already exists');
+  const existing = await transaction.user.findUnique({ where: { email: normalizedEmail } });
+  if (existing) {
+    const owner = await transaction.userRole.findFirst({ where: { userId: existing.id, role: { name: 'Owner', tenantId: null } } });
+    if (!owner) throw new Error('Owner email belongs to an existing non-Owner account; provisioning refused');
+    // A rerun must never reset credentials, MFA, identity, memberships or status.
+    return;
+  }
   const role = await transaction.role.findFirst({ where: { name: 'Owner', tenantId: null } }); if (!role) throw new Error('Run database migrations before owner provisioning');
   const tenant = await transaction.tenant.create({ data: { name: tenantName, slug: `zerochack-owner-${crypto.randomUUID().slice(0, 8)}` } });
   const user = await transaction.user.create({ data: { email: normalizedEmail, passwordHash, displayName, status: 'APPROVED', emailVerifiedAt: new Date() } });

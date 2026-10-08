@@ -1,5 +1,12 @@
 # Deployment
 
+The self-managed single-VPS deployment path is in
+[production operations](../infrastructure/production/README.md). It includes
+private PostgreSQL/Redis TLS, immutable image release manifests and gated host
+Caddy cutover. The historical managed-service proposal below is not evidence of
+completed provisioning. Consult the latest deployment attempt report for actual
+tests, remaining gates and domain status.
+
 This repository does not provision or claim a production deployment. The multi-stage, non-root Dockerfiles and capability-restricted, loopback-bound Compose topology are for repeatable development and image validation.
 
 A production pipeline should build immutable multi-stage images, generate an SBOM, scan dependencies and containers, sign artifacts, run migrations as a controlled one-off job, deploy with readiness checks and rollback support, and verify smoke tests. Runtime workloads should be non-root, read-only where practical, resource-limited, and independently scalable.

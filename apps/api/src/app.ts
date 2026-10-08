@@ -35,7 +35,7 @@ import { authenticateMetricsToken, observeRequest, renderMetrics } from './metri
 
 export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters; careVerification?: VerificationAdapter; careBrowser?: BrowserAdapter }) {
   const logger = createLogger('api', environment.LOG_LEVEL);
-  const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
+  const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY ? (_address, hop) => hop === 0 : false, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
   const rateLimitRedis = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
   const queueConnection = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: null });
   const customerQueues = queueConnection ? {
@@ -53,7 +53,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
   await app.register(rateLimit, { max: environment.NODE_ENV === 'test' ? 10_000 : 100, timeWindow: '1 minute', keyGenerator: (request) => request.ip, ...(rateLimitRedis ? { redis: rateLimitRedis } : {}) });
   await app.register(cookie);
   await app.register(swagger, { openapi: { info: { title: 'CodeBandage API', version: '1.0.0', description: 'Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API.' }, servers: [{ url: '/v1' }] } });
-  await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
+  if (environment.NODE_ENV !== 'production') await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
 
   app.addHook('onRequest', async (request, reply) => {
     request.startedAt = process.hrtime.bigint();
