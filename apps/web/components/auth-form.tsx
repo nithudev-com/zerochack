@@ -8,6 +8,11 @@ import { Button, Input, Alert } from '@zerochack/ui';
 
 type Role = 'Customer' | 'Agency' | 'Affiliate' | 'Cybersecurity Specialist' | 'Owner';
 type FormValues = { displayName: string; organizationName: string; email: string; password: string };
+const publicSignup: Partial<Record<string, { role: Role; description: string }>> = {
+  customer: { role:'Customer', description:'Create an account to manage your websites in one place. Verify your email to get started.' },
+  agency: { role:'Agency', description:'Create an agency account for your client websites. Email verification and Owner approval are required.' },
+  affiliate: { role:'Affiliate', description:'Apply for an affiliate account. Email verification and Owner approval are required.' }
+};
 const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/v1';
 
 export function AuthForm({ mode, role, portal }: { mode: 'login' | 'register'; role: Role; portal: string }) {
@@ -42,5 +47,6 @@ export function AuthForm({ mode, role, portal }: { mode: 'login' | 'register'; r
 }
 
 export function AuthPage({ mode, role, portal }: { mode: 'login' | 'register'; role: Role; portal: string }) {
-  return <div className={`auth-layout auth-layout--${portal}`}><section className="auth-copy"><BrandLogo variant="full" /><span className="eyebrow">{role} portal</span><h1>{mode === 'login' ? 'Welcome back.' : 'Create your secure account.'}</h1><p>{mode === 'register' && role !== 'Customer' ? 'After email verification, an Owner must approve this account before access is enabled.' : 'Authentication, role, account status, and tenant access are verified by the CodeBandage API.'}</p><div className="auth-art" aria-hidden="true"><i/><i/><i/><span>{role[0]}</span></div></section><div className="auth-panel"><div className="auth-panel__head"><span>{mode === 'login' ? 'SECURE SIGN IN' : 'ACCOUNT SETUP'}</span><p>{mode === 'login' ? 'Enter your account credentials to continue.' : 'Start your protected CodeBandage workspace.'}</p></div><AuthForm mode={mode} role={role} portal={portal} /></div></div>;
+  const signup = publicSignup[portal];
+  return <div className={`auth-layout auth-layout--${portal}`}><section className="auth-copy"><BrandLogo variant="full" /><span className="eyebrow">{role} portal</span><h1>{mode === 'login' ? 'Welcome back.' : 'Create your secure account.'}</h1><p>{mode === 'register' && role !== 'Customer' ? 'After email verification, an Owner must approve this account before access is enabled.' : 'Authentication, role, account status, and tenant access are verified by the CodeBandage API.'}</p><div className="auth-art" aria-hidden="true"><i/><i/><i/><span>{role[0]}</span></div></section><div className="auth-panel"><div className="auth-panel__head"><span>{mode === 'login' ? 'SECURE SIGN IN' : 'ACCOUNT SETUP'}</span><p>{mode === 'login' ? 'Enter your account credentials to continue.' : 'Start your protected CodeBandage workspace.'}</p></div><AuthForm mode={mode} role={role} portal={portal} />{mode === 'login' && signup?.role === role && <section className="auth-signup" aria-labelledby="auth-signup-title"><h2 id="auth-signup-title">New to CodeBandage?</h2><p>{signup.description}</p><Link className="auth-signup__link" href={`/${portal}/register`}>Sign up as {role}<span aria-hidden="true">→</span></Link></section>}</div></div>;
 }
