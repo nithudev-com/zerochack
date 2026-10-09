@@ -22,6 +22,7 @@ import { Queue } from 'bullmq';
 import type { ObservationAdapters } from './modules/care/external-observations.js';
 import { careRoutes } from './modules/care/routes.js';
 import { customerRoutes } from './modules/customer/routes.js';
+import { connectorRoutes } from './modules/connectors/routes.js';
 import { aiRoutes } from './modules/ai/routes.js';
 import { AiService } from './modules/ai/service.js';
 import type { AiProviderAdapter } from '@zerochack/ai-gateway';
@@ -97,6 +98,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     await v1.register(aiRoutes, { environment, ai });
     await v1.register(careRoutes, { environment, ai, ...(dependencies?.careVerification ? { verificationAdapter: dependencies.careVerification } : {}), ...(dependencies?.careBrowser ? { browserAdapter: dependencies.careBrowser } : {}), ...(dependencies?.careObservations ? { observationAdapters: dependencies.careObservations } : {}) });
     await v1.register(customerRoutes, { environment, ai, ...(customerQueues ? { queues: customerQueues } : {}) });
+    await v1.register(connectorRoutes, { environment });
     await v1.register(specialistRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, scans: customerQueues.scans, notifications:customerQueues.notifications,reports:customerQueues.reports } } : {}) });
     await v1.register(commercialRoutes, { environment, ...(dependencies?.paymentProviders ? { providers: dependencies.paymentProviders } : {}),...(customerQueues?{notificationsQueue:customerQueues.notifications}:{}) });
     await v1.register(operationsRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, monitoring: customerQueues.monitoring } } : {}) });

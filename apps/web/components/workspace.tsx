@@ -15,7 +15,7 @@ type Operations = { monitoringPolicy: { enabled: boolean; intervalMinutes: numbe
 type FixPrice = { id:string; name:string; description:string; scope:'ISSUE'|'TASK'|'PROJECT'; includedWork:string[]; priceMinor:number; currency:string; estimatedHours?:number|null; matchReason:string };
 type FixOrder = { id:string; title:string; scope:string; amountMinor:number; currency:string; status:string; checkoutUrl?:string|null; ticket?:{id:string;status:string;assignedSpecialistId?:string|null}|null };
 type FixOffers = { finding:Item|null; issueOffers:FixPrice[]; projectOffers:FixPrice[]; orders:FixOrder[] };
-const tabs = [['Chat', ''], ['Access or live help', '/access'], ['AI assessment', '/findings'], ['Pricing', '/pricing'], ['Fix with specialist', '/tickets'], ['Settings', '/settings']] as const;
+const tabs = [['Chat', ''], ['Connectors', '/connectors'], ['Access or live help', '/access'], ['AI assessment', '/findings'], ['Pricing', '/pricing'], ['Fix with specialist', '/tickets'], ['Settings', '/settings']] as const;
 const pretty = (value: string) => value.replaceAll('_', ' ').toLowerCase();
 const money = (amount: number, currency: string) => new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount / 100);
 

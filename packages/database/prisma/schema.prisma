@@ -520,12 +520,35 @@ model Website {
   careJobs CareJob[]
   careEvents CareEvent[]
   careArtifacts CareArtifact[]
+  connectors WebsiteConnector[]
 
   @@unique([tenantId, id])
 
   @@unique([tenantId, normalizedHost])
   @@index([tenantId, lifecycle])
   @@map("websites")
+}
+
+model WebsiteConnector {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  provider String @db.VarChar(24)
+  endpoint String @db.VarChar(2048)
+  websiteUrl String @map("website_url") @db.VarChar(2048)
+  encryptedSecret String @map("encrypted_secret") @db.Text
+  revision Int @default(1)
+  status String @default("CONFIGURED") @db.VarChar(32)
+  authorizedBy String @map("authorized_by") @db.Uuid
+  authorizationExpiresAt DateTime @map("authorization_expires_at") @db.Timestamptz(6)
+  lastCheckedAt DateTime? @map("last_checked_at") @db.Timestamptz(6)
+  lastErrorCode String? @map("last_error_code") @db.VarChar(64)
+  checkStartedAt DateTime? @map("check_started_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
+  @@unique([tenantId, websiteId, provider])
+  @@map("website_connectors")
 }
 
 model CareCredential {
