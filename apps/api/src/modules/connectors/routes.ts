@@ -43,7 +43,7 @@ export const connectorRoutes: FastifyPluginAsync<{ environment: Environment }> =
     if (site.connectionStatus !== 'VERIFIED') throw new ApiError(409, 'OWNERSHIP_REQUIRED', 'Verify website ownership in Settings before adding an API connector.');
     let endpoint: string;
     try { endpoint = connectorEndpoint(input.endpoint, site.normalizedHost, input.provider); connectionRequest({ ...input, endpoint }); }
-    catch { throw new ApiError(400, 'CONNECTOR_CONFIGURATION_INVALID', 'Use the documented HTTPS installation root and credential format. Shopify requires the canonical store.myshopify.com root; other adapters require the verified website hostname.'); }
+    catch { throw new ApiError(400, 'CONNECTOR_CONFIGURATION_INVALID', 'Use the adapter’s documented HTTPS root and credential format. Hosted APIs accept only their reviewed vendor hosts; self-hosted APIs require the verified website hostname.'); }
     const encryptedSecret = encryptSecret(JSON.stringify({ tenantId, websiteId, provider: input.provider, endpoint, username: input.username, secret: input.secret }), environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY);
     const where = { tenantId, websiteId, provider: input.provider };
     const data = { endpoint, websiteUrl: site.url, encryptedSecret, status: 'CONFIGURED', authorizedBy: request.userId!, authorizationExpiresAt: new Date(Date.now() + 30 * 86400000), lastCheckedAt: null, lastErrorCode: null, checkStartedAt: null };
@@ -69,16 +69,17 @@ export const connectorRoutes: FastifyPluginAsync<{ environment: Environment }> =
     const claim = await database.websiteConnector.updateMany({ where: { id: row.id, tenantId, revision: row.revision }, data: { checkStartedAt: new Date(), status: 'CHECKING', revision: { increment: 1 } } });
     if (claim.count !== 1) changed();
     let errorCode: string | null = null;
+    let successStatus = 'AUTHENTICATED_READ';
     try {
       const envelope = z.object({ tenantId: z.literal(tenantId), websiteId: z.literal(websiteId), provider: z.literal(provider), endpoint: z.literal(row.endpoint), username: z.string(), secret: z.string() }).parse(JSON.parse(decryptSecret(row.encryptedSecret, environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY)));
       connectorEndpoint(envelope.endpoint, site.normalizedHost, provider);
-      await verifyConnector({ ...envelope, websiteHost: site.normalizedHost });
+      successStatus = await verifyConnector({ ...envelope, websiteHost: site.normalizedHost }) ?? 'AUTHENTICATED_READ';
     } catch (error) { errorCode = error instanceof ConnectorError ? error.code : 'CONNECTION_FAILED'; }
     const lastCheckedAt = new Date();
     const result = await database.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
       const stillAuthorized = await tx.website.count({ where: { id: websiteId, tenantId, lifecycle: 'ACTIVE', connectionStatus: 'VERIFIED', url: row.websiteUrl } });
-      const completed = await tx.websiteConnector.updateMany({ where: { id: row.id, tenantId, revision: row.revision + 1, status: 'CHECKING' }, data: { checkStartedAt: null, lastCheckedAt, lastErrorCode: stillAuthorized ? errorCode : 'WEBSITE_CHANGED', status: !stillAuthorized || errorCode ? 'NEEDS_ATTENTION' : 'AUTHENTICATED_READ' } });
+      const completed = await tx.websiteConnector.updateMany({ where: { id: row.id, tenantId, revision: row.revision + 1, status: 'CHECKING' }, data: { checkStartedAt: null, lastCheckedAt, lastErrorCode: stillAuthorized ? errorCode : 'WEBSITE_CHANGED', status: !stillAuthorized || errorCode ? 'NEEDS_ATTENTION' : successStatus } });
       if (completed.count !== 1) changed();
       return tx.websiteConnector.findUniqueOrThrow({ where: { id: row.id }, select: publicFields });
     });

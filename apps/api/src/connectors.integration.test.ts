@@ -100,3 +100,22 @@ it.each([
   expect((await app.inject({ method: 'DELETE', url: path() + `/${credential.provider}`, headers: headers(), payload: { confirm: true, revision } })).statusCode).toBe(204);
   expect(JSON.stringify(await database.auditLog.findMany({ where: { tenantId: tenants[0]! } }))).not.toContain(credential.secret);
 });
+it.each([
+  { provider: 'payload', endpoint: 'https://cms.customer.com/', username: 'users', secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_READ' },
+  { provider: 'strapi', endpoint: 'https://cms.customer.com/', username: 'articles', secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_READ' },
+  { provider: 'prestashop', endpoint: 'https://cms.customer.com/', username: '', secret: 'a'.repeat(32), status: 'AUTHENTICATED_READ' },
+  { provider: 'cscart', endpoint: 'https://cms.customer.com/', username: 'reader@example.test', secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_READ' },
+  { provider: 'medusa', endpoint: 'https://cms.customer.com/', username: '', secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_READ' },
+  { provider: 'contentful', endpoint: 'https://api.contentful.com/', username: 'space-fixture', secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_ACCOUNT' },
+  { provider: 'datocms', endpoint: 'https://site-api.datocms.com/', username: '', secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_ACCOUNT' },
+  { provider: 'webflow', endpoint: 'https://api.webflow.com/', username: 'a'.repeat(24), secret: 'synthetic-api-key-00000000', status: 'AUTHENTICATED_READ' }
+])('persists $provider outcomes without upgrading project-only access to website access', async credential => {
+  await database.website.update({ where: { id: websiteId }, data: { connectionStatus: 'VERIFIED', url: input.endpoint, normalizedHost: 'cms.customer.com' } });
+  const payload = { ...input, ...credential }; delete (payload as Record<string, unknown>).status;
+  const saved = await app.inject({ method: 'PUT', url: path(), headers: headers(), payload }); expect(saved.statusCode).toBe(200);
+  const row = await database.websiteConnector.findFirstOrThrow({ where: { websiteId, provider: credential.provider } }); expect(row.encryptedSecret).not.toContain(credential.secret);
+  vi.mocked(verifyConnector).mockResolvedValueOnce(credential.status as 'AUTHENTICATED_READ' | 'AUTHENTICATED_ACCOUNT');
+  const checked = await app.inject({ method: 'POST', url: path() + `/${credential.provider}/check`, headers: headers(), payload: { confirm: true, revision: 1 } });
+  expect(checked.statusCode).toBe(200); expect(checked.json()).toMatchObject({ status: credential.status, revision: 2 }); expect(checked.body).not.toContain(credential.secret);
+  expect((await app.inject({ method: 'DELETE', url: path() + `/${credential.provider}`, headers: headers(), payload: { confirm: true, revision: 2 } })).statusCode).toBe(204);
+});

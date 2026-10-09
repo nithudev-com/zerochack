@@ -2,8 +2,11 @@ import { createHmac } from 'node:crypto';
 import { request } from 'node:https';
 import { resolvePublicTarget, validateHostname } from '@zerochack/scanner';
 import { z } from 'zod';
+import { ConnectorError } from './errors.js';
+import { isRestProvider, restProviders, restDefinitions, restRequest, restAnonymousDenied, restResult, serviceHosts } from './rest-platforms.js';
+export { ConnectorError } from './errors.js';
 
-export const providers = ['wordpress', 'woocommerce', 'ghost', 'directus', 'shopify', 'joomla'] as const;
+export const providers = ['wordpress', 'woocommerce', 'ghost', 'directus', 'shopify', 'joomla', ...restProviders] as const;
 export type Provider = typeof providers[number];
 export const connectorInput = z.object({
   provider: z.enum(providers), endpoint: z.string().url().max(2048),
@@ -11,22 +14,21 @@ export const connectorInput = z.object({
   revision: z.number().int().nonnegative(), authorizationConfirmed: z.literal(true)
 }).strict();
 export type ConnectorInput = z.infer<typeof connectorInput>;
-export class ConnectorError extends Error {
-  constructor(public readonly code: string) { super(code); }
-}
 export const connectorDefinitions = [
   { provider: 'wordpress', name: 'WordPress', researchId: 1, usernameLabel: 'WordPress username', secretLabel: 'Application Password', scope: 'Read the authenticated user ID. Use a dedicated least-privilege account and revocable Application Password, not your login password.' },
   { provider: 'woocommerce', name: 'WooCommerce', researchId: 87, usernameLabel: 'Consumer key', secretLabel: 'Consumer secret', scope: 'Read at most one product ID. Create a REST API key with Read permission only; no orders or customer details are requested.' },
   { provider: 'ghost', name: 'Ghost', researchId: 5, usernameLabel: null, secretLabel: 'Admin API key (id:secret)', scope: 'Read at most one post ID using a short-lived signed token. Ghost integration keys can permit writes: CodeBandage uses only GET and does not edit content.' },
   { provider: 'directus', name: 'Directus', researchId: 42, usernameLabel: null, secretLabel: 'Static access token', scope: 'Read the authenticated user ID. Use a dedicated restricted Directus user with access to its own ID.' },
   { provider: 'shopify', name: 'Shopify', researchId: 86, usernameLabel: 'Installed app client ID', secretLabel: 'Installed app client secret', scope: 'For an app and store owned by the same Shopify organization only. Install your app through the Dev Dashboard first. Each check exchanges its client credentials for a temporary token and reads shop ID and domains using GraphQL Admin API 2026-10. No products, orders, customer data or mutations are requested. Third-party merchant OAuth onboarding is not available.' },
-  { provider: 'joomla', name: 'Joomla', researchId: 3, usernameLabel: null, secretLabel: 'Joomla API token', scope: 'Enable API Authentication – Web Services Joomla Token, User – Joomla API Token and Web Services – Content. Use a dedicated account with API login and article-read permissions, not Super User. Checks request at most one article; Joomla can return article content, which is discarded and never saved or sent to AI. Requires the Joomla web services API (supported Joomla 5/6 installations).' }
+  { provider: 'joomla', name: 'Joomla', researchId: 3, usernameLabel: null, secretLabel: 'Joomla API token', scope: 'Enable API Authentication – Web Services Joomla Token, User – Joomla API Token and Web Services – Content. Use a dedicated account with API login and article-read permissions, not Super User. Checks request at most one article; Joomla can return article content, which is discarded and never saved or sent to AI. Requires the Joomla web services API (supported Joomla 5/6 installations).' },
+  ...restDefinitions
 ] as const;
 
 // Installation root only. Never accept user-controlled paths to arbitrary API methods.
 export function connectorEndpoint(input: string, websiteHost: string, provider?: Provider): string {
   const url = new URL(input);
-  const hostAllowed = provider === 'shopify' ? /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/u.test(url.hostname) && url.pathname === '/' : url.hostname === websiteHost;
+  const fixedHosts = provider && isRestProvider(provider) ? serviceHosts[provider] : undefined;
+  const hostAllowed = fixedHosts ? fixedHosts.includes(url.hostname) && url.pathname === '/' : provider === 'shopify' ? /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/u.test(url.hostname) && url.pathname === '/' : url.hostname === websiteHost;
   if (url.protocol !== 'https:' || url.port || url.username || url.password || url.search || url.hash || !hostAllowed || !/^\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_-]*\/?$/u.test(url.pathname)) throw new ConnectorError('ENDPOINT_INVALID');
   validateHostname(url.hostname);
   url.pathname = url.pathname.replace(/\/?$/u, '/');
@@ -36,6 +38,7 @@ export function connectorEndpoint(input: string, websiteHost: string, provider?:
 export function connectionRequest(input: Pick<ConnectorInput, 'provider' | 'endpoint' | 'username' | 'secret'>, now = Math.floor(Date.now() / 1000)) {
   let path: string; let body: string | undefined; const headers: Record<string, string> = {};
   if (/[\r\n\0]/u.test(input.secret + input.username)) throw new ConnectorError('CREDENTIAL_FORMAT');
+  if (isRestProvider(input.provider)) return restRequest({ ...input, provider: input.provider });
   switch (input.provider) {
     case 'wordpress':
       if (!input.username || input.username.includes(':') || !/^[a-zA-Z0-9 ]{24,40}$/u.test(input.secret) || input.secret.replaceAll(' ', '').length !== 24) throw new ConnectorError('CREDENTIAL_FORMAT');
@@ -100,13 +103,14 @@ export const probeHttps: Probe = async (url, headers, body) => {
   });
 };
 
-export async function verifyConnector(input: Pick<ConnectorInput, 'provider' | 'endpoint' | 'username' | 'secret'> & { websiteHost?: string }, probe: Probe = probeHttps): Promise<void> {
+export async function verifyConnector(input: Pick<ConnectorInput, 'provider' | 'endpoint' | 'username' | 'secret'> & { websiteHost?: string }, probe: Probe = probeHttps): Promise<'AUTHENTICATED_READ' | 'AUTHENTICATED_ACCOUNT' | void> {
   const { url, headers, body } = connectionRequest(input);
+  if (isRestProvider(input.provider)) connectorEndpoint(input.endpoint, input.websiteHost ?? new URL(input.endpoint).hostname, input.provider);
   if (input.provider === 'shopify' && !input.websiteHost) throw new ConnectorError('WEBSITE_BINDING_REQUIRED');
   // A public resource returning 200 must never be mistaken for authenticated access.
-  const anonymousHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => ['accept-version', 'accept', 'content-type'].includes(key)));
+  const anonymousHeaders = Object.fromEntries(Object.entries(headers).filter(([key]) => ['accept-version', 'accept', 'content-type', 'x-api-version', 'output-format'].includes(key)));
   const anonymous = await probe(url, anonymousHeaders, body);
-  if (![401, 403].includes(anonymous.status)) throw new ConnectorError('AUTHENTICATION_UNPROVEN');
+  if (!(isRestProvider(input.provider) ? restAnonymousDenied(input.provider, anonymous) : [401, 403].includes(anonymous.status))) throw new ConnectorError('AUTHENTICATION_UNPROVEN');
   if (input.provider === 'shopify') {
     const tokenResponse = await probe(new URL('admin/oauth/access_token', input.endpoint), { 'content-type': 'application/x-www-form-urlencoded' }, new URLSearchParams({ grant_type: 'client_credentials', client_id: input.username, client_secret: input.secret }).toString());
     if ([400, 401, 403].includes(tokenResponse.status)) throw new ConnectorError('AUTH_OR_PERMISSION_DENIED');
@@ -118,6 +122,7 @@ export async function verifyConnector(input: Pick<ConnectorInput, 'provider' | '
   const response = await probe(url, headers, body);
   if ([401, 403].includes(response.status)) throw new ConnectorError('AUTH_OR_PERMISSION_DENIED');
   if (response.status !== 200) throw new ConnectorError('PROVIDER_UNAVAILABLE');
+  if (isRestProvider(input.provider)) return restResult({ ...input, provider: input.provider }, response.body);
   if (input.provider === 'shopify') {
     if (response.apiVersion !== '2026-10') throw new ConnectorError('API_VERSION_MISMATCH');
     const result = z.object({ errors: z.undefined().optional(), data: z.object({ shop: z.object({ id: z.string().regex(/^gid:\/\/shopify\/Shop\/\d+$/u), myshopifyDomain: z.string(), primaryDomain: z.object({ host: z.string() }) }) }) }).safeParse(response.body);

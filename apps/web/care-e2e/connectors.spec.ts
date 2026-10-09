@@ -8,7 +8,15 @@ const adapters = [
   { provider: 'ghost', name: 'Ghost', researchId: 5, usernameLabel: null, secretLabel: 'Admin API key (id:secret)', scope: 'Read at most one post ID.' },
   { provider: 'directus', name: 'Directus', researchId: 42, usernameLabel: null, secretLabel: 'Static access token', scope: 'Read the authenticated user ID.' },
   { provider: 'shopify', name: 'Shopify', researchId: 86, usernameLabel: 'Installed app client ID', secretLabel: 'Installed app client secret', scope: 'For an app and store owned by the same Shopify organization only.' },
-  { provider: 'joomla', name: 'Joomla', researchId: 3, usernameLabel: null, secretLabel: 'Joomla API token', scope: 'Enable Joomla API plugins with API login and article-read permissions.' }
+  { provider: 'joomla', name: 'Joomla', researchId: 3, usernameLabel: null, secretLabel: 'Joomla API token', scope: 'Enable Joomla API plugins with API login and article-read permissions.' },
+  { provider: 'payload', name: 'Payload', researchId: 43, usernameLabel: 'API-key enabled auth collection slug', secretLabel: 'User API key', scope: 'Read authenticated user.' },
+  { provider: 'strapi', name: 'Strapi', researchId: 41, usernameLabel: 'Protected collection plural API ID', secretLabel: 'Read-only API token', scope: 'Read one protected document.' },
+  { provider: 'prestashop', name: 'PrestaShop', researchId: 90, usernameLabel: null, secretLabel: 'Webservice key', scope: 'Read one shop ID.' },
+  { provider: 'cscart', name: 'CS-Cart', researchId: 95, usernameLabel: 'API-enabled administrator email', secretLabel: 'Administrator API key', scope: 'Read one product.' },
+  { provider: 'medusa', name: 'Medusa', researchId: 103, usernameLabel: null, secretLabel: 'Secret Admin API key', scope: 'Read one product ID.' },
+  { provider: 'contentful', name: 'Contentful', researchId: 44, usernameLabel: 'Space ID', secretLabel: 'Content Management API token', endpointKind: 'service', defaultEndpoint: 'https://api.contentful.com/', scope: 'Space access only; frontend binding unavailable.' },
+  { provider: 'datocms', name: 'DatoCMS', researchId: 50, usernameLabel: null, secretLabel: 'Content Management API token', endpointKind: 'service', defaultEndpoint: 'https://site-api.datocms.com/', scope: 'Project access only; frontend binding unavailable.' },
+  { provider: 'webflow', name: 'Webflow', researchId: 128, usernameLabel: 'Site ID', secretLabel: 'Site token (sites:read)', endpointKind: 'service', defaultEndpoint: 'https://api.webflow.com/', scope: 'Site ID and verified domain must match.' }
 ];
 type Saved = { provider: string; endpoint: string; revision: number; status: string; secretStored: boolean; authorizationExpiresAt: string; lastCheckedAt: string | null; lastErrorCode: string | null };
 async function fixture(page: Page, verified = true, failure = false) {
@@ -22,11 +30,11 @@ async function fixture(page: Page, verified = true, failure = false) {
     else if (path === `/v1/websites/${websiteId}`) body = { id: websiteId, name: 'Fixture site', url: 'https://cms.customer.com/', connectionStatus: verified ? 'VERIFIED' : 'PENDING' };
     else if (path === '/v1/connectors/catalog') body = { adapters, research: { research_date: '2026-10-09', platforms: [{ id: 126, platform: 'Wix', category: 'Builder', connection_method: 'OAuth requires a registered app.', required_information: 'Approved app and scopes.', limitations: 'Not server access.', official_sources: ['https://dev.wix.com/'] }] } };
     else if (path.endsWith('/connectors') && request.method() === 'PUT') {
-      const input = request.postDataJSON(); expect(input.authorizationConfirmed).toBe(true); expect(input.secret).toBe(input.provider === 'shopify' ? 'synthetic-client-secret' : input.provider === 'joomla' ? 'c3ludGhldGljLWpvb21sYS10b2tlbg==' : 'abcd efgh ijkl mnop qrst uvwx');
+      const input = request.postDataJSON(); expect(input.authorizationConfirmed).toBe(true); expect(input.secret).toBe(input.provider === 'shopify' ? 'synthetic-client-secret' : input.provider === 'joomla' ? 'c3ludGhldGljLWpvb21sYS10b2tlbg==' : ['contentful', 'datocms', 'webflow'].includes(input.provider) ? 'synthetic-api-key-00000000' : 'abcd efgh ijkl mnop qrst uvwx');
       rows = [{ provider: input.provider, endpoint: input.endpoint, revision: 1, status: 'CONFIGURED', secretStored: true, authorizationExpiresAt: '2026-11-08T00:00:00Z', lastCheckedAt: null, lastErrorCode: null }]; body = rows[0];
     } else if (path.endsWith('/check')) {
       expect(request.postDataJSON().confirm).toBe(true);
-      rows[0] = { ...rows[0]!, revision: 2, status: failure ? 'NEEDS_ATTENTION' : 'AUTHENTICATED_READ', lastCheckedAt: '2026-10-09T10:00:00Z', lastErrorCode: failure ? 'AUTH_OR_PERMISSION_DENIED' : null }; body = rows[0];
+      rows[0] = { ...rows[0]!, revision: 2, status: failure ? 'NEEDS_ATTENTION' : ['contentful', 'datocms'].includes(rows[0]!.provider) ? 'AUTHENTICATED_ACCOUNT' : 'AUTHENTICATED_READ', lastCheckedAt: '2026-10-09T10:00:00Z', lastErrorCode: failure ? 'AUTH_OR_PERMISSION_DENIED' : null }; body = rows[0];
     } else if (path.endsWith('/wordpress') && request.method() === 'DELETE') { expect(request.postDataJSON()).toMatchObject({ confirm: true, revision: 2 }); rows[0] = { ...rows[0]!, status: 'REVOKED', secretStored: false }; status = 204; }
     else if (path.endsWith('/connectors')) body = rows;
     else if (path === '/v1/notifications') body = [];
@@ -47,7 +55,7 @@ async function save(page: Page) {
 for (const width of [320, 390, 1440]) test(`connector save/check/remove and accessible layout at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 }); await fixture(page); await page.goto(`/customer/websites/${websiteId}/connectors`);
   await expect(page.getByRole('heading', { name: 'Connect your platform' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Connection methods' }).getByRole('button')).toHaveCount(7);
+  await expect(page.getByRole('group', { name: 'Connection methods' }).getByRole('button')).toHaveCount(15);
   await expect(page.getByLabel('Server host')).toHaveCount(0);
   await page.screenshot({ path: `/tmp/codebandage-connection-picker-${width}.png`, fullPage: true });
   await save(page); await page.getByRole('button', { name: 'Check connection', exact: true }).click();
@@ -80,7 +88,7 @@ test('default access page offers every connector and SSH save never starts an as
   await page.route('**/access/check', route => { checks++; return route.fulfill({ json: credential }); });
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${websiteId}/access`);
   const methods = page.getByRole('group', { name: 'Connection methods' });
-  await expect(methods.getByRole('button')).toHaveCount(7);
+  await expect(methods.getByRole('button')).toHaveCount(15);
   for (const item of adapters) {
     await methods.getByRole('button', { name: new RegExp(`^${item.name}`) }).click();
     await page.getByRole('button', { name: `Set up ${item.name}`, exact: true }).click();
@@ -137,4 +145,22 @@ test('all 150 guide entries can be reached without pretending unavailable adapte
   await expect(page.getByRole('button', { name: 'Show more platforms' })).toHaveCount(0);
   await page.getByLabel('Search platform guide').fill('Guide platform 150');
   await expect(page.getByText('Showing 1 of 1 matching platforms.', { exact: true })).toBeVisible();
+});
+for (const provider of ['contentful', 'datocms', 'webflow']) test(`${provider} search opens a vendor-root form and accurate access status`, async ({ page }) => {
+  await fixture(page); await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${websiteId}/access`);
+  const adapter = adapters.find(item => item.provider === provider)!;
+  await page.getByLabel('Search connection methods').fill(adapter.name);
+  const methods = page.getByRole('group', { name: 'Connection methods' }); await expect(methods.getByRole('button')).toHaveCount(2);
+  await methods.getByRole('button', { name: new RegExp(`^${adapter.name}`) }).click();
+  await page.getByRole('button', { name: `Set up ${adapter.name}`, exact: true }).click();
+  await expect(page.getByLabel('Vendor API root URL')).toHaveValue(adapter.defaultEndpoint!);
+  if (adapter.usernameLabel) await page.getByLabel(adapter.usernameLabel, { exact: true }).fill(provider === 'webflow' ? 'a'.repeat(24) : 'space-fixture');
+  await page.getByLabel(adapter.secretLabel, { exact: true }).fill('synthetic-api-key-00000000');
+  await page.getByRole('checkbox').check(); await page.getByRole('button', { name: 'Save encrypted credential' }).click();
+  await expect(page.getByText('Saved · not checked', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await expect(page.getByText(provider === 'webflow' ? 'Authenticated read succeeded' : 'Project access checked · website binding pending', { exact: true })).toBeVisible();
+  if (provider !== 'webflow') await expect(page.getByText('Authenticated read succeeded', { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
 });
