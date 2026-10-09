@@ -43,10 +43,10 @@ for (const {portal,role} of portals) {
     await expect(page.getByText('Email is required',{exact:true})).toBeVisible();
     await expect(page.getByText('Password is required',{exact:true})).toBeVisible();
     expect(requests).toHaveLength(0);
-    await page.getByLabel('Full name',{exact:true}).fill('Synthetic Signup User');
-    await page.getByLabel('Organization name',{exact:true}).fill('Synthetic Organization');
-    await page.getByLabel('Email address',{exact:true}).fill(`${portal}@signup.example.test`);
-    await page.getByLabel('Password',{exact:true}).fill('Synthetic-Signup-Password9!');
+    await page.getByLabel(/^Full name/).fill('Synthetic Signup User');
+    await page.getByLabel(/^Organization name/).fill('Synthetic Organization');
+    await page.getByLabel(/^Email address/).fill(`${portal}@signup.example.test`);
+    await page.getByLabel(/^Password/).fill('Synthetic-Signup-Password9!');
     await page.getByRole('button',{name:`Create ${role} account`,exact:true}).click();
     await expect(page).toHaveURL(/\/verify-email\?sent=1$/);
     expect(requests).toHaveLength(1);
