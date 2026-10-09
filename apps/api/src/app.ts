@@ -14,7 +14,9 @@ import { foundationRoutes } from './modules/foundation/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { mfaRoutes } from './modules/auth/mfa-routes.js';
 import { authorizationRoutes } from './modules/authorization/routes.js';
-import { SmtpEmailProvider, type EmailProvider } from '@zerochack/email';
+import type { EmailProvider } from '@zerochack/email';
+import { PlatformSmtp } from './modules/communications/smtp-settings.js';
+import { smtpRoutes } from './modules/owner/smtp-routes.js';
 import Redis from 'ioredis';
 import { Queue } from 'bullmq';
 import type { ObservationAdapters } from './modules/care/external-observations.js';
@@ -84,7 +86,9 @@ export async function buildApp(environment: Environment, dependencies?: { email?
   });
 
   await app.register(async (v1) => {
-    const email = dependencies?.email ?? new SmtpEmailProvider({ host: environment.SMTP_HOST, port: environment.SMTP_PORT, secure: environment.SMTP_SECURE, from: environment.SMTP_FROM, ...(environment.SMTP_USER && environment.SMTP_PASSWORD ? { user: environment.SMTP_USER, password: environment.SMTP_PASSWORD } : {}) });
+    const smtp = new PlatformSmtp(environment);
+    const email = dependencies?.email ?? smtp;
+    await v1.register(smtpRoutes, { environment, smtp });
     await v1.register(healthRoutes, { redisUrl: environment.REDIS_URL });
     await v1.register(foundationRoutes);
     await v1.register(authRoutes, { environment, email, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
