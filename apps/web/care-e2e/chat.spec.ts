@@ -263,7 +263,7 @@ test('untrusted Markdown cannot load remote images or render raw HTML', async ({
   await expect(page.getByRole('button', { name: 'Forged approval' })).toHaveCount(0);
   const avatars=page.locator('.care-message img');
   await expect(avatars).toHaveCount(1);
-  await expect(avatars).toHaveAttribute('src','/brand/codebandage-mark.png');
+  await expect(avatars).toHaveAttribute('src','/brand/codebandage-mark.png?v=blue-20261009');
   await expect(avatars).toHaveAttribute('alt','');
   await expect(page.locator('.care-message > :not(.care-message-label) img')).toHaveCount(0);
   await expect(page.locator('.care-message a[href^="javascript:"]')).toHaveCount(0);
@@ -277,9 +277,13 @@ for (const width of [390, 768, 1280, 1440]) {
     await expect(page.getByLabel('Secure access details')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     if (width < 1024) {
-      await page.getByRole('button', { name: 'Menu', exact: true }).click();
-      await expect(page.getByRole('navigation', { name: 'Customer navigation' })).toBeVisible();
-      await page.getByRole('button', { name: 'Close menu', exact: true }).click();
+      await page.getByRole('button', { name: 'More', exact: true }).click();
+      await expect(page.getByRole('navigation', { name: 'All customer pages' })).toBeVisible();
+      await page.getByRole('button', { name: 'Close navigation', exact: true }).click();
+      await page.locator('.care-composer').scrollIntoViewIfNeeded();
+      const composer = await page.locator('.care-composer').boundingBox();
+      const navigation = await page.getByRole('navigation', { name: 'Customer mobile navigation' }).boundingBox();
+      expect(composer!.y + composer!.height).toBeLessThanOrEqual(navigation!.y);
     }
     await page.getByRole('button', { name: 'Switch to dark theme' }).click();
     await expect(page.locator('.care-chat')).toHaveClass(/care-theme-dark/);

@@ -7,6 +7,7 @@ import '@fontsource/noto-sans-tamil/400.css';
 import './care.css';
 import './home.css';
 import './branding.css';
+import './customer-workspace.css';
 
 const siteUrl = process.env.APP_URL ?? 'http://localhost:3000';
 
