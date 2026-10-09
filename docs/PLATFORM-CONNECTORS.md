@@ -1,10 +1,10 @@
 # Platform connections
 
 Customer → Websites → open a website → Connections (in the task panel).
-Both `/access` and `/connectors` show the five connection methods by default;
+Both `/access` and `/connectors` show the seven connection methods by default;
 selecting a method starts no network check. SSH save now checks the connection
 only, without automatically starting a security assessment or leaving the form.
-The existing stored SSH credentials are unchanged. There are **four read-only API
+The existing stored SSH credentials are unchanged. There are **six read-only API
 authentication adapters**, not universal remote administration or 150 integrations.
 No adapter is registered as an AI tool, scanner, repair executor or deployer.
 
@@ -29,18 +29,43 @@ website/security evidence; this UI does not turn it into a general remote coder.
 
 ## Supported operations
 
-| Platform | Credential | Fixed GET operation |
+| Platform | Credential | Fixed operation |
 | --- | --- | --- |
 | WordPress (self-hosted REST API) | Dedicated user + Application Password | `wp-json/wp/v2/users/me?context=edit&_fields=id` |
 | WooCommerce REST v3 | Consumer key + consumer secret; select Read permission | `wp-json/wc/v3/products?per_page=1&_fields=id` |
 | Ghost Admin API, minimum v5 | Custom integration Admin API key | `ghost/api/admin/posts/?limit=1&fields=id` |
 | Directus REST API | Restricted user's static token | `users/me?fields=id` |
+| Shopify GraphQL Admin 2026-10 | Installed same-organization app client ID/secret | Token exchange, then POST a fixed read query for shop ID and domains |
+| Joomla web services (Joomla 5/6) | Dedicated user's Joomla API token | GET `api/index.php/v1/content/articles?page[limit]=1` |
 
 Installation root must use HTTPS, port 443, the exact ownership-verified hostname,
 and optional simple path segments for subdirectory installs. Query strings,
 embedded credentials, fragments, encoded path segments and arbitrary endpoint
 paths are not accepted. A different API/admin hostname must be added and verified
 as a separate website. WordPress.com OAuth is not this WordPress adapter.
+
+Shopify is the sole hostname exception: use `https://store.myshopify.com/`, with
+no path, even for a verified custom storefront. The app and store **must belong
+to the same Shopify organization** and the app must already be installed. This
+is not a CodeBandage public app or third-party merchant OAuth installation flow.
+Each explicit check exchanges the encrypted client credentials at the fixed
+Shopify OAuth endpoint using form encoding. The temporary token stays in memory;
+it is never returned, stored or logged. A later check obtains a new token. The
+fixed GraphQL query is `shop { id myshopifyDomain primaryDomain { host } }`, with
+no mutation or customer/order fields. Both the canonical hostname and the
+verified website's binding to the returned primary/canonical domain must match.
+GraphQL errors, missing fields and an actual API-version header other than
+`2026-10` fail closed. Re-review Shopify's supported version before October 2027.
+Select only necessary app permissions; do not add write permissions for this check.
+
+Joomla needs the API Authentication – Web Services Joomla Token, User – Joomla
+API Token, and Web Services – Content plugins. Use a dedicated user with API login
+(`core.login.api`) and article-read access, **not Super User**. Joomla may require
+an administrator to allow that user's restricted group to generate API tokens.
+The token goes in `X-Joomla-Token`, never in the URL. Joomla's list response may
+include one article's content: it is discarded, not persisted, logged or sent
+to AI. The bounded 64 KiB response limit can reject a large article. Do not
+broaden permissions or disable TLS/ownership checks to make a check succeed.
 
 Official references reviewed during implementation:
 
@@ -50,9 +75,13 @@ Official references reviewed during implementation:
 - [Ghost token authentication and API versioning](https://docs.ghost.org/admin-api/)
 - [Directus users API](https://directus.com/docs/api/users)
 - [Directus authentication](https://directus.com/docs/_partials/authentication)
+- [Shopify own-organization client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant)
+- [Shopify shop query](https://shopify.dev/docs/api/admin-graphql/2026-10/queries/shop)
+- [Shopify API versioning](https://shopify.dev/docs/api/usage/versioning)
+- [Joomla web services](https://manual.joomla.org/docs/general-concepts/webservices/)
 
 Ghost integration keys can grant writes at the provider. CodeBandage performs GET
-only; this does not remove the key's upstream privileges. Use dedicated revocable
+only for Ghost; this does not remove the key's upstream privileges. Use dedicated revocable
 credentials, never the hosting owner's password. Do not put credentials in chat.
 
 ## Meaning of connection state
@@ -85,11 +114,12 @@ credentials again. No automatic periodic checks or paid operations are added.
   verification, public-only DNS resolution pinned into each socket, no redirects,
   no cookies, no credentials in query strings, no caller-supplied request headers.
 - DNS bound 5 seconds; each request 10 seconds; body bound 64 KiB; up to two GETs
-  per explicit check. Six mutation requests/minute per client IP, plus existing
+  per explicit check, or three fixed POSTs for Shopify (anonymous GraphQL, token
+  exchange, authenticated GraphQL). Six mutation requests/minute per client IP, plus existing
   global limits. One database-leased check per saved connector; stale leases
-  recover after 45 seconds. Version checks prevent stale replacement/revocation
+  recover after 60 seconds. Version checks prevent stale replacement/revocation
   and in-flight checks from resurrecting removed credentials.
-- One credential per provider per website (at most four). Additive table with
+- One credential per provider per website (at most six). Additive table with
   composite tenant/website foreign key. No existing SSH/vault data is migrated.
 - No Docker socket, SSH commands, arbitrary HTTP methods or execution runner.
 
@@ -101,7 +131,8 @@ The user supplied `CodeBandage_150_Platform_Connection_Methods.json` (research d
 `apps/api/src/modules/connectors/research.json` is a field-preserving projection
 of its title, date, scope and platform guidance. Its own scope says no connector
 was tested. All 150 unique entries are searchable as reference; the remaining
-146 are explicitly **guide only / not implemented** and cannot collect secrets.
+144 are explicitly **guide only / not implemented** and cannot collect secrets.
+Use Show more platforms to browse all 150 without entering a search term.
 
 OAuth platforms need a registered application, reviewed scopes, redirect URI,
 secure token lifecycle and owner-authorized provider testing. Plan-specific or
@@ -112,7 +143,7 @@ individual implementation and testing; do not simply add them to the enum.
 
 ## Verification and release
 
-- Unit tests cover the four request formats, Ghost signing, strict target scope,
+- Unit tests cover the six request formats, Ghost signing, strict target scope,
   negative authentication, malformed responses and research integrity.
 - HTTPS fixture tests perform actual local TLS sockets with a test-only resolver
   and generated CA: trusted TLS passes; wrong CA/hostname, redirects, oversized
@@ -129,7 +160,8 @@ individual implementation and testing; do not simply add them to the enum.
 
 Before production migration, create an encrypted authenticated database backup
 and verify restoration to a separate disposable database. Apply
-`20261009094000_platform_connectors` using the exact candidate tools image and
+`20261009094000_platform_connectors` and the additive provider-allowlist expansion
+`20261009120000_shopify_joomla_connectors` using the exact candidate tools image and
 `prisma migrate deploy`. Retain the previous application image/configuration.
 Application rollback to the preceding revision is compatible with this additive
 table; do not drop the table or restore over new production writes.

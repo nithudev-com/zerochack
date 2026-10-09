@@ -14,7 +14,7 @@ vi.mock('@zerochack/scanner', async original => ({ ...await original<typeof impo
 vi.mock('node:https', async original => {
   const https = await original<typeof import('node:https')>();
   return { ...https, request: (url: URL, options: import('node:https').RequestOptions, callback: Parameters<typeof https.request>[2]) => {
-    expect(options.rejectUnauthorized).not.toBe(false); expect(options.method).toBe('GET'); expect(options.agent).toBe(false);
+    expect(options.rejectUnauthorized).not.toBe(false); expect(['GET', 'POST']).toContain(options.method); expect(options.agent).toBe(false);
     return https.request(url, { ...options, ca: trust.ca }, callback);
   } };
 });
@@ -26,6 +26,9 @@ beforeAll(async () => {
   certificate = readFileSync(join(dir, 'trusted.crt'), 'utf8'); otherCertificate = readFileSync(join(dir, 'other.crt'), 'utf8'); trust.ca = certificate;
   server = createServer({ key: readFileSync(join(dir, 'trusted.key')), cert: certificate }, (req, res) => {
     requests.push({ url: req.url!, authorization: req.headers.authorization });
+    if (req.url === '/post') {
+      let body = ''; req.on('data', chunk => { body += String(chunk); }); req.on('end', () => { res.setHeader('content-type', 'application/json'); res.setHeader('x-shopify-api-version', '2026-10'); res.end(JSON.stringify({ method: req.method, contentType: req.headers['content-type'], length: req.headers['content-length'], body })); }); return;
+    }
     if (req.url === '/redirect') { res.writeHead(302, { location: '/credentials-must-not-follow' }); res.end(); return; }
     if (req.url === '/denied') { res.writeHead(401); res.end('never return this provider body'); return; }
     res.setHeader('content-type', req.url === '/html' ? 'text/html' : 'application/json');
@@ -38,6 +41,10 @@ afterAll(async () => { if (server) await new Promise<void>(resolve => server.clo
 it('performs an actual verified TLS GET through a DNS-pinned socket', async () => {
   trust.ca = certificate; expect(await probeHttps(new URL('/', origin), { authorization: 'Bearer synthetic-test-only' })).toEqual({ status: 200, body: { id: 2 } });
   expect(requests.at(-1)).toEqual({ url: '/', authorization: 'Bearer synthetic-test-only' });
+});
+it.each(['application/json', 'application/x-www-form-urlencoded'])('sends fixed POST bodies over verified TLS using %s', async contentType => {
+  const body = contentType === 'application/json' ? JSON.stringify({ query: 'query { shop { id } }' }) : new URLSearchParams({ grant_type: 'client_credentials', client_secret: 'synthetic-fixture-only' }).toString();
+  expect(await probeHttps(new URL('/post', origin), { 'content-type': contentType }, body)).toEqual({ status: 200, apiVersion: '2026-10', body: { method: 'POST', contentType, length: String(Buffer.byteLength(body)), body } });
 });
 it('rejects an untrusted certificate chain', async () => {
   trust.ca = otherCertificate; const count = requests.length;

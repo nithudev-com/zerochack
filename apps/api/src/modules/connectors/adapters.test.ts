@@ -7,7 +7,8 @@ const credentials: Array<Pick<ConnectorInput, 'provider' | 'endpoint' | 'usernam
   { provider: 'wordpress', endpoint: 'https://cms.customer.com/blog/', username: 'reader', secret: 'abcd efgh ijkl mnop qrst uvwx' },
   { provider: 'woocommerce', endpoint: 'https://cms.customer.com/', username: 'ck_' + 'a'.repeat(40), secret: 'cs_' + 'b'.repeat(40) },
   { provider: 'ghost', endpoint: 'https://cms.customer.com/', username: '', secret: 'a'.repeat(24) + ':' + 'b'.repeat(64) },
-  { provider: 'directus', endpoint: 'https://cms.customer.com/', username: '', secret: 'synthetic-restricted-token' }
+  { provider: 'directus', endpoint: 'https://cms.customer.com/', username: '', secret: 'synthetic-restricted-token' },
+  { provider: 'joomla', endpoint: 'https://cms.customer.com/cms/', username: '', secret: 'c3ludGhldGljLWpvb21sYS10b2tlbg==' }
 ];
 describe('connector target and research boundaries', () => {
   it('preserves installation subdirectory and restricts to the exact verified hostname', () => {
@@ -25,11 +26,12 @@ describe('connector target and research boundaries', () => {
   });
 });
 describe.each(credentials)('$provider read-only verification', input => {
-  const valid = input.provider === 'wordpress' ? { id: 2 } : input.provider === 'directus' ? { data: { id: 'synthetic-id' } } : input.provider === 'ghost' ? { posts: [] } : [];
+  const valid = input.provider === 'joomla' ? { data: [{ type: 'articles', id: '2', attributes: { title: 'Discarded' } }] } : input.provider === 'wordpress' ? { id: 2 } : input.provider === 'directus' ? { data: { id: 'synthetic-id' } } : input.provider === 'ghost' ? { posts: [] } : [];
   it('requires a denied anonymous read before authenticated success', async () => {
     const probe = vi.fn().mockResolvedValueOnce({ status: 401 }).mockResolvedValueOnce({ status: 200, body: valid });
     await verifyConnector(input, probe);
-    expect(probe).toHaveBeenCalledTimes(2); expect(probe.mock.calls[0]![1]).not.toHaveProperty('authorization'); expect(probe.mock.calls[1]![1]).toHaveProperty('authorization');
+    const authHeader = input.provider === 'joomla' ? 'x-joomla-token' : 'authorization';
+    expect(probe).toHaveBeenCalledTimes(2); expect(probe.mock.calls[0]![1]).not.toHaveProperty(authHeader); expect(probe.mock.calls[1]![1]).toHaveProperty(authHeader);
     expect(String(probe.mock.calls[1]![0])).not.toContain(input.secret);
   });
   it('does not send credentials when anonymous authentication is unproven', async () => {
@@ -48,6 +50,16 @@ describe.each(credentials)('$provider read-only verification', input => {
     await expect(verifyConnector(input, probe)).rejects.toThrow('RESPONSE_INVALID');
   });
   it('rejects credential header injection', () => { expect(() => connectionRequest({ ...input, secret: input.secret + '\r\nHost: other.com' })).toThrow(); });
+});
+it('limits Joomla to one article and rejects JSON API errors or wrong resource types', async () => {
+  const input = credentials[4]!; const request = connectionRequest(input);
+  expect(request.url.pathname).toBe('/cms/api/index.php/v1/content/articles');
+  expect(request.url.searchParams.get('page[limit]')).toBe('1');
+  expect(request.headers.accept).toBe('application/vnd.api+json');
+  for (const body of [{ data: [], errors: [{ detail: 'Denied' }] }, { data: [{ type: 'users', id: '1' }] }, { data: [{ type: 'articles', id: '1' }, { type: 'articles', id: '2' }] }]) {
+    const probe = vi.fn().mockResolvedValueOnce({ status: 401 }).mockResolvedValueOnce({ status: 200, body });
+    await expect(verifyConnector(input, probe)).rejects.toThrow('RESPONSE_INVALID');
+  }
 });
 it('signs Ghost tokens server-side with hex-decoded secret, audience and one-minute expiry', () => {
   const { headers } = connectionRequest(credentials[2]!, 1000); const [header, payload, signature] = headers.authorization!.slice(6).split('.');

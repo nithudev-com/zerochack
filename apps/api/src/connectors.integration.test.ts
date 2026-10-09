@@ -80,3 +80,23 @@ it('does not resurrect credentials when revoked during an in-flight check', asyn
   expect((await app.inject({ method: 'POST', url: path() + '/wordpress/check', headers: headers(), payload: { confirm: true, revision: 6 } })).statusCode).toBe(404);
   expect(JSON.stringify(await database.auditLog.findMany({ where: { tenantId: tenants[0]! } }))).not.toContain(secret);
 });
+it.each([
+  { provider: 'shopify', endpoint: 'https://synthetic-shop.myshopify.com/', username: 'synthetic-client-id', secret: 'synthetic-client-secret' },
+  { provider: 'joomla', endpoint: 'https://cms.customer.com/', username: '', secret: 'c3ludGhldGljLWpvb21sYS10b2tlbg==' }
+])('persists $provider encrypted and passes only the server-derived website binding to checks', async credential => {
+  const saved = await app.inject({ method: 'PUT', url: path(), headers: headers(), payload: { ...input, ...credential } });
+  expect(saved.statusCode).toBe(200); expect(saved.json()).toMatchObject({ status: 'CONFIGURED', revision: 1 });
+  const row = await database.websiteConnector.findFirstOrThrow({ where: { websiteId, provider: credential.provider } });
+  expect(row.encryptedSecret).not.toContain(credential.secret); expect(saved.body).not.toContain(credential.secret);
+  const checked = await app.inject({ method: 'POST', url: path() + `/${credential.provider}/check`, headers: headers(), payload: { confirm: true, revision: 1 } });
+  expect(checked.json()).toMatchObject({ status: 'AUTHENTICATED_READ', revision: 2 });
+  expect(verifyConnector).toHaveBeenLastCalledWith(expect.objectContaining({ ...credential, websiteHost: 'cms.customer.com' }));
+  if (credential.provider === 'shopify') {
+    vi.mocked(verifyConnector).mockRejectedValueOnce(new ConnectorError('WEBSITE_MISMATCH'));
+    const denied = await app.inject({ method: 'POST', url: path() + '/shopify/check', headers: headers(), payload: { confirm: true, revision: 2 } });
+    expect(denied.json()).toMatchObject({ status: 'NEEDS_ATTENTION', lastErrorCode: 'WEBSITE_MISMATCH', revision: 3 });
+  }
+  const revision = credential.provider === 'shopify' ? 3 : 2;
+  expect((await app.inject({ method: 'DELETE', url: path() + `/${credential.provider}`, headers: headers(), payload: { confirm: true, revision } })).statusCode).toBe(204);
+  expect(JSON.stringify(await database.auditLog.findMany({ where: { tenantId: tenants[0]! } }))).not.toContain(credential.secret);
+});

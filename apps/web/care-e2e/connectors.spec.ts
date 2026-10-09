@@ -6,7 +6,9 @@ const adapters = [
   { provider: 'wordpress', name: 'WordPress', researchId: 1, usernameLabel: 'WordPress username', secretLabel: 'Application Password', scope: 'Read the authenticated user ID.' },
   { provider: 'woocommerce', name: 'WooCommerce', researchId: 87, usernameLabel: 'Consumer key', secretLabel: 'Consumer secret', scope: 'Read at most one product ID.' },
   { provider: 'ghost', name: 'Ghost', researchId: 5, usernameLabel: null, secretLabel: 'Admin API key (id:secret)', scope: 'Read at most one post ID.' },
-  { provider: 'directus', name: 'Directus', researchId: 42, usernameLabel: null, secretLabel: 'Static access token', scope: 'Read the authenticated user ID.' }
+  { provider: 'directus', name: 'Directus', researchId: 42, usernameLabel: null, secretLabel: 'Static access token', scope: 'Read the authenticated user ID.' },
+  { provider: 'shopify', name: 'Shopify', researchId: 86, usernameLabel: 'Installed app client ID', secretLabel: 'Installed app client secret', scope: 'For an app and store owned by the same Shopify organization only.' },
+  { provider: 'joomla', name: 'Joomla', researchId: 3, usernameLabel: null, secretLabel: 'Joomla API token', scope: 'Enable Joomla API plugins with API login and article-read permissions.' }
 ];
 type Saved = { provider: string; endpoint: string; revision: number; status: string; secretStored: boolean; authorizationExpiresAt: string; lastCheckedAt: string | null; lastErrorCode: string | null };
 async function fixture(page: Page, verified = true, failure = false) {
@@ -20,7 +22,7 @@ async function fixture(page: Page, verified = true, failure = false) {
     else if (path === `/v1/websites/${websiteId}`) body = { id: websiteId, name: 'Fixture site', url: 'https://cms.customer.com/', connectionStatus: verified ? 'VERIFIED' : 'PENDING' };
     else if (path === '/v1/connectors/catalog') body = { adapters, research: { research_date: '2026-10-09', platforms: [{ id: 126, platform: 'Wix', category: 'Builder', connection_method: 'OAuth requires a registered app.', required_information: 'Approved app and scopes.', limitations: 'Not server access.', official_sources: ['https://dev.wix.com/'] }] } };
     else if (path.endsWith('/connectors') && request.method() === 'PUT') {
-      const input = request.postDataJSON(); expect(input.authorizationConfirmed).toBe(true); expect(input.secret).toBe('abcd efgh ijkl mnop qrst uvwx');
+      const input = request.postDataJSON(); expect(input.authorizationConfirmed).toBe(true); expect(input.secret).toBe(input.provider === 'shopify' ? 'synthetic-client-secret' : input.provider === 'joomla' ? 'c3ludGhldGljLWpvb21sYS10b2tlbg==' : 'abcd efgh ijkl mnop qrst uvwx');
       rows = [{ provider: input.provider, endpoint: input.endpoint, revision: 1, status: 'CONFIGURED', secretStored: true, authorizationExpiresAt: '2026-11-08T00:00:00Z', lastCheckedAt: null, lastErrorCode: null }]; body = rows[0];
     } else if (path.endsWith('/check')) {
       expect(request.postDataJSON().confirm).toBe(true);
@@ -45,7 +47,7 @@ async function save(page: Page) {
 for (const width of [320, 390, 1440]) test(`connector save/check/remove and accessible layout at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 }); await fixture(page); await page.goto(`/customer/websites/${websiteId}/connectors`);
   await expect(page.getByRole('heading', { name: 'Connect your platform' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Connection methods' }).getByRole('button')).toHaveCount(5);
+  await expect(page.getByRole('group', { name: 'Connection methods' }).getByRole('button')).toHaveCount(7);
   await expect(page.getByLabel('Server host')).toHaveCount(0);
   await page.screenshot({ path: `/tmp/codebandage-connection-picker-${width}.png`, fullPage: true });
   await save(page); await page.getByRole('button', { name: 'Check connection', exact: true }).click();
@@ -78,7 +80,7 @@ test('default access page offers every connector and SSH save never starts an as
   await page.route('**/access/check', route => { checks++; return route.fulfill({ json: credential }); });
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${websiteId}/access`);
   const methods = page.getByRole('group', { name: 'Connection methods' });
-  await expect(methods.getByRole('button')).toHaveCount(5);
+  await expect(methods.getByRole('button')).toHaveCount(7);
   for (const item of adapters) {
     await methods.getByRole('button', { name: new RegExp(`^${item.name}`) }).click();
     await page.getByRole('button', { name: `Set up ${item.name}`, exact: true }).click();
@@ -102,4 +104,37 @@ test('switching connectors discards unsaved credentials', async ({ page }) => {
   await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
   await expect(page.getByLabel('Application Password', { exact: true })).toHaveValue('');
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('unsaved-secret-marker');
+});
+for (const name of ['Shopify', 'Joomla']) test(`${name} has a real credential form and separate save/check actions`, async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 }); await fixture(page); await page.goto(`/customer/websites/${websiteId}/access`);
+  await page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  await page.getByRole('button', { name: `Set up ${name}`, exact: true }).click();
+  if (name === 'Shopify') {
+    await expect(page.getByLabel('Canonical Shopify store URL')).toHaveValue('');
+    await expect(page.getByText(/app and store must belong to the same Shopify organization/)).toBeVisible();
+    await page.getByLabel('Canonical Shopify store URL').fill('https://synthetic-shop.myshopify.com/');
+    await page.getByLabel('Installed app client ID', { exact: true }).fill('synthetic-client-id');
+    await page.getByLabel('Installed app client secret', { exact: true }).fill('synthetic-client-secret');
+  } else {
+    await expect(page.getByLabel('Installation root URL')).toHaveValue('https://cms.customer.com/');
+    await page.getByLabel('Joomla API token', { exact: true }).fill('c3ludGhldGljLWpvb21sYS10b2tlbg==');
+  }
+  await page.getByRole('checkbox').check(); await page.getByRole('button', { name: 'Save encrypted credential' }).click();
+  await expect(page.getByText('Saved · not checked', { exact: true })).toBeVisible();
+  await expect(page.getByText('Authenticated read succeeded', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Check connection', exact: true }).click();
+  await expect(page.getByText('Authenticated read succeeded', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+});
+test('all 150 guide entries can be reached without pretending unavailable adapters are implemented', async ({ page }) => {
+  await fixture(page);
+  await page.route('**/connectors/catalog', route => route.fulfill({ json: { adapters, research: { research_date: '2026-10-09', platforms: Array.from({ length: 150 }, (_, index) => ({ id: 1000 + index, platform: `Guide platform ${index + 1}`, category: 'Fixture', connection_method: 'Needs implementation', required_information: 'Scoped app', limitations: 'Not available', official_sources: [] })) } } }));
+  await page.goto(`/customer/websites/${websiteId}/access`); await page.getByText('150-platform connection guide', { exact: true }).click();
+  await expect(page.getByText('Showing 15 of 150 matching platforms.', { exact: true })).toBeVisible();
+  for (let i = 0; i < 9; i++) await page.getByRole('button', { name: 'Show more platforms' }).click();
+  await expect(page.getByText('Guide platform 150 · Guide only · not implemented', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Show more platforms' })).toHaveCount(0);
+  await page.getByLabel('Search platform guide').fill('Guide platform 150');
+  await expect(page.getByText('Showing 1 of 1 matching platforms.', { exact: true })).toBeVisible();
 });

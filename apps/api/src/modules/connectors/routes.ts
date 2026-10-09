@@ -42,8 +42,8 @@ export const connectorRoutes: FastifyPluginAsync<{ environment: Environment }> =
     const input = parse(connectorInput, request.body); const site = await website(tenantId, websiteId);
     if (site.connectionStatus !== 'VERIFIED') throw new ApiError(409, 'OWNERSHIP_REQUIRED', 'Verify website ownership in Settings before adding an API connector.');
     let endpoint: string;
-    try { endpoint = connectorEndpoint(input.endpoint, site.normalizedHost); connectionRequest({ ...input, endpoint }); }
-    catch { throw new ApiError(400, 'CONNECTOR_CONFIGURATION_INVALID', 'Use an HTTPS installation root on the verified website hostname and the documented credential format.'); }
+    try { endpoint = connectorEndpoint(input.endpoint, site.normalizedHost, input.provider); connectionRequest({ ...input, endpoint }); }
+    catch { throw new ApiError(400, 'CONNECTOR_CONFIGURATION_INVALID', 'Use the documented HTTPS installation root and credential format. Shopify requires the canonical store.myshopify.com root; other adapters require the verified website hostname.'); }
     const encryptedSecret = encryptSecret(JSON.stringify({ tenantId, websiteId, provider: input.provider, endpoint, username: input.username, secret: input.secret }), environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY);
     const where = { tenantId, websiteId, provider: input.provider };
     const data = { endpoint, websiteUrl: site.url, encryptedSecret, status: 'CONFIGURED', authorizedBy: request.userId!, authorizationExpiresAt: new Date(Date.now() + 30 * 86400000), lastCheckedAt: null, lastErrorCode: null, checkStartedAt: null };
@@ -65,14 +65,14 @@ export const connectorRoutes: FastifyPluginAsync<{ environment: Environment }> =
     if (!row || row.status === 'REVOKED') throw new ApiError(404, 'CONNECTOR_NOT_FOUND', 'Save connector credentials first.');
     if (row.revision !== input.revision) changed();
     if (site.connectionStatus !== 'VERIFIED' || row.websiteUrl !== site.url || row.authorizationExpiresAt <= new Date()) throw new ApiError(409, 'CONNECTOR_AUTHORIZATION_REQUIRED', 'Verify ownership and save credentials again with renewed authorization.');
-    if (row.checkStartedAt && row.checkStartedAt.getTime() > Date.now() - 45000) throw new ApiError(409, 'CHECK_IN_PROGRESS', 'A connection check is already running.');
+    if (row.checkStartedAt && row.checkStartedAt.getTime() > Date.now() - 60000) throw new ApiError(409, 'CHECK_IN_PROGRESS', 'A connection check is already running.');
     const claim = await database.websiteConnector.updateMany({ where: { id: row.id, tenantId, revision: row.revision }, data: { checkStartedAt: new Date(), status: 'CHECKING', revision: { increment: 1 } } });
     if (claim.count !== 1) changed();
     let errorCode: string | null = null;
     try {
       const envelope = z.object({ tenantId: z.literal(tenantId), websiteId: z.literal(websiteId), provider: z.literal(provider), endpoint: z.literal(row.endpoint), username: z.string(), secret: z.string() }).parse(JSON.parse(decryptSecret(row.encryptedSecret, environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY)));
-      connectorEndpoint(envelope.endpoint, site.normalizedHost);
-      await verifyConnector(envelope);
+      connectorEndpoint(envelope.endpoint, site.normalizedHost, provider);
+      await verifyConnector({ ...envelope, websiteHost: site.normalizedHost });
     } catch (error) { errorCode = error instanceof ConnectorError ? error.code : 'CONNECTION_FAILED'; }
     const lastCheckedAt = new Date();
     const result = await database.$transaction(async tx => {
