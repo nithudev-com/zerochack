@@ -14,8 +14,9 @@ import time
 
 root = Path(__file__).resolve().parents[2]
 folder = Path(tempfile.mkdtemp(prefix='codebandage-image-fixture-'))
-network = 'codebandage-image-fixture'
-uid = str(os.getuid())
+network = os.environ.get('CODEBANDAGE_FIXTURE_NETWORK', 'codebandage-image-fixture')
+uid = str(os.getuid() or 1000)
+api_image = os.environ.get('CODEBANDAGE_API_IMAGE', 'codebandage-candidate-api')
 
 def command(args, capture=False, allowed_failure=False):
     result = subprocess.run(args, text=True, stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
@@ -64,6 +65,10 @@ for index, name in enumerate(['MFA_ENCRYPTION_KEY', 'AI_CREDENTIAL_ENCRYPTION_KE
                              'CARE_VAULT_KEY', 'CARE_ARTIFACT_KEY'], 1):
     values[name] = base64.b64encode(bytes([index]) * 32).decode()
 write(folder / 'app.env', ''.join(f'{key}={value}\n' for key, value in values.items()))
+if os.geteuid() == 0:
+    for item in folder.rglob('*'):
+        os.chown(item, int(uid), int(uid))
+
 docker('network', 'create', '--label', 'codebandage.scope=image-fixture', network)
 docker('run', '-d', '--name', 'codebandage-image-fixture-postgres', '--network', network,
        '--network-alias', 'postgres', '--user', uid + ':' + uid,
@@ -94,7 +99,7 @@ else:
 def probe(script, extra=()):
     return docker('run', '--rm', '--network', network, '--env-file', str(folder / 'app.env'),
                   '-v', str(folder / 'trust') + ':/run/trust:ro', *extra,
-                  '--entrypoint', 'node', 'codebandage-candidate-api', '-e', script,
+                  '--entrypoint', 'node', api_image, '-e', script,
                   capture=True)
 
 positive = 'const {PrismaClient}=require("@prisma/client");const R=require("ioredis");const p=new PrismaClient();const r=new R(process.env.REDIS_URL,{maxRetriesPerRequest:1,connectTimeout:2000});Promise.all([p.$queryRawUnsafe("SELECT 1"),r.ping()]).then(()=>{r.disconnect();return p.$disconnect()}).catch(()=>{r.disconnect();p.$disconnect().finally(()=>process.exit(1))})'
@@ -110,7 +115,7 @@ for change in ['process.env.DATABASE_URL=process.env.DATABASE_URL.replace("postg
     probe(script)
 probe('const R=require("ioredis");const r=new R(process.env.REDIS_URL,{maxRetriesPerRequest:0,retryStrategy:()=>null,connectTimeout:2000});r.on("error",()=>{});r.ping().then(()=>{r.disconnect();process.exit(1)}).catch(()=>{r.disconnect();process.exit(0)})',
       ('-e', 'NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt'))
-identity = docker('image', 'inspect', 'codebandage-candidate-api', '--format', '{{.Id}}', capture=True).stdout.strip()
+identity = docker('image', 'inspect', api_image, '--format', '{{.Id}}', capture=True).stdout.strip()
 write(folder / 'results.json', json.dumps({'api_image': identity, 'database_tls': 'passed',
       'redis_tls': 'passed', 'hostname_password_ca_rejection': 'passed',
       'production_migration_worker_auth': 'not tested'}, indent=2) + '\n')

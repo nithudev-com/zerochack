@@ -1,0 +1,38 @@
+www.codebandage.com {
+  redir https://codebandage.com{uri} 308
+}
+
+codebandage.com {
+  @preview remote_ip __PREVIEW_IP__ 127.0.0.1 ::1
+  handle @preview {
+    @api path /v1 /v1/*
+    handle @api {
+      reverse_proxy 127.0.0.1:4000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up -CF-Connecting-IP
+        header_up -X-Real-IP
+        flush_interval -1
+        transport http {
+          dial_timeout 5s
+          response_header_timeout 30s
+        }
+      }
+    }
+    handle {
+      reverse_proxy 127.0.0.1:3000 {
+        header_up X-Forwarded-For {remote_host}
+        header_up -CF-Connecting-IP
+        header_up -X-Real-IP
+        transport http {
+          dial_timeout 5s
+          response_header_timeout 30s
+        }
+      }
+    }
+  }
+  handle {
+    header Cache-Control "no-store"
+    header X-Robots-Tag "noindex, nofollow"
+    respond "CodeBandage is in a restricted preview. Public registration is not open yet." 503
+  }
+}

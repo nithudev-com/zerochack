@@ -9,12 +9,14 @@ async function login(page: import('@playwright/test').Page) {
 }
 
 test('customer can navigate the workspace, store approved access, and persist a conversation', async ({ page }) => {
+  test.setTimeout(120_000);
   await login(page);
   await page.getByRole('link', { name: 'My Websites' }).click();
   await page.getByLabel('Website name').fill('E2E Website');
   await page.getByLabel('Website URL').fill('https://example.com');
   await page.getByRole('button', { name: 'Add and continue' }).click();
-  await expect(page).toHaveURL(/\/customer\/websites\/[a-f\d-]+$/);
+  // A first visit compiles this dynamic route in the development server.
+  await expect(page).toHaveURL(/\/customer\/websites\/[a-f\d-]+$/, { timeout: 30_000 });
   await expect(page.getByRole('heading', { name: 'E2E Website' })).toBeVisible();
   await page.getByRole('link', { name: '← Websites', exact: true }).click();
   await page.locator('.website-card').filter({ has: page.getByRole('heading', { name: 'E2E Website', exact: true }) }).getByRole('link', { name: 'Open workspace' }).click();
@@ -44,7 +46,7 @@ test('customer can navigate the workspace, store approved access, and persist a 
   await expect(page.getByRole('region', { name: 'Recovery readiness' })).toContainText('not verified');
   await page.getByRole('button', { name: 'Recovery readiness', exact: true }).click();
   await page.getByRole('navigation', { name: 'Website workspace' }).getByRole('link', { name: 'Access or live help' }).click();
-  await expect(page.getByLabel('Server host')).toHaveValue('example.com');
+  await expect(page.getByLabel('Server host')).toHaveValue('example.com', { timeout: 30_000 });
   await expect(page.getByLabel('SSH port')).toHaveValue('22');
   await expect(page.getByLabel('SSH username')).toBeVisible();
   await page.getByLabel('Authentication method').selectOption('PASSWORD');
@@ -55,6 +57,7 @@ test('customer can navigate the workspace, store approved access, and persist a 
 });
 
 test('customer portal remains usable on a mobile viewport', async ({ page }) => {
+  test.setTimeout(120_000);
   await page.setViewportSize({ width: 390, height: 844 }); await login(page);
   await page.getByRole('button', { name: 'Menu', exact: true }).click();
   const navigation = page.getByRole('navigation', { name: 'Customer navigation' });
@@ -63,14 +66,15 @@ test('customer portal remains usable on a mobile viewport', async ({ page }) => 
   await page.getByLabel('Website name').fill('Mobile E2E Website');
   await page.getByLabel('Website URL').fill('https://example.org');
   await page.getByRole('button', { name: 'Add and continue' }).click();
-  await expect(page).toHaveURL(/\/customer\/websites\/[a-f\d-]+$/);
+  // A first visit compiles this dynamic route in the development server.
+  await expect(page).toHaveURL(/\/customer\/websites\/[a-f\d-]+$/, { timeout: 30_000 });
   await expect(page.getByRole('heading', { name: 'Mobile E2E Website' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Mobile E2E Website conversation', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Website options' }).click();
   const workspaceNavigation = page.getByRole('navigation', { name: 'Website workspace' });
   await expect(workspaceNavigation).toBeVisible();
   await workspaceNavigation.getByRole('link', { name: 'Settings', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible({ timeout: 30_000 });
   await page.getByRole('link', { name: 'Back to conversation' }).click();
   await expect(page.getByLabel('Secure access details')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);

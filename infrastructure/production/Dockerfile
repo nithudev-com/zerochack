@@ -1,5 +1,5 @@
-FROM node:22-bookworm-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS base
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM node:22-trixie-slim@sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa AS base
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates perl-base && rm -rf /var/lib/apt/lists/*
 WORKDIR /workspace
 
 FROM base AS build
@@ -20,7 +20,11 @@ CMD ["npm", "run", "db:migrate:deploy"]
 FROM build AS dependencies
 RUN npm prune --omit=dev
 
-FROM base AS app
+FROM base AS runtime
+# Package management is only needed in build/migration tooling.
+RUN rm -rf /usr/local/lib/node_modules/npm && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
+FROM runtime AS app
 ENV NODE_ENV=production NODE_EXTRA_CA_CERTS=/run/trust/ca.crt
 COPY --from=dependencies --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=dependencies --chown=node:node /workspace/apps/api/node_modules ./apps/api/node_modules
@@ -34,7 +38,7 @@ CMD ["node", "apps/api/dist/server.js"]
 FROM app AS worker
 CMD ["node", "apps/worker/dist/index.js"]
 
-FROM base AS web
+FROM runtime AS web
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=build --chown=node:node /workspace/apps/web/.next/standalone ./
 COPY --from=build --chown=node:node /workspace/apps/web/.next/static ./apps/web/.next/static

@@ -138,3 +138,29 @@ Before enabling proxying, review and configure Cloudflare's current trusted prox
 ranges and authenticated client-IP boundary, then re-test spoofing, cookies and SSE.
 Do not blindly trust incoming CF-Connecting-IP or X-Forwarded-For. Cloudflare changes
 are not performed or claimed by repository scripts.
+
+## Restricted acceptance preview
+
+When public launch gates are incomplete, the explicitly requested restricted
+preview can be used for Owner acceptance and MFA enrollment. After reviewing
+migrations, SMTP authentication, image readiness and the actual findings, run
+`python3 scripts/deploy/preview.py /protected/release.env YOUR_CURRENT_PUBLIC_IP`
+over the authenticated VPS SSH connection. The script verifies a clean committed
+revision and matching immutable image labels. The IP must exactly match that
+connection's public peer; broad networks and caller-supplied forwarded headers
+cannot grant access. Only that peer and loopback receive the application.
+Everyone else receives maintenance HTTP 503. Domain www redirects preserve the URI.
+
+This is **RESTRICTED PREVIEW**, not a passed public release. Keep DNS-only mode:
+enabling Cloudflare proxying changes the connection peer and blocks preview access.
+If the Owner's IP changes, reconnect and rerun with the new verified peer. The
+script does not reset keys, run migrations, reset Owner credentials or mark audit
+gates as passed. It preserves the existing Caddyfile, validates the replacement,
+and restores the prior file if reload or local HTTPS readiness fails. Do not use
+preview to accept customer traffic or customer code. Keep Care capabilities off
+until their individual authorization/provider/runtime tests pass.
+
+The production runtime now uses the digest-pinned official Node 22 Debian 13
+image, and excludes npm/npx from API/worker/web runtimes. Build and migration tools
+retain their package manager. Scan each exact image: removing unused tooling
+does not resolve all OS or development-dependency findings.
