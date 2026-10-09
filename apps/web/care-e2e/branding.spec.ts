@@ -31,9 +31,16 @@ test('all public portal sign-ins use the new logo without changing form semantic
     expect(await page.locator('main').innerText()).not.toContain('ZeroRoot');
   }
 });
-test('logo keeps its intended backplate in dark/reduced-motion rendering', async ({ page }) => {
+test('logo stays transparent and horizontal in dark/reduced-motion rendering', async ({ page }) => {
   await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'}); await page.goto('/customer/login');
   const logo=page.locator('.app-header .cb-brand');
-  await expect(logo).toHaveCSS('background-color','rgb(5, 5, 9)');
+  await expect(logo).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+  const mark=await logo.locator('.cb-brand__mark').boundingBox();
+  const word=await logo.locator('.cb-brand__wordmark').boundingBox();
+  expect(mark).not.toBeNull(); expect(word).not.toBeNull();
+  expect(mark!.x+mark!.width).toBeLessThan(word!.x);
+  expect(Math.abs(mark!.y+mark!.height/2-word!.y-word!.height/2)).toBeLessThan(2);
+  await expect(page.locator('.auth-copy .cb-brand')).toHaveCSS('background-color','rgba(0, 0, 0, 0)');
+  await expect(page.locator('.auth-copy .cb-brand__wordmark')).toHaveCSS('filter','brightness(0) invert(1)');
   await page.screenshot({path:'test-results/codebandage-auth-dark.png',fullPage:true});
 });

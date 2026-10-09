@@ -1,13 +1,15 @@
-/* CodeBandage artwork has white lettering: preserve its dark backplate in both themes. */
-.cb-brand { display:inline-flex; flex:none; align-items:center; justify-content:center; overflow:hidden; background:#050509; border-radius:10px; vertical-align:middle; line-height:0; }
+/* Transparent blue/navy artwork: no panels behind the emblem or wordmark. */
+.cb-brand { display:inline-flex; flex:none; align-items:center; justify-content:center; overflow:hidden; background:transparent; border-radius:10px; vertical-align:middle; line-height:0; }
 .cb-brand img { display:block; object-fit:contain; mix-blend-mode:normal; }
-.cb-brand--horizontal { gap:7px; padding:5px 9px 5px 5px; }
+.cb-brand--horizontal { gap:9px; padding:0; }
 .cb-brand--horizontal .cb-brand__mark { width:38px; height:38px; }
 .cb-brand--horizontal .cb-brand__wordmark { width:155px; height:auto; }
 .cb-brand--mark { width:40px; height:40px; }
 .cb-brand--mark img { width:100%; height:100%; }
-.cb-brand--full { width:min(260px,100%); }
-.cb-brand--full img { width:100%; height:auto; }
+.cb-brand--full { width:min(320px,100%); justify-content:flex-start; }
+.cb-brand--full .cb-brand__mark { width:58px; height:58px; }
+.cb-brand--full .cb-brand__wordmark { width:min(245px,calc(100% - 67px)); height:auto; }
+.auth-copy .cb-brand__wordmark, .marketing-footer .cb-brand__wordmark, .care-theme-dark .cb-brand__wordmark { filter:brightness(0) invert(1); }
 .app-shell .brand--image { padding:0; border:0; background:transparent; min-width:0; }
 .app-header .brand--image { flex-shrink:0; }
 .brand--footer .cb-brand__wordmark { width:174px; }
@@ -19,14 +21,16 @@
 .cb-agent-brand { display:inline-flex; gap:8px; align-items:center; }
 .cb-agent-brand .cb-brand--mark { width:24px; height:24px; border-radius:6px; }
 @media(max-width:672px) {
- .app-header .cb-brand--horizontal { gap:4px; padding:4px 7px 4px 4px; }
+ .app-header .cb-brand--horizontal { gap:6px; padding:0; }
  .app-header .cb-brand__mark { width:28px; height:28px; }
  .app-header .cb-brand__wordmark { width:112px; }
- .auth-copy > .cb-brand--full { width:190px; }
+ .auth-copy > .cb-brand--full { width:260px; }
+ .auth-copy .cb-brand--full .cb-brand__mark { width:46px; height:46px; }
+ .auth-copy .cb-brand--full .cb-brand__wordmark { width:205px; }
  .app-footer--branded { flex-wrap:wrap; gap:12px; }
  .zr-core-graphic .cb-brand--mark { width:140px; height:140px; }
 }
 @media(prefers-reduced-motion:reduce) { .cb-brand, .cb-brand * { animation:none!important; transition:none!important; } }
 
-.customer-sidebar-title > .cb-brand { background:#050509; padding:0; }
+.customer-sidebar-title > .cb-brand { background:transparent; padding:0; }
 .support-list-mark--agent > .cb-brand { width:32px; height:32px; }

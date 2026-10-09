@@ -1,7 +1,27 @@
 {
   "brand": "CodeBandage",
-  "source": "User-supplied CodeBandage AI Logo(1).png; optimized to 512px and flattened on #050509",
-  "optimizedSourceSha256": "4cc14fe063f69b66785e44f10e5645ae9b70e608feed93492dd385e56735965b",
-  "derivatives": "Crops/resizes of the supplied artwork; not AI-generated replacement artwork",
+  "suppliedFile": "CodeBandageLogoEmblem.png",
+  "suppliedSha256": "a4b2e43b2ecda3e0d44190678f9ba42c5198400e406d666ee3f283cbab9c4f45",
+  "editMethod": "Built-in image editing: remove the white background; arrange emblem left and exact CodeBandage wordmark right; retain blue/navy identity; actual transparent alpha. This is an edited derivative, not a pixel-identical copy.",
+  "editedPngSha256": "ad5eaa64bd304c5ddf31a15954c0bf01058c69de3998a8f42a29a5afae4be886",
+  "optimizedSourceSha256": "edafbe3ebb4eada7719e7f312b4d8fd083f72f44bf3f30e95c2b776c56743b10",
+  "sourceDimensions": {
+    "width": 2172,
+    "height": 724
+  },
+  "markCrop": {
+    "left": 98,
+    "top": 109,
+    "width": 535,
+    "height": 531
+  },
+  "wordmarkCrop": {
+    "left": 660,
+    "top": 284,
+    "width": 1416,
+    "height": 225
+  },
+  "derivatives": "Deterministic crops, transparent resizes and horizontal composites. Social card has its own light canvas; logo files have no backplate.",
+  "darkSurfaceTreatment": "CSS renders only the wordmark white on dark surfaces; emblem colors are unchanged.",
   "internalNamesPreserved": true
 }

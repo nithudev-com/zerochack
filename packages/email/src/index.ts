@@ -28,7 +28,7 @@ function escapeEmailHtml(value: string): string {
   return value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
 }
 export function renderBrandedEmail(text: string): string {
-  return `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;color:#172033;font:16px/1.6 Arial,sans-serif"><table role="presentation" style="max-width:600px;width:100%;margin:auto;border-collapse:collapse"><tr><td style="background:#050509;padding:20px;border-radius:12px"><img src="cid:codebandage-logo" width="300" height="58" alt="CodeBandage" style="display:block;max-width:100%;height:auto" /></td></tr><tr><td style="padding:24px 0;white-space:pre-wrap">${escapeEmailHtml(text)}</td></tr><tr><td style="border-top:1px solid #d8dee8;padding-top:16px;color:#536174">CodeBandage · AI Website Security &amp; Repair</td></tr></table></body></html>`;
+  return `<!doctype html><html lang="en"><body style="margin:0;padding:24px;background:#f8fafc;color:#172033;font:16px/1.6 Arial,sans-serif"><table role="presentation" style="max-width:600px;width:100%;margin:auto;border-collapse:collapse"><tr><td style="padding:20px 0"><img src="cid:codebandage-logo" width="300" height="60" alt="CodeBandage" style="display:block;max-width:100%;height:auto" /></td></tr><tr><td style="padding:24px 0;white-space:pre-wrap">${escapeEmailHtml(text)}</td></tr><tr><td style="border-top:1px solid #d8dee8;padding-top:16px;color:#536174">CodeBandage · AI Website Security &amp; Repair</td></tr></table></body></html>`;
 }
 
 export class SmtpEmailProvider implements EmailProvider {
