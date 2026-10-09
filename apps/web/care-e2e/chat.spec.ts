@@ -194,6 +194,7 @@ test('secure capture never renders submitted credentials as a bubble', async ({ 
   await page.route('**/chat/ingest', async (route) => { submitted = route.request().postDataJSON(); return route.fulfill({ status: 201, contentType: 'application/json', body: '{"connectionStatus":"NOT_CHECKED"}' }); });
   await page.goto(`/customer/websites/${id}`);
   await expect(page.getByRole('heading', { name: 'Care UI fixture' })).toBeVisible();
+  await page.getByRole('button', { name: 'Message assistant' }).click();
   await page.getByLabel('Secure access details').fill('Host: server.example.test\nUsername: deploy\nPassword: synthetic-browser-marker');
   await expect(page.getByRole('button', { name: 'Store securely' })).toBeDisabled();
   await page.getByLabel('I’m authorized to provide').check();
@@ -204,11 +205,52 @@ test('secure capture never renders submitted credentials as a bubble', async ({ 
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-browser-marker');
 });
 
+test('disabled Care shows truthful tools and saves a development brief without starting AI work', async ({ page }) => {
+  let submitted: { subject: string; message: string } | undefined; let aiCalls = 0;
+  await page.route('**/care?**', route => route.fulfill({ status: 503, json: { error: { code: 'CAPABILITY_DISABLED', message: 'The new care workspace is not enabled.' } } }));
+  await page.route('**/support/conversations', route => { submitted = route.request().postDataJSON(); return route.fulfill({ status: 201, json: { id: 'request-fixture' } }); });
+  await page.route('**/chat/ingest', route => { aiCalls++; return route.fulfill({ json: {} }); });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${id}`);
+  await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Connections →' })).toHaveAttribute('href', `/customer/websites/${id}/access`);
+  await expect(page.getByRole('button', { name: 'Report an issue', exact: true })).toBeDisabled();
+  await page.getByText('Tools & availability', { exact: true }).click();
+  await expect(page.getByText(/Care workflows are disabled on this server/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Prepare AI source review' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Develop a feature', exact: true }).click();
+  await page.getByLabel('Requested work', { exact: true }).fill('Add a mobile-friendly contact form on the homepage.');
+  await page.getByLabel('How should we verify success?').fill('Keyboard navigation works and submitted messages show a receipt.');
+  const save = page.getByRole('button', { name: 'Save request for human review' }); await expect(save).toBeDisabled();
+  await page.getByLabel('I reviewed this brief').check(); await save.click();
+  await expect(page.getByRole('status').filter({ hasText: 'Request saved in Support' })).toBeVisible();
+  expect(submitted?.subject).toBe('Develop a feature: Care UI fixture'); expect(submitted?.message).toContain('Environment: PRODUCTION');
+  expect(submitted?.message).toContain('No permission to execute code'); expect(aiCalls).toBe(0);
+  expect((await new AxeBuilder({ page }).include('.care-chat').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+});
+
+test('task briefs clear on environment changes and refuse apparent credentials', async ({ page }) => {
+  let writes = 0; await page.route('**/support/conversations', route => { writes++; return route.fulfill({ json: {} }); });
+  await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Redesign a page', exact: true }).click();
+  await page.getByLabel('Requested work', { exact: true }).fill('password: synthetic-test-only-marker');
+  await page.getByLabel('How should we verify success?').fill('Mobile layout must fit the viewport.');
+  await page.getByLabel('I reviewed this brief').check(); await page.getByRole('button', { name: 'Save request for human review' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'This appears to contain access information' })).toBeVisible(); expect(writes).toBe(0);
+  await page.getByLabel('Environment', { exact: true }).selectOption('STAGING'); await expect(page.getByRole('form', { name: 'Website task brief' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Fix an issue', exact: true }).click(); await expect(page.getByLabel('Requested work', { exact: true })).toHaveValue('');
+});
+
+test('message mode redirects apparent secrets to consent-gated capture before any request', async ({ page }) => {
+  let writes = 0; await page.route('**/chat/ingest', route => { writes++; return route.fulfill({ json: {} }); });
+  await page.goto(`/customer/websites/${id}`); await page.getByLabel('Message CodeBandage').fill('password: synthetic-test-only-marker');
+  await page.getByRole('button', { name: 'Send ↑', exact: true }).click();
+  await expect(page.getByLabel('Secure access details')).toBeVisible(); await expect(page.getByRole('button', { name: 'Store securely' })).toBeDisabled(); expect(writes).toBe(0);
+});
+
 for (const width of [390, 1280]) {
   test(`automated WCAG checks for workspace panels in light and dark at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/customer/websites/${id}`);
-    await expect(page.getByLabel('Secure access details')).toBeVisible();
+    await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
     await page.getByRole('button', { name: 'Report an issue', exact: true }).click();
     await page.getByRole('button', { name: /Your AI team/ }).click();
     for (const theme of ['light', 'dark']) {
@@ -239,7 +281,6 @@ test('older messages and jobs remain reachable after a workspace reload', async 
 test('mobile, reduced motion and Tamil content remain within the viewport', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 }); await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto(`/customer/websites/${id}`);
-  await page.getByRole('button', { name: 'Secure capture' }).click();
   await page.getByLabel('Message CodeBandage').fill('என் இணையதளத்தில் மொபைல் மெனு சரியாக வேலை செய்யவில்லை.');
   await expect(page.getByRole('button', { name: 'Send', exact: false })).toBeVisible();
   const overflow = await page.evaluate(() => ({ width: innerWidth, pageWidth: document.documentElement.scrollWidth, elements: Array.from(document.querySelectorAll('body *')).filter((element) => element.getBoundingClientRect().right > innerWidth + 1 && getComputedStyle(element).position !== 'absolute').slice(0, 8).map((element) => ({ tag: element.tagName, class: element.className, right: element.getBoundingClientRect().right })) }));
@@ -247,7 +288,7 @@ test('mobile, reduced motion and Tamil content remain within the viewport', asyn
   await page.screenshot({ path: 'test-results/care-mobile.png', fullPage: true });
 });
 test('environment changes clear draft and receipt context', async ({ page }) => {
-  await page.goto(`/customer/websites/${id}`); await page.getByLabel('Secure access details').fill('sensitive draft');
+  await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Message assistant' }).click(); await page.getByLabel('Secure access details').fill('sensitive draft');
   await page.getByLabel('Environment', { exact: true }).selectOption('STAGING');
   await expect(page.getByLabel('Secure access details')).toHaveValue('');
   await page.getByRole('button', { name: /Your AI team/ }).click();
@@ -274,7 +315,7 @@ for (const width of [390, 768, 1280, 1440]) {
   test(`chat fits ${width}px and keeps navigation accessible`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/customer/websites/${id}`);
-    await expect(page.getByLabel('Secure access details')).toBeVisible();
+    await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     if (width < 1024) {
       await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -293,7 +334,6 @@ test('IME Enter does not submit a message', async ({ page }) => {
   let submitted = 0;
   await page.route('**/chat/ingest', (route) => { submitted += 1; return route.fulfill({ contentType: 'application/json', body: '{}' }); });
   await page.goto(`/customer/websites/${id}`);
-  await page.getByRole('button', { name: 'Secure capture' }).click();
   const input = page.getByLabel('Message CodeBandage'); await input.fill('தமிழ் composing input');
   await input.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true, bubbles: true });
   await expect(input).toHaveValue('தமிழ் composing input'); expect(submitted).toBe(0);

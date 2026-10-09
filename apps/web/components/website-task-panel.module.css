@@ -1,0 +1,8 @@
+.panel a { text-decoration: underline; }
+.panel form { display: grid; gap: 12px; }
+.panel textarea { width: 100%; font: inherit; resize: vertical; }
+.panel summary { cursor: pointer; min-height: 44px; display: list-item; padding-block: 12px; font-size: .875rem; font-weight: 650; }
+.panel dl { margin-block: 12px; display: grid; gap: 8px; font-size: .8125rem; }
+.panel dt { font-weight: 650; }
+.panel dd { margin: 0 0 8px; padding-bottom: 12px; border-bottom: 1px solid var(--care-border); color: var(--care-muted); line-height: 1.65; }
+.panel details > button { margin-bottom: 12px; }

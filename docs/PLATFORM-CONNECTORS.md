@@ -1,9 +1,31 @@
 # Platform connections
 
-Customer → Websites → open a website → Website options → Connectors.
-The existing SSH workflow is unchanged. This release adds **four read-only API
+Customer → Websites → open a website → Connections (in the task panel).
+Both `/access` and `/connectors` show the five connection methods by default;
+selecting a method starts no network check. SSH save now checks the connection
+only, without automatically starting a security assessment or leaving the form.
+The existing stored SSH credentials are unchanged. There are **four read-only API
 authentication adapters**, not universal remote administration or 150 integrations.
 No adapter is registered as an AI tool, scanner, repair executor or deployer.
+
+## Development, redesign and fix requests
+
+Chat starts in normal message mode. Apparent credentials still trigger explicit
+secure-capture consent and never become a normal message through that UI path.
+The task panel builds a scoped development/redesign/fix brief with acceptance
+checks. Its explicit save creates a real support conversation, not an AI job,
+paid model call, remote edit or release. Support retains the saved request;
+unsent drafts are cleared on environment changes and are not persisted locally.
+Do not include secrets or private customer data in briefs. Pattern checks are
+not a substitute for reviewing the content before sending it to support.
+
+Tools & availability reports Care's API state and source-review/repair/release
+flags. A disabled or failed capability is not marked ready. Enabled flags still
+need provider/model/budget, source consent, job preflight and exact approval.
+Snapshot lint/type tools and saved text versions remain in approved source
+workspaces; browser/runtime execution and production release are not unlocked
+by adding a connector. The existing evidence-chat backend remains scoped to
+website/security evidence; this UI does not turn it into a general remote coder.
 
 ## Supported operations
 

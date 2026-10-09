@@ -32,6 +32,7 @@ async function fixture(page: Page, verified = true, failure = false) {
   });
 }
 async function save(page: Page) {
+  await page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: /^WordPress/ }).click();
   await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
   await page.getByLabel('WordPress username', { exact: true }).fill('reader');
   const secret = page.getByLabel('Application Password', { exact: true }); await expect(secret).toHaveAttribute('type', 'password'); await secret.fill('abcd efgh ijkl mnop qrst uvwx');
@@ -44,11 +45,14 @@ async function save(page: Page) {
 for (const width of [320, 390, 1440]) test(`connector save/check/remove and accessible layout at ${width}px`, async ({ page }) => {
   await page.setViewportSize({ width, height: 900 }); await fixture(page); await page.goto(`/customer/websites/${websiteId}/connectors`);
   await expect(page.getByRole('heading', { name: 'Connect your platform' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Manage SSH access' })).toHaveAttribute('href', `/customer/websites/${websiteId}/access`);
+  await expect(page.getByRole('group', { name: 'Connection methods' }).getByRole('button')).toHaveCount(5);
+  await expect(page.getByLabel('Server host')).toHaveCount(0);
+  await page.screenshot({ path: `/tmp/codebandage-connection-picker-${width}.png`, fullPage: true });
   await save(page); await page.getByRole('button', { name: 'Check connection', exact: true }).click();
   await expect(page.getByText('Authenticated read succeeded', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Remove access', exact: true }).click(); await page.getByRole('button', { name: 'Confirm removal' }).click();
   await expect(page.getByText('Access removed', { exact: true })).toBeVisible();
+  await page.getByText('150-platform connection guide', { exact: true }).click();
   await page.getByLabel('Search platform guide').fill('Wix'); await page.getByText('Wix · Guide only · not implemented', { exact: true }).click();
   await expect(page.getByText('OAuth requires a registered app.')).toBeVisible(); await expect(page.getByRole('button', { name: /Set up Wix/ })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
@@ -62,5 +66,40 @@ test('failed authentication is not labelled connected', async ({ page }) => {
 });
 test('unverified websites cannot enter API credentials', async ({ page }) => {
   await fixture(page, false); await page.goto(`/customer/websites/${websiteId}/connectors`);
+  await page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: /^WordPress/ }).click();
   await expect(page.getByRole('button', { name: 'Set up WordPress', exact: true })).toBeDisabled(); await expect(page.getByText('Ownership verification required', { exact: true })).toBeVisible();
+});
+
+test('default access page offers every connector and SSH save never starts an assessment', async ({ page }) => {
+  await fixture(page); let checks = 0; let assessments = 0; let stored = false;
+  const credential = { host: 'cms.customer.com', port: 22, username: 'deploy', authMethod: 'SSH_KEY', status: 'VERIFIED', secretStored: true, lastErrorCode: null };
+  await page.route('**/assessment', route => { assessments++; return route.fulfill({ json: {} }); });
+  await page.route('**/v1/websites/*/access', route => { if (route.request().method() === 'PUT') { stored = true; expect(route.request().postDataJSON().authorizationConfirmed).toBe(true); } return route.fulfill({ json: stored ? credential : null }); });
+  await page.route('**/access/check', route => { checks++; return route.fulfill({ json: credential }); });
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${websiteId}/access`);
+  const methods = page.getByRole('group', { name: 'Connection methods' });
+  await expect(methods.getByRole('button')).toHaveCount(5);
+  for (const item of adapters) {
+    await methods.getByRole('button', { name: new RegExp(`^${item.name}`) }).click();
+    await page.getByRole('button', { name: `Set up ${item.name}`, exact: true }).click();
+    await expect(page.getByLabel(item.secretLabel, { exact: true })).toHaveAttribute('type', 'password');
+  }
+  await methods.getByRole('button', { name: /^SSH server/ }).click();
+  await page.getByLabel('Server host').fill('cms.customer.com'); await page.getByLabel('SSH username').fill('deploy');
+  await page.getByLabel('Private key', { exact: true }).fill('synthetic-ui-key-not-a-real-private-key');
+  await page.getByLabel(/I own or administer this server/).check(); await page.getByRole('button', { name: 'Save and check SSH', exact: true }).click();
+  await expect(page.getByText('SSH connection checked. No assessment or changes started.', { exact: true })).toBeVisible();
+  expect(checks).toBe(1); expect(assessments).toBe(0); await expect(page).toHaveURL(new RegExp(`/access$`));
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('switching connectors discards unsaved credentials', async ({ page }) => {
+  await fixture(page); await page.goto(`/customer/websites/${websiteId}/access`);
+  const methods = page.getByRole('group', { name: 'Connection methods' });
+  await methods.getByRole('button', { name: /^WordPress/ }).click(); await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
+  await page.getByLabel('Application Password', { exact: true }).fill('unsaved-secret-marker');
+  await methods.getByRole('button', { name: /^Ghost/ }).click(); await methods.getByRole('button', { name: /^WordPress/ }).click();
+  await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
+  await expect(page.getByLabel('Application Password', { exact: true })).toHaveValue('');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('unsaved-secret-marker');
 });
