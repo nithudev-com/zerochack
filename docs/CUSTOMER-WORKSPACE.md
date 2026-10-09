@@ -6,6 +6,7 @@ The authenticated Customer shell uses a compact blue/navy layout that matches th
 
 - Desktop: labelled sidebar with all seven Customer destinations, workspace switching, session management, and sign-out.
 - Below 1024px: Overview, Websites, Help, and More in a bottom navigation bar. Space is reserved for the bar and device safe area; the Care composer sits above it.
+- The mobile Customer header stays at the top while scrolling. Sticky positioning keeps its space in the page; scroll padding prevents focused targets from landing behind it. Desktop and public sign-in headers are unchanged.
 - More opens a native modal dialog. Escape/Close returns focus, Tab wraps within its controls, route changes dismiss it, and resizing to desktop closes it.
 - Controls have at least 44px mobile targets. The shell includes a skip link, visible focus, active-page labels, readable contrast, and reduced-motion support.
 - Sign-out errors remain actionable; the client query cache is cleared only after successful logout.

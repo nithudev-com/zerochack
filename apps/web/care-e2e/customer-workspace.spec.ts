@@ -49,6 +49,44 @@ for (const width of [320, 390, 768, 1440]) {
   });
 }
 
+for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 768, height: 900 }, { width: 844, height: 390 }]) {
+  test(`mobile Customer header stays pinned without covering content at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport); await fixture(page); await page.goto('/customer/overview');
+    await expect(page.getByRole('heading', { level: 1, name: 'Overview.' })).toBeVisible();
+    const header = page.locator('.app-header');
+    await expect(header).toHaveCSS('position', 'sticky');
+    const firstHeading = await page.locator('.cw-page-heading').boundingBox();
+    const initialHeader = await header.boundingBox();
+    expect(firstHeading!.y).toBeGreaterThanOrEqual(initialHeader!.y + initialHeader!.height);
+    await page.evaluate(() => window.scrollTo({ top: 650, behavior: 'instant' }));
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(300);
+    expect(Math.abs((await header.boundingBox())!.y)).toBeLessThan(1);
+    expect(await header.evaluate(element => element.contains(document.elementFromPoint(35, 25)))).toBe(true);
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Customer portal' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close navigation' }).click();
+    await expect(page.getByRole('button', { name: 'More', exact: true })).toBeFocused();
+    await page.locator('.cw-metric').first().evaluate(element => element.scrollIntoView({ block: 'start', behavior: 'instant' }));
+    const target = await page.locator('.cw-metric').first().boundingBox();
+    const pinnedHeader = await header.boundingBox();
+    expect(target!.y).toBeGreaterThanOrEqual(pinnedHeader!.height);
+    await header.getByRole('link', { name: 'Notifications', exact: true }).click();
+    await expect(page).toHaveURL(/\/customer\/notifications$/);
+    await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+  });
+}
+
+test('sticky header is limited to mobile Customer pages', async ({ page }) => {
+  await fixture(page); await page.setViewportSize({ width: 1440, height: 900 }); await page.goto('/customer/overview');
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview.' })).toBeVisible();
+  await expect(page.locator('.app-header')).toHaveCSS('position', 'relative');
+  await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/customer/login');
+  await expect(page.locator('.app-shell--customer')).toHaveCount(0);
+  await expect(page.locator('.app-header')).not.toHaveCSS('position', 'sticky');
+  await expect(page.locator('html')).not.toHaveCSS('scroll-padding-top', '80px');
+});
+
 test('real counts, unknown posture, refresh and populated states are displayed without invented protection scores', async ({ page }) => {
   let data = { ...populated }; await fixture(page, () => data); await page.setViewportSize({ width: 390, height: 844 }); await page.goto('/customer/overview');
   await expect(page.getByText('Needs attention', { exact: true })).toBeVisible();

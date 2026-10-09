@@ -134,7 +134,9 @@
   .cw-welcome-art > div { width: 90px; height: 90px; }
 }
 @media (max-width: 1023px) {
-  .app-shell--customer .app-header { min-height: 64px; padding: 10px 20px; }
+  /* Keep the header in normal flow, then pin it while the Customer page scrolls. */
+  .app-shell--customer .app-header { position: sticky; top: 0; align-self: start; z-index: 40; min-height: 64px; padding: 10px 20px; }
+  html:has(.app-shell--customer) { scroll-padding-top: 80px; }
   .app-shell--customer .app-header .cw-header-actions { gap: 6px; }
   .cw-header-actions > span { display: none; }
   .app-shell--customer .customer-workspace-layout { display: block; min-height: calc(100dvh - 64px); margin: 0; }
