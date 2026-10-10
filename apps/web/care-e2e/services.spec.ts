@@ -46,6 +46,10 @@ for (const service of websiteServices) test(`${service.label} opens its own scop
   expect(writes).toEqual([]); await page.getByRole('button', { name: 'Next: open workspace' }).click();
   await expect(page).toHaveURL(`${base}?service=${service.id}`);
   await expect(page.getByRole('heading', { name: `${service.label} workspace`, exact: true })).toBeVisible();
+  expect(await page.locator('.care-composer').evaluate(element => getComputedStyle(element).position)).toBe('static');
+  const goalField = page.getByLabel('Requested work', { exact: true });
+  await goalField.evaluate(element => element.scrollIntoView({ block: 'center' }));
+  expect(await goalField.evaluate(element => { const box = element.getBoundingClientRect(); return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === element; })).toBe(true);
   const form = page.getByRole('form', { name: 'Website task brief' });
   await expect(form.getByText(service.hint, { exact: false })).toBeVisible();
   await expect(page.getByLabel('How should we verify success?')).toHaveAttribute('placeholder', service.success);
@@ -123,5 +127,6 @@ test('keyboard service selection and accessible mobile brief can be cancelled an
   await page.getByRole('button', { name: 'Cancel brief', exact: true }).click(); await page.getByRole('button', { name: 'Start service request', exact: true }).click();
   await expect(page.getByLabel('Requested work', { exact: true })).toHaveValue(''); await expect(page.getByLabel('I reviewed this brief')).not.toBeChecked();
   expect(writes).toEqual([]);
+  await page.evaluate(() => { document.activeElement instanceof HTMLElement && document.activeElement.blur(); window.scrollTo(0, 0); });
   await page.screenshot({ path: '/tmp/codebandage-service-workspace-390.png', fullPage: true });
 });
