@@ -6,3 +6,10 @@
 .panel dt { font-weight: 650; }
 .panel dd { margin: 0 0 8px; padding-bottom: 12px; border-bottom: 1px solid var(--care-border); color: var(--care-muted); line-height: 1.65; }
 .panel details > button { margin-bottom: 12px; }
+.context { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 12px; border: 1px solid var(--care-border); border-radius: 12px; background: var(--care-surface); }
+.context span, .context a { font-size: .8125rem; }
+.context p { grid-column: 1 / -1; line-height: 1.7; }
+.related { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.related a { display: inline-flex; align-items: center; min-height: 44px; font-size: .8125rem; }
+.panel textarea { min-height: 100px; }
+@media (max-width: 480px) { .context { grid-template-columns: 1fr; } .panel textarea { font-size: 16px; } }

@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, useToast } from '@zerochack/ui';
 import { CareChat } from './care-chat';
 import { api, apiUrl } from '../lib/api';
+import { getWebsiteService, websiteWorkspaceHref } from '../lib/website-services';
 
 type Evidence = { id: string; engine: string; engineVersion: string; observedAt: string; summary: string; integrityHash: string };
 type Item = { id: string; status: string; title?: string; type?: string; description?: string; severity?: string; confidence?: string | number; affectedResource?: string; recommendation?: string; cwe?: string | null; cve?: string | null; owaspCategory?: string | null; remediationSupported?: boolean; evidence?: Evidence[]; requestedAt?: string; createdAt?: string; completedAt?: string | null; verifiedAt?: string | null; retentionUntil?: string | null; deletedAt?: string | null; purpose?: string; providerKey?: string | null; progress?: number; progressStage?: string; progressNote?: string|null; progressUpdatedAt?: string|null; completedEngines?: number; engineCount?: number; errorCode?: string | null; integrityHash?:string|null };
@@ -15,7 +16,7 @@ type Operations = { monitoringPolicy: { enabled: boolean; intervalMinutes: numbe
 type FixPrice = { id:string; name:string; description:string; scope:'ISSUE'|'TASK'|'PROJECT'; includedWork:string[]; priceMinor:number; currency:string; estimatedHours?:number|null; matchReason:string };
 type FixOrder = { id:string; title:string; scope:string; amountMinor:number; currency:string; status:string; checkoutUrl?:string|null; ticket?:{id:string;status:string;assignedSpecialistId?:string|null}|null };
 type FixOffers = { finding:Item|null; issueOffers:FixPrice[]; projectOffers:FixPrice[]; orders:FixOrder[] };
-const tabs = [['Chat', ''], ['Connections', '/access'], ['AI assessment', '/findings'], ['Pricing', '/pricing'], ['Fix with specialist', '/tickets'], ['Settings', '/settings']] as const;
+const tabs = [['Services', '/services'], ['Chat', ''], ['Connections', '/access'], ['AI assessment', '/findings'], ['Pricing', '/pricing'], ['Fix with specialist', '/tickets'], ['Settings', '/settings']] as const;
 const pretty = (value: string) => value.replaceAll('_', ' ').toLowerCase();
 const money = (amount: number, currency: string) => new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount / 100);
 
@@ -23,11 +24,15 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const params = useParams<{ websiteId: string }>(); const pathname = usePathname(); const id = params.websiteId; const router = useRouter();
   const [optionsOpen, setOptionsOpen] = useState(false);
   const base = `/customer/websites/${id}`;
-  useEffect(() => { const openChat = () => router.push(base); window.addEventListener('zerochack:open-chat', openChat); return () => window.removeEventListener('zerochack:open-chat', openChat); }, [base, router]);
+  const search = useSearchParams(); const service = getWebsiteService(search.get('service'));
+  const conversation = websiteWorkspaceHref(id, service);
+  useEffect(() => { const openChat = () => router.push(conversation); window.addEventListener('zerochack:open-chat', openChat); return () => window.removeEventListener('zerochack:open-chat', openChat); }, [conversation, router]);
   const query = useQuery({ queryKey: ['website', id], queryFn: () => api<Website>(`/websites/${id}`), refetchInterval: 2_000 });
   if (query.isLoading) return <LoadingState label="Loading website workspace" />;
   if (query.isError) return <ErrorState title="Workspace unavailable" description={query.error.message} retry={() => void query.refetch()} />;
-  return <div className="workspace care-workspace"><header className="care-page-heading" data-options-open={optionsOpen}><Link className="back-link" href="/customer/websites">← Websites</Link><button className="care-options-toggle" aria-expanded={optionsOpen} aria-controls="care-workspace-navigation" onClick={() => setOptionsOpen(!optionsOpen)}>Website options</button><nav id="care-workspace-navigation" aria-label="Website workspace">{tabs.map(([label, suffix]) => <Link key={label} href={`${base}${suffix}`} onClick={() => setOptionsOpen(false)} aria-current={pathname === `${base}${suffix}` ? 'page' : undefined}>{label}</Link>)}</nav></header>{pathname === base ? <CareChat key={id} website={query.data!}/> : <div className="care-context-panel"><Link href={base}>← Back to conversation</Link>{children}</div>}</div>;
+  if (search.has('service') && !service) return <div className="portal-stack"><Alert title="Choose a supported service" tone="warning">This service selection is not supported. No work has started.</Alert><Link href={`${base}/services`}>Choose a website service</Link></div>;
+  if (pathname === `${base}/services`) return <div className="workspace care-workspace">{children}</div>;
+  return <div className="workspace care-workspace"><header className="care-page-heading" data-options-open={optionsOpen}><Link className="back-link" href="/customer/websites">← Websites</Link><button className="care-options-toggle" aria-expanded={optionsOpen} aria-controls="care-workspace-navigation" onClick={() => setOptionsOpen(!optionsOpen)}>Website options</button><nav id="care-workspace-navigation" aria-label="Website workspace">{tabs.map(([label, suffix]) => <Link key={label} href={websiteWorkspaceHref(id, service, suffix)} onClick={() => setOptionsOpen(false)} aria-current={pathname === `${base}${suffix}` ? 'page' : undefined}>{label}</Link>)}</nav></header>{pathname === base ? <CareChat key={`${id}-${service?.id ?? 'general'}`} website={query.data!} service={service}/> : <div className="care-context-panel"><Link href={conversation}>← Back to conversation</Link>{children}</div>}</div>;
 }
 
 export function WorkspacePage({ section }: { section: 'overview' | 'access' | 'findings' | 'pricing' | 'scans' | 'tickets' | 'monitoring' | 'backups' | 'reports' | 'settings' }) {

@@ -43,6 +43,16 @@ Disabling `CARE_ENABLED` stops conversational capture/disclosure and future brok
 
 For rollback, first stop new care work and disable the flag. Retain the additive schema and run a compatible binary until care vault references have been revoked or explicitly migrated. Do not simply deploy an old API against rows with an empty legacy `encryptedSecret` and a vault reference. A production rollback/restore drill is still required; no down migration or successful recovery exercise is claimed.
 
+## Customer service selection
+
+Websites → Open workspace (and Add and continue) first opens the seven-service picker: hack/security recovery, full-stack development, redesign, issue fixing, server-side work, SEO and automation. Select one service and choose Next to open its scoped request form. Each service has its own description, acceptance prompts, limits and relevant existing resource links.
+
+The validated `service` query parameter preserves the selected context through workspace navigation and reload. It is not a permission, job type, provider entitlement or execution flag. Unknown values fail closed. Existing direct conversation URLs remain compatible. Unsent drafts and consent are cleared on website/service/environment changes; they are not browser-persisted.
+
+Submitting a reviewed brief uses the existing tenant/user-scoped Support conversation API. The saved message records website ID/origin, environment, service ID/label, requested work and acceptance checks; the customer can reopen it in Support for specialist scoping. It does not start a scan, AI task, cron/webhook, paid request, server operation or release. Apparent credentials are refused by the form's defense-in-depth detector; put access only in protected Connections. Do not represent these seven request flows as seven fully activated autonomous execution engines. Existing provider/runtime/authorization/MFA/backup gates still apply to consequential work.
+
+Run `npx playwright test --config playwright.care.config.ts services.spec.ts` in development and production-build modes. These are API-fixture tests, not live customer-host executions. Confirm real Support persistence against a separate disposable database before deploying the image.
+
 ## Local verification
 
 Use a disposable database whose name includes `test`; never point the integration tests at production. Apply all migrations and run:
