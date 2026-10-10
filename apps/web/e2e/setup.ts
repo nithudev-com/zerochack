@@ -2,6 +2,10 @@ import { database } from '@zerochack/database';
 import { encryptSecret, hashPassword } from '@zerochack/auth';
 
 export default async function setup() {
+  const target = new URL(process.env.DATABASE_URL ?? '');
+  if (process.env.NODE_ENV !== 'test' || !target.pathname.endsWith('_test')) {
+    throw new Error('Portal fixtures require NODE_ENV=test and a disposable database ending in _test.');
+  }
   const email = 'customer-e2e@zerochack.test'; const passwordHash = await hashPassword('Customer-E2E-Password9!');
   const previous = await database.user.findUnique({ where: { email } });
   if (previous) await database.user.delete({ where: { id: previous.id } });

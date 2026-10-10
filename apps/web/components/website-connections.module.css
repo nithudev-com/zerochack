@@ -1,0 +1,28 @@
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 10px; }
+.choice { display: flex; align-items: center; gap: 12px; min-height: 82px; padding: 15px; border: 1px solid #c9d6eb; border-radius: 16px; background: #fff; color: #11254b; text-align: left; font: inherit; cursor: pointer; }
+.choice:hover { border-color: #3871df; background: #f5f8ff; }
+.choice[aria-pressed="true"] { border-color: #2359ba; background: #edf3ff; box-shadow: inset 0 0 0 1px #2359ba; }
+.choice:focus-visible, .guide summary:focus-visible { outline: 3px solid #245cce; outline-offset: 3px; }
+.choice strong, .choice small { display: block; }
+.choice strong { font-size: 1rem; }
+.choice small { margin-top: 4px; font-size: .75rem; color: #425675; line-height: 1.5; }
+.icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 12px; background: #e1edff; color: #123d84; font-weight: 750; }
+.arrow { margin-left: auto; color: #355fa6; }
+.hint { border: 1px dashed #b8cae6; border-radius: 14px; padding: 16px; color: #425675; }
+.details { display: grid; gap: 16px; min-width: 0; scroll-margin-top: 80px; }
+.details:empty { display: none; }
+.setup { border-color: #8eb1ee; box-shadow: 0 8px 26px rgb(20 62 134 / 7%); }
+.setup .hint { margin-block: 12px; padding: 12px; font-size: .875rem; line-height: 1.5; }
+.fields { min-width: 0; margin: 0; border: 0; padding: 0; }
+.credentialHelp { border: 1px solid #d7e2f2; border-radius: 10px; padding: 12px; overflow-wrap: anywhere; }
+.credentialHelp summary { cursor: pointer; font-weight: 650; }
+.credentialHelp summary:focus-visible { outline: 3px solid #245cce; outline-offset: 3px; }
+.credentialHelp ol { padding-left: 22px; }
+.credentialHelp li { margin-block: 8px; }
+.credentialHelp a { color: #174eaa; text-decoration: underline; }
+.choice span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
+.guide { border: 1px solid #c9d6eb; border-radius: 16px; padding: 18px; overflow-wrap: anywhere; }
+.guide > summary { font-weight: 650; cursor: pointer; min-height: 24px; color: #11254b; }
+.guide details { padding-block: 10px; }
+.guide p { color: #425675; }
+@media (max-width: 480px) { .choice { min-height: 74px; padding: 12px; } }

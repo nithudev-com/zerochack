@@ -1,4 +1,5 @@
 'use client';
+import { BrandLogo } from './brand-logo';
 
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -69,7 +70,7 @@ export function CustomerSupport() {
   return <section className="support-center" aria-labelledby="support-title">
     <header className="support-center__bar">
       <div className="support-brand-mark" aria-hidden="true">?</div>
-      <div className="support-center__title"><span>Customer support</span><h1 id="support-title">General Live Help</h1><p>Chat directly with a ZeroRoot support agent.</p></div>
+      <div className="support-center__title"><span>Customer support</span><h1 id="support-title">General Live Help</h1><p>Chat directly with a CodeBandage support agent.</p></div>
       <div className="support-availability"><i /> Support online</div>
       <Button size="sm" onClick={() => { setNewChat(true); setSelectedId(''); }}>New conversation</Button>
     </header>
@@ -92,12 +93,12 @@ export function CustomerSupport() {
           <div className="support-actions"><Button disabled={create.isPending}>{create.isPending ? 'Starting…' : 'Send to support'}</Button>{conversations.data?.length ? <Button type="button" variant="secondary" onClick={() => setNewChat(false)}>Cancel</Button> : null}</div>
         </form> : <>
           <header className="support-thread__header">
-            <div className="support-list-mark support-list-mark--agent" aria-hidden="true">ZR</div>
-            <div><h2>{active.subject}</h2><p>{active.assignedSpecialist?.displayName ? `Agent: ${active.assignedSpecialist.displayName}` : 'ZeroRoot support team'}</p></div>
+            <div className="support-list-mark support-list-mark--agent" aria-hidden="true"><BrandLogo variant="mark" decorative /></div>
+            <div><h2>{active.subject}</h2><p>{active.assignedSpecialist?.displayName ? `Agent: ${active.assignedSpecialist.displayName}` : 'CodeBandage support team'}</p></div>
             <span className={`support-status support-status--${active.status.toLowerCase()}`}>{active.status === 'CLOSED' ? 'Closed' : active.assignedSpecialist ? 'Agent joined' : 'Waiting'}</span>
           </header>
           {messages.isLoading ? <LoadingState label="Loading messages" /> : messages.isError ? <ErrorState description={messages.error.message} retry={() => void messages.refetch()} /> : messages.data?.length ? <div className="support-messages" aria-live="polite">{messages.data.map((message) => <article key={message.id} className={`support-message support-message--${message.type.toLowerCase()}`}>
-            <div><strong>{message.type === 'CUSTOMER' ? 'You' : message.type === 'SPECIALIST' ? message.author?.displayName || 'Support Agent' : 'ZeroRoot Support'}</strong><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
+            <div><strong>{message.type === 'CUSTOMER' ? 'You' : message.type === 'SPECIALIST' ? message.author?.displayName || 'Support Agent' : 'CodeBandage Support'}</strong><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
             <p>{message.content}</p>
           </article>)}</div> : <EmptyState title="No messages" description="Send the first message to begin." />}
           {active.status !== 'CLOSED' && <form className="support-composer" onSubmit={(event: FormEvent) => { event.preventDefault(); if (content.trim()) send.mutate(); }}>

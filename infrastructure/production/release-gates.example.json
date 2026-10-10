@@ -1,0 +1,22 @@
+{
+  "commit": "",
+  "images": {"api": "", "worker": "", "web": "", "tools": ""},
+  "evidence_directory": "",
+  "host_identity": "pending",
+  "github_published": "pending",
+  "dependencies": "pending",
+  "containers": "pending",
+  "unit": "pending",
+  "integration": "pending",
+  "browser": "pending",
+  "production_images": "pending",
+  "tls_negative_tests": "pending",
+  "smtp_verified": "pending",
+  "restore_drill": "pending",
+  "migration_review": "pending",
+  "owner_mfa": "pending",
+  "authenticated_smoke": "pending",
+  "sse": "pending",
+  "offserver_backup": "pending",
+  "rollback_review": "pending"
+}
