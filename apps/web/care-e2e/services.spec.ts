@@ -39,7 +39,7 @@ for (const width of [320, 390, 1440]) test(`Open workspace shows seven accessibl
   await page.screenshot({ path: `/tmp/codebandage-services-${width}.png`, fullPage: true });
 });
 
-for (const service of websiteServices) test(`${service.label} opens its own scoped form and saves the correct service without starting jobs`, async ({ page }) => {
+for (const service of websiteServices.filter(item => item.id !== 'security')) test(`${service.label} opens its own scoped form and saves the correct service without starting jobs`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); const writes = await fixture(page);
   await page.goto(`${base}/services`);
   await page.getByRole('radio', { name: new RegExp(service.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).check();

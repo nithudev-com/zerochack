@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -15,7 +16,7 @@ export function WebsiteTaskPanel({ website, environment, service, state, capabil
   capabilities: { sourceReview?: boolean; isolatedRepair: boolean; deployment: boolean } | undefined;
   onReview: () => void;
 }) {
-  const client = useQueryClient(); const sending = useRef(false);
+  const client = useQueryClient(); const router = useRouter(); const sending = useRef(false);
   const [task, setTask] = useState<number | null>(() => service ? tasks.findIndex(item => item.id === service.id) : null); const [goal, setGoal] = useState(''); const [acceptance, setAcceptance] = useState('');
   const [confirmed, setConfirmed] = useState(false); const [busy, setBusy] = useState(false); const [saved, setSaved] = useState(false); const [error, setError] = useState('');
   const disabled = state === 'disabled';
@@ -34,7 +35,7 @@ export function WebsiteTaskPanel({ website, environment, service, state, capabil
   }
   return <section className={`care-panel ${styles.panel}`} aria-label="Website tasks and tools">
     <div className={`care-panel-heading ${styles.heading}`}><div><span className={styles.eyebrow}>YOUR NEXT PROJECT</span><h3>{service ? `${service.label} workspace` : 'What would you like to build or improve?'}</h3></div><Link href={websiteWorkspaceHref(website.id, service, '/access')}>Connections →</Link></div>
-    {service ? <div className={styles.context}><span>Step 2 of 2 · Scope your request</span><Link href={websiteWorkspaceHref(website.id, service, '/services')}>Change service</Link><p>{service.description}</p><p>{service.boundary}</p></div> : <><p className={styles.intro}>One workspace for your whole website. Choose the work, describe the result, then review the next step.</p><div className={styles.services} aria-label="Website work types">{tasks.map((item, index) => <button className={styles.service} key={item.id} type="button" aria-label={item.label} aria-pressed={task === index} disabled={busy} onClick={() => { setTask(index); setGoal(''); setAcceptance(''); setSaved(false); setConfirmed(false); setError(''); }}><span className={styles.icon}><WebsiteServiceIcon service={item.id}/></span><span className={styles.serviceCopy}><strong>{item.label}</strong><small className={styles.description}>{item.description}</small><small className={styles.compactDescription}>{compactDescriptions[item.id]}</small></span><span className={styles.arrow} aria-hidden="true">↗</span></button>)}</div></>}
+    {service ? <div className={styles.context}><span>Step 2 of 2 · Scope your request</span><Link href={websiteWorkspaceHref(website.id, service, '/services')}>Change service</Link><p>{service.description}</p><p>{service.boundary}</p></div> : <><p className={styles.intro}>One workspace for your whole website. Choose the work, describe the result, then review the next step.</p><div className={styles.services} aria-label="Website work types">{tasks.map((item, index) => <button className={styles.service} key={item.id} type="button" aria-label={item.label} aria-pressed={task === index} disabled={busy} onClick={() => { if (item.id === 'security') { router.push(websiteWorkspaceHref(website.id, item)); return; } setTask(index); setGoal(''); setAcceptance(''); setSaved(false); setConfirmed(false); setError(''); }}><span className={styles.icon}><WebsiteServiceIcon service={item.id}/></span><span className={styles.serviceCopy}><strong>{item.label}</strong><small className={styles.description}>{item.description}</small><small className={styles.compactDescription}>{compactDescriptions[item.id]}</small></span><span className={styles.arrow} aria-hidden="true">↗</span></button>)}</div></>}
     <p className={styles.scopeNote}>Selecting a service starts a brief, not a website change. Send it for human review when you’re ready.</p>
     {service && task === null && !saved && <button type="button" onClick={() => setTask(tasks.findIndex(item => item.id === service.id))}>Start service request</button>}
     {task !== null && <form className="care-issue-form" aria-label="Website task brief" onSubmit={event => { event.preventDefault(); void save(); }}>

@@ -41,10 +41,16 @@ for (const width of [320, 390, 1440]) test(`all-in-one workbench is accessible, 
   expect(writes).toEqual([]);
 });
 
-test('every work card opens the matching brief without starting a job', async ({ page }) => {
+test('work cards open scoped briefs, while security opens simple chat without starting a job', async ({ page }) => {
   const writes = await fixture(page); await page.goto(base);
   for (const service of websiteServices) {
     await page.getByRole('button', { name: service.label, exact: true }).click();
+    if (service.id === 'security') {
+      await expect(page.getByRole('region', { name: 'Security recovery conversation' })).toBeVisible();
+      await expect(page.getByRole('form', { name: 'Website task brief' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Connect SSH securely' })).toBeVisible();
+      await page.goto(base); continue;
+    }
     const form = page.getByRole('form', { name: 'Website task brief' });
     await expect(form.getByRole('heading', { name: service.name, exact: true })).toBeVisible();
     await expect(page.getByLabel('How should we verify success?')).toHaveAttribute('placeholder', service.success);

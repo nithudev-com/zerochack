@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, EmptyState, ErrorState, Input, LoadingState, Select, useToast } from '@zerochack/ui';
 import { CareChat } from './care-chat';
+import { SecurityChat } from './security-chat';
 import { api, apiUrl } from '../lib/api';
 import { getWebsiteService, websiteWorkspaceHref } from '../lib/website-services';
 
@@ -32,6 +33,7 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   if (query.isError) return <ErrorState title="Workspace unavailable" description={query.error.message} retry={() => void query.refetch()} />;
   if (search.has('service') && !service) return <div className="portal-stack"><Alert title="Choose a supported service" tone="warning">This service selection is not supported. No work has started.</Alert><Link href={`${base}/services`}>Choose a website service</Link></div>;
   if (pathname === `${base}/services`) return <div className="workspace care-workspace">{children}</div>;
+  if (pathname === base && service?.id === 'security') return <div className="workspace care-workspace"><SecurityChat key={id} website={query.data!}/></div>;
   return <div className="workspace care-workspace"><header className="care-page-heading" data-options-open={optionsOpen}><Link className="back-link" href="/customer/websites">← Websites</Link><button className="care-options-toggle" aria-expanded={optionsOpen} aria-controls="care-workspace-navigation" onClick={() => setOptionsOpen(!optionsOpen)}>Website options</button><nav id="care-workspace-navigation" aria-label="Website workspace">{tabs.map(([label, suffix]) => <Link key={label} href={websiteWorkspaceHref(id, service, suffix)} onClick={() => setOptionsOpen(false)} aria-current={pathname === `${base}${suffix}` ? 'page' : undefined}>{label}</Link>)}</nav></header>{pathname === base ? <CareChat key={`${id}-${service?.id ?? 'general'}`} website={query.data!} service={service}/> : <div className="care-context-panel"><Link href={conversation}>← Back to conversation</Link>{children}</div>}</div>;
 }
 

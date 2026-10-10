@@ -1,5 +1,13 @@
 # Care workspace operations
 
+## Focused security chat
+
+Choosing **Fix hacks & security** opens `?service=security`: a chat-only incident intake, not the all-in-one task form. Existing saved messages are retained. Other services keep their scoped briefs. The first prompt asks for SSH; a successfully checked saved account advances to a question about suspicious changes and when they started. Customers may describe symptoms before connecting.
+
+The inline SSH form uses existing encrypted Secure capture and the existing connection-check endpoint. A new account requires a trusted SHA256 host fingerprint and affirmative storage/connection consent. Editing details resets consent. Passwords are masked; secrets are cleared on submission, cancellation or authentication-method change, never written to browser storage, and never submitted as normal chat. Connection/capture errors do not reflect sensitive server responses. There are no automatic retries or assessments.
+
+Secure capture is locked when its real deployment capability is unavailable. Missing AI providers remain explicit errors, not fabricated replies. A saved connection check is historical evidence, not proof of a currently open SSH session or completed cleanup. The chat does not enable any Care flags, provider entitlements, runner, assessment, repair or release; these still require their existing independent validation and authorization. Saved job/approval controls remain reachable from the activity link when present. Validate with `security-chat.spec.ts` in development and production-image browser suites; fixture replies are not real-provider evidence.
+
 ## Rollout
 
 1. Back up the PostgreSQL database and establish a tested restore point. Review the additive `20260923000000_chat_care` and `20260923010000_care_repair` migrations. It creates care records, scope constraints, a nullable legacy access reference, and a production-default environment for existing chat messages.
