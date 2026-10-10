@@ -20,6 +20,7 @@ import { AiGatewayError } from '@zerochack/ai-gateway';
 import { verifyReport, reportTypes, type ReportDocument } from '@zerochack/reports';
 import { publishTenantEvent } from '../communications/service.js';
 import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
+import { connectionSummary } from './connection-summary.js';
 
 const websiteInput = z.object({ name: z.string().trim().min(2).max(120), url: z.string().url().max(2048) });
 const websiteUpdate = websiteInput.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
@@ -228,10 +229,15 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.get('/websites', async (request) => {
     requirePermission(request, 'websites.read');
-    return database.website.findMany({
+    const websites = await database.website.findMany({
       where: { tenantId: request.tenantId!, lifecycle: 'ACTIVE' }, orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { findings: { where: { status: 'OPEN' } } } } }
+      include: {
+        _count: { select: { findings: { where: { status: 'OPEN' } } } },
+        accessCredential: { where: { tenantId: request.tenantId! }, select: { status: true, lastCheckedAt: true, lastErrorCode: true, vaultCredentialId: true, vaultCredential: { select: { status: true, authorizationExpiresAt: true } } } },
+        connectors: { where: { tenantId: request.tenantId! }, select: { provider: true, websiteUrl: true, status: true, authorizationExpiresAt: true, lastCheckedAt: true, lastErrorCode: true }, orderBy: { provider: 'asc' } }
+      }
     });
+    return websites.map(({ accessCredential, connectors, ...site }) => ({ ...site, connectionSummary: connectionSummary({ ...site, accessCredential, connectors }) }));
   });
 
   app.post('/websites', async (request, reply) => {

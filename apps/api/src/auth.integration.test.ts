@@ -64,6 +64,25 @@ beforeEach(async () => {
 afterAll(async () => { await app.close(); await database.$disconnect(); });
 
 describe('authentication, RBAC, and tenant isolation', () => {
+  it('lists tenant-scoped connection evidence without credential or account details', async () => {
+    const token = await register('Customer', 'connections@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'connections@example.test')).headers['set-cookie']);
+    const created = (await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Connection fixture', url: 'https://example.com/' } })).json();
+    const list = async () => { const response = await app.inject({ method: 'GET', url: '/v1/websites', headers: { cookie } }); expect(response.statusCode).toBe(200); return response.json(); };
+    expect((await list())[0].connectionSummary.kind).toBe('NONE');
+    await database.website.update({ where: { id: created.id }, data: { connectionStatus: 'VERIFIED' } });
+    const user = await database.user.findUniqueOrThrow({ where: { email: 'connections@example.test' } }); const checked = new Date();
+    await database.websiteConnector.create({ data: { tenantId: created.tenantId, websiteId: created.id, provider: 'wordpress', endpoint: 'https://example.com/', websiteUrl: created.url, encryptedSecret: 'synthetic-ciphertext-not-returned', authorizedBy: user.id, authorizationExpiresAt: new Date(Date.now() + 86400000), status: 'AUTHENTICATED_READ', lastCheckedAt: checked } });
+    const other = (await list())[0]; expect(other.connectionSummary).toEqual({ kind: 'CONNECTOR', providers: ['wordpress'], lastCheckedAt: checked.toISOString() });
+    expect(other).not.toHaveProperty('connectors'); expect(other).not.toHaveProperty('accessCredential'); expect(JSON.stringify(other)).not.toContain('synthetic-ciphertext-not-returned'); expect(JSON.stringify(other)).not.toContain('authorizedBy');
+    await database.websiteAccessCredential.create({ data: { tenantId: created.tenantId, websiteId: created.id, host: 'example.com', username: 'fixture-hidden-account', authMethod: 'SSH_KEY', encryptedSecret: 'synthetic-ssh-ciphertext-not-returned', status: 'READY_FOR_SECURE_SESSION', lastCheckedAt: checked } });
+    const ssh = (await list())[0]; expect(ssh.connectionSummary.kind).toBe('SSH'); expect(JSON.stringify(ssh)).not.toContain('fixture-hidden-account'); expect(JSON.stringify(ssh)).not.toContain('synthetic-ssh-ciphertext-not-returned');
+    await database.website.update({ where: { id: created.id }, data: { connectionStatus: 'PENDING' } }); expect((await list())[0].connectionSummary.kind).toBe('NONE');
+    const otherToken = await register('Customer', 'connections-other@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: otherToken } });
+    const otherCookie = cookieFrom((await login('customer', 'connections-other@example.test')).headers['set-cookie']);
+    expect((await app.inject({ method: 'GET', url: `/v1/websites?tenantId=${created.tenantId}`, headers: { cookie: otherCookie, 'x-tenant-id': created.tenantId } })).json()).toEqual([]);
+  });
+
   it('registers, verifies once, enforces portal role, creates and revokes a session', async () => {
     const token = await register('Customer', 'customer@example.test');
     expect((await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } })).json()).toEqual({ status: 'APPROVED' });
