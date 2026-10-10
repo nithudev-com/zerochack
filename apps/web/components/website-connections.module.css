@@ -11,6 +11,16 @@
 .hint { border: 1px dashed #b8cae6; border-radius: 14px; padding: 16px; color: #425675; }
 .details { display: grid; gap: 16px; min-width: 0; scroll-margin-top: 80px; }
 .details:empty { display: none; }
+.setup { border-color: #8eb1ee; box-shadow: 0 8px 26px rgb(20 62 134 / 7%); }
+.setup .hint { margin-block: 12px; padding: 12px; font-size: .875rem; line-height: 1.5; }
+.fields { min-width: 0; margin: 0; border: 0; padding: 0; }
+.credentialHelp { border: 1px solid #d7e2f2; border-radius: 10px; padding: 12px; overflow-wrap: anywhere; }
+.credentialHelp summary { cursor: pointer; font-weight: 650; }
+.credentialHelp summary:focus-visible { outline: 3px solid #245cce; outline-offset: 3px; }
+.credentialHelp ol { padding-left: 22px; }
+.credentialHelp li { margin-block: 8px; }
+.credentialHelp a { color: #174eaa; text-decoration: underline; }
+.choice span:nth-child(2) { min-width: 0; overflow-wrap: anywhere; }
 .guide { border: 1px solid #c9d6eb; border-radius: 16px; padding: 18px; overflow-wrap: anywhere; }
 .guide > summary { font-weight: 650; cursor: pointer; min-height: 24px; color: #11254b; }
 .guide details { padding-block: 10px; }

@@ -22,7 +22,7 @@ export function PlatformConnectors() {
   const [guideLimit, setGuideLimit] = useState(15);
   const [methodSearch, setMethodSearch] = useState('');
   const detail = useRef<HTMLElement>(null);
-  useEffect(() => { if (selected && detail.current) { detail.current.focus({ preventScroll: true }); detail.current.scrollIntoView({ block: 'start', behavior: 'instant' }); } }, [selected]);
+  useEffect(() => { if (selected && detail.current) { detail.current.focus({ preventScroll: true }); detail.current.scrollIntoView({ block: 'start', behavior: 'instant' }); } }, [selected, editing]);
   const base = `/websites/${websiteId}/connectors`; const queryKey = ['connectors', websiteId];
   const catalog = useQuery({ queryKey: ['connector-catalog'], queryFn: () => api<Catalog>('/connectors/catalog') });
   const saved = useQuery({ queryKey, queryFn: () => api<Connection[]>(base) });
@@ -34,7 +34,9 @@ export function PlatformConnectors() {
   if (!catalog.data || !saved.data || !site.data) return null;
   const canConnect = site.data.connectionStatus === 'VERIFIED';
   const adapter = catalog.data.adapters.find(item => item.provider === selected);
-  const choose = (provider: string) => { setSelected(provider); setEditing(false); setConfirmRevoke(null); action.reset(); };
+  // Selecting a supported API opens its form, never a save or provider request.
+  // Ownership verification still gates credential entry below.
+  const choose = (provider: string) => { setSelected(provider); setEditing(provider !== 'ssh'); setConfirmRevoke(null); action.reset(); };
   const matches = catalog.data.research.platforms.filter(item => `${item.platform} ${item.category}`.toLowerCase().includes(search.toLowerCase()));
   const research = matches.slice(0, guideLimit);
   const methods = catalog.data.adapters.filter(item => item.name.toLowerCase().includes(methodSearch.toLowerCase()));
@@ -44,15 +46,16 @@ export function PlatformConnectors() {
     <p role="status">{catalog.data.adapters.length} API read-check adapters available. Selecting a method never starts a check.</p>
     <div className={styles.choices} role="group" aria-label="Connection methods">
       <button className={styles.choice} type="button" aria-pressed={selected === 'ssh'} aria-controls="connection-details" onClick={() => choose('ssh')}><span className={styles.icon} aria-hidden="true">&gt;_</span><span><strong>SSH server</strong><small>Server account · key or password</small></span><span className={styles.arrow} aria-hidden="true">↗</span></button>
-      {methods.map(item => <button key={item.provider} className={styles.choice} type="button" aria-pressed={selected === item.provider} aria-controls="connection-details" onClick={() => choose(item.provider)}><span className={styles.icon} aria-hidden="true">{item.name.slice(0, 2)}</span><span><strong>{item.name}</strong><small>Platform API · read-only check</small></span><span className={styles.arrow} aria-hidden="true">↗</span></button>)}
+      {methods.map(item => <button key={item.provider} className={styles.choice} type="button" aria-pressed={selected === item.provider} aria-controls="connection-details" onClick={() => choose(item.provider)}><span className={styles.icon} aria-hidden="true">{item.name.slice(0, 2)}</span><span><strong>{item.name}</strong><small>Open setup · {item.secretLabel}</small></span><span className={styles.arrow} aria-hidden="true">↗</span></button>)}
     </div>
     {methods.length === 0 && <p>No API adapter matches. Search the 150-platform guide below for its documented setup requirements. SSH remains available only when your host provides it.</p>}
     {!selected && <p className={styles.hint}>Select a connection method above to see its setup form. No connection or task starts when you select a card.</p>}
     <section ref={detail} tabIndex={-1} id="connection-details" aria-label="Selected connection" className={styles.details}>
     {selected === 'ssh' && <WorkspacePage section="access" />}
     {adapter && <>
-    <Alert title="Read-only connection checks" tone="info">These API adapters make authenticated read requests when you choose Check connection. Shopify also exchanges app credentials for a temporary token. They do not enable automatic scanning, editing, deployment, backups or browser login. A successful check applies only to the listed read operation at the recorded time.</Alert>
     {!canConnect && <Alert title="Ownership verification required" tone="warning">First <Link href={`/customer/websites/${websiteId}/settings`}>verify this website in Settings</Link>. Connections require trusted HTTPS and website ownership; Shopify also verifies the store’s domain binding.</Alert>}
+    {editing && <ConnectorForm key={`${websiteId}:${adapter.provider}`} adapter={adapter} row={saved.data.find(row => row.provider === adapter.provider)} siteUrl={site.data.url} canConnect={canConnect} base={base} close={() => setEditing(false)} saved={() => { setEditing(false); void client.invalidateQueries({ queryKey }); }} />}
+    <Alert title="Read-only connection checks" tone="info">These API adapters make authenticated read requests when you choose Check connection. Shopify also exchanges app credentials for a temporary token. They do not enable automatic scanning, editing, deployment, backups or browser login. A successful check applies only to the listed read operation at the recorded time.</Alert>
     {action.isError && <Alert title="Request not completed" tone="danger">{action.error.message}</Alert>}
     <div>{catalog.data.adapters.filter(item => item.provider === selected).map(item => {
       const row = saved.data!.find(connection => connection.provider === item.provider);
@@ -63,7 +66,6 @@ export function PlatformConnectors() {
         </div>{row && confirmRevoke === item.provider && <Alert title="Remove stored access?" tone="warning"><p>Future checks stop. An in-flight read may finish. Revoke the credential at the provider too; encrypted backups may retain older copies.</p><Button variant="danger" disabled={action.isPending} onClick={() => action.mutate({ row, remove: true })}>Confirm removal</Button><Button variant="secondary" onClick={() => setConfirmRevoke(null)}>Cancel</Button></Alert>}
       </Card>;
     })}</div>
-    {editing && canConnect && <ConnectorForm key={adapter.provider} adapter={adapter} row={saved.data.find(row => row.provider === adapter.provider)} siteUrl={site.data.url} base={base} close={() => setEditing(false)} saved={() => { setEditing(false); void client.invalidateQueries({ queryKey }); }} />}
     </>}
     </section>
     <Card><h2>Connect first. Approve each task separately.</h2><p>A connection check does not grant an AI permission to edit files, run customer code or release changes. Development, redesign and fixing also need an agreed scope, supported tools and your approval.</p><Link className="ui-button ui-button--secondary ui-button--md" href={`/customer/websites/${websiteId}`}>Open chat & task workspace</Link></Card>
@@ -77,19 +79,26 @@ export function PlatformConnectors() {
   </div>;
 }
 
-function ConnectorForm({ adapter, row, siteUrl, base, close, saved }: { adapter: Adapter; row: Connection | undefined; siteUrl: string; base: string; close: () => void; saved: () => void }) {
+function ConnectorForm({ adapter, row, siteUrl, canConnect, base, close, saved }: { adapter: Adapter; row: Connection | undefined; siteUrl: string; canConnect: boolean; base: string; close: () => void; saved: () => void }) {
   const shopify = adapter.provider === 'shopify';
+  const wordpress = adapter.provider === 'wordpress';
   const [endpoint, setEndpoint] = useState(row?.endpoint ?? adapter.defaultEndpoint ?? (shopify && !new URL(siteUrl).hostname.endsWith('.myshopify.com') ? '' : new URL('/', siteUrl).toString().replace(/^http:/u, 'https:')));
   const [username, setUsername] = useState(''); const [secret, setSecret] = useState(''); const [confirmed, setConfirmed] = useState(false);
-  const save = useMutation({ mutationFn: () => api(base, { method: 'PUT', body: JSON.stringify({ provider: adapter.provider, endpoint, username, secret, authorizationConfirmed: confirmed, revision: row?.revision ?? 0 }) }), onSuccess: () => { setSecret(''); saved(); } });
-  return <Card><h2>Set up {adapter.name}</h2><form className="portal-stack" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
-    <p>{adapter.endpointKind === 'service' ? 'Use the documented vendor API root shown below, not the storefront URL. Only reviewed vendor hosts are allowed. Contentful and DatoCMS prove project access only, not frontend website binding. Webflow checks the returned site ID and domain.' : shopify ? 'Use https://your-store.myshopify.com/ — not your custom storefront domain. The app and store must belong to the same Shopify organization. A successful check must confirm that your verified website is this store’s primary domain or canonical myshopify.com domain. Do not use your Shopify login password or a Storefront API token.' : 'Use the HTTPS installation root, including any subdirectory—not an API endpoint. It must match this website’s verified hostname. A separate admin hostname must be added and ownership-verified as a separate website.'}</p>
+  const save = useMutation({ mutationFn: () => { if (!canConnect) throw new Error('Verify website ownership in Settings before entering credentials.'); return api(base, { method: 'PUT', body: JSON.stringify({ provider: adapter.provider, endpoint, username, secret, authorizationConfirmed: confirmed, revision: row?.revision ?? 0 }) }); }, onSuccess: () => { setSecret(''); saved(); } });
+  return <Card className={styles.setup}><h2>Set up {adapter.name}</h2><p className={styles.hint}>Add credentials, save securely, then check the connection. No connection starts automatically.</p><form className="portal-stack" onSubmit={event => { event.preventDefault(); save.mutate(); }}>
+    {!canConnect && <p>These fields are locked until website ownership is verified in Settings. SSH access and website ownership are separate checks.</p>}
+    <fieldset className={`portal-stack ${styles.fields}`} disabled={!canConnect}>
+    <p>{adapter.endpointKind === 'service' ? 'Use the vendor API root, not your website URL.' : shopify ? 'The app and store must belong to the same Shopify organization. Use the canonical myshopify.com URL.' : 'Use your site’s HTTPS installation root, including any subdirectory.'}</p>
     <Input label={adapter.endpointKind === 'service' ? 'Vendor API root URL' : shopify ? 'Canonical Shopify store URL' : 'Installation root URL'} type="url" value={endpoint} onChange={event => setEndpoint(event.target.value)} required maxLength={2048} />
     {adapter.usernameLabel && <Input label={adapter.usernameLabel} autoComplete="off" value={username} onChange={event => setUsername(event.target.value)} required maxLength={120} />}
-    <Input label={adapter.secretLabel} type="password" autoComplete="new-password" value={secret} onChange={event => setSecret(event.target.value)} required maxLength={4096} />
+    <Input label={adapter.secretLabel} id={`connector-${adapter.provider}-secret`} type="password" autoComplete="new-password" aria-describedby={wordpress ? 'wordpress-password-help' : undefined} value={secret} onChange={event => setSecret(event.target.value)} required maxLength={4096} />
+    {wordpress && <><p id="wordpress-password-help">Use a dedicated WordPress user’s Application Password, not their normal login password.</p><details className={styles.credentialHelp}><summary>Where to get an Application Password</summary><ol><li>Sign in to your own WordPress dashboard and open Users → Profile.</li><li>Find Application Passwords, name this credential CodeBandage, and choose Add New Application Password.</li><li>Copy the generated password into the field above. WordPress displays it only once; revoke it in that profile when you stop using this connection.</li></ol><p>If that section is unavailable, confirm your installation uses HTTPS and ask its administrator whether Application Passwords are supported or intentionally disabled. Do not disable security controls or share your main password.</p><a href="https://developer.wordpress.org/advanced-administration/security/application-passwords/" target="_blank" rel="noopener noreferrer">Official WordPress Application Password guide</a></details></>}
+    <details className={styles.credentialHelp}><summary>URL and credential requirements</summary><p>{adapter.endpointKind === 'service' ? 'Only reviewed vendor API hosts are allowed. Contentful and DatoCMS prove project access only, not frontend website binding. Webflow checks the returned site ID and domain.' : shopify ? 'Use https://your-store.myshopify.com/, not your custom storefront domain. Your verified website must match the store’s primary domain or canonical myshopify.com domain. Do not use your Shopify login password or a Storefront API token.' : 'Enter the installation root, not an API endpoint. It must match this website’s verified hostname. Add and ownership-verify a separate admin hostname as its own website.'}</p></details>
     <p>Encrypted at rest. Never sent to AI or chat history. Saved credentials are not displayed again. Saving does not mean authentication succeeded.</p>
+    <details className={styles.credentialHelp}><summary>{adapter.name} access requirements & limits</summary><p>{adapter.scope}</p></details>
     <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} required /> I control this website and authorize storage and user-requested read-only authentication checks for 30 days.</label>
+    </fieldset>
     {save.isError && <Alert title="Credential not saved" tone="danger">{save.error.message}</Alert>}
-    <div className="portal-actions"><Button disabled={save.isPending || !confirmed}>{save.isPending ? 'Saving…' : 'Save encrypted credential'}</Button><Button type="button" variant="secondary" disabled={save.isPending} onClick={() => { setSecret(''); close(); }}>Cancel</Button></div>
+    <div className="portal-actions"><Button disabled={!canConnect || save.isPending || !confirmed}>{save.isPending ? 'Saving…' : 'Save encrypted credential'}</Button><Button type="button" variant="secondary" disabled={save.isPending} onClick={() => { setSecret(''); close(); }}>Cancel</Button></div>
   </form></Card>;
 }

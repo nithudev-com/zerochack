@@ -43,7 +43,6 @@ async function fixture(page: Page, verified = true, failure = false) {
 }
 async function save(page: Page) {
   await page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: /^WordPress/ }).click();
-  await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
   await page.getByLabel('WordPress username', { exact: true }).fill('reader');
   const secret = page.getByLabel('Application Password', { exact: true }); await expect(secret).toHaveAttribute('type', 'password'); await secret.fill('abcd efgh ijkl mnop qrst uvwx');
   const submit = page.getByRole('button', { name: 'Save encrypted credential' }); await expect(submit).toBeDisabled();
@@ -78,6 +77,9 @@ test('unverified websites cannot enter API credentials', async ({ page }) => {
   await fixture(page, false); await page.goto(`/customer/websites/${websiteId}/connectors`);
   await page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: /^WordPress/ }).click();
   await expect(page.getByRole('button', { name: 'Set up WordPress', exact: true })).toBeDisabled(); await expect(page.getByText('Ownership verification required', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Application Password', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('WordPress username', { exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Save encrypted credential', exact: true })).toBeDisabled();
 });
 
 test('default access page offers every connector and SSH save never starts an assessment', async ({ page }) => {
@@ -91,7 +93,7 @@ test('default access page offers every connector and SSH save never starts an as
   await expect(methods.getByRole('button')).toHaveCount(15);
   for (const item of adapters) {
     await methods.getByRole('button', { name: new RegExp(`^${item.name}`) }).click();
-    await page.getByRole('button', { name: `Set up ${item.name}`, exact: true }).click();
+    await expect(page.getByRole('heading', { name: `Set up ${item.name}`, exact: true })).toBeVisible();
     await expect(page.getByLabel(item.secretLabel, { exact: true })).toHaveAttribute('type', 'password');
   }
   await methods.getByRole('button', { name: /^SSH server/ }).click();
@@ -106,17 +108,15 @@ test('default access page offers every connector and SSH save never starts an as
 test('switching connectors discards unsaved credentials', async ({ page }) => {
   await fixture(page); await page.goto(`/customer/websites/${websiteId}/access`);
   const methods = page.getByRole('group', { name: 'Connection methods' });
-  await methods.getByRole('button', { name: /^WordPress/ }).click(); await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
+  await methods.getByRole('button', { name: /^WordPress/ }).click();
   await page.getByLabel('Application Password', { exact: true }).fill('unsaved-secret-marker');
   await methods.getByRole('button', { name: /^Ghost/ }).click(); await methods.getByRole('button', { name: /^WordPress/ }).click();
-  await page.getByRole('button', { name: 'Set up WordPress', exact: true }).click();
   await expect(page.getByLabel('Application Password', { exact: true })).toHaveValue('');
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('unsaved-secret-marker');
 });
 for (const name of ['Shopify', 'Joomla']) test(`${name} has a real credential form and separate save/check actions`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 }); await fixture(page); await page.goto(`/customer/websites/${websiteId}/access`);
   await page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: new RegExp(`^${name}`) }).click();
-  await page.getByRole('button', { name: `Set up ${name}`, exact: true }).click();
   if (name === 'Shopify') {
     await expect(page.getByLabel('Canonical Shopify store URL')).toHaveValue('');
     await expect(page.getByText(/app and store must belong to the same Shopify organization/)).toBeVisible();
@@ -152,7 +152,6 @@ for (const provider of ['contentful', 'datocms', 'webflow']) test(`${provider} s
   await page.getByLabel('Search connection methods').fill(adapter.name);
   const methods = page.getByRole('group', { name: 'Connection methods' }); await expect(methods.getByRole('button')).toHaveCount(2);
   await methods.getByRole('button', { name: new RegExp(`^${adapter.name}`) }).click();
-  await page.getByRole('button', { name: `Set up ${adapter.name}`, exact: true }).click();
   await expect(page.getByLabel('Vendor API root URL')).toHaveValue(adapter.defaultEndpoint!);
   if (adapter.usernameLabel) await page.getByLabel(adapter.usernameLabel, { exact: true }).fill(provider === 'webflow' ? 'a'.repeat(24) : 'space-fixture');
   await page.getByLabel(adapter.secretLabel, { exact: true }).fill('synthetic-api-key-00000000');
@@ -163,4 +162,55 @@ for (const provider of ['contentful', 'datocms', 'webflow']) test(`${provider} s
   if (provider !== 'webflow') await expect(page.getByText('Authenticated read succeeded', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+});
+
+for (const route of ['access', 'connectors']) for (const width of [390, 1440]) test(`one click opens every supported credential form on ${route} at ${width}px without connecting`, async ({ page }) => {
+  await fixture(page); await page.setViewportSize({ width, height: 844 });
+  let credentialWrites = 0; let connectionChecks = 0;
+  page.on('request', request => {
+    const path = new URL(request.url()).pathname;
+    if (path.endsWith('/connectors') && request.method() === 'PUT') credentialWrites++;
+    if (path.endsWith('/check') && request.method() === 'POST') connectionChecks++;
+  });
+  await page.goto(`/customer/websites/${websiteId}/${route}`);
+  const methods = page.getByRole('group', { name: 'Connection methods' });
+  for (const item of adapters) {
+    await methods.getByRole('button', { name: new RegExp(`^${item.name}`) }).click();
+    await expect(page.getByRole('heading', { name: `Set up ${item.name}`, exact: true })).toBeInViewport();
+    await expect(page.getByLabel(item.secretLabel, { exact: true })).toBeVisible();
+    await expect(page.getByLabel(item.secretLabel, { exact: true })).toHaveAttribute('type', 'password');
+    await expect(page.getByLabel(item.secretLabel, { exact: true })).toHaveValue('');
+    if (width === 390) {
+      const field = await page.getByLabel(item.secretLabel, { exact: true }).boundingBox();
+      const navigation = await page.getByRole('navigation', { name: 'Customer mobile navigation' }).boundingBox();
+      expect(field).not.toBeNull(); expect(navigation).not.toBeNull();
+      expect(field!.y + field!.height).toBeLessThanOrEqual(navigation!.y);
+    }
+    if (item.usernameLabel) await expect(page.getByLabel(item.usernameLabel, { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Save encrypted credential', exact: true })).toBeDisabled();
+    await expect(page.locator('#connection-details')).toBeFocused();
+  }
+  expect(credentialWrites).toBe(0); expect(connectionChecks).toBe(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+});
+
+test('WordPress application-password help and same-card reopen are usable on mobile', async ({ page }) => {
+  await fixture(page); await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/customer/websites/${websiteId}/access`);
+  const wordpress = page.getByRole('group', { name: 'Connection methods' }).getByRole('button', { name: /^WordPress/ });
+  await wordpress.click();
+  const password = page.getByLabel('Application Password', { exact: true });
+  await expect(password).toBeInViewport();
+  const field = await password.boundingBox();
+  const navigation = await page.getByRole('navigation', { name: 'Customer mobile navigation' }).boundingBox();
+  expect(field!.y + field!.height).toBeLessThanOrEqual(navigation!.y);
+  await page.getByText('Where to get an Application Password', { exact: true }).click();
+  await expect(page.getByText(/open Users → Profile/)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Official WordPress Application Password guide' })).toHaveAttribute('href', 'https://developer.wordpress.org/advanced-administration/security/application-passwords/');
+  await password.fill('unsaved-secret-marker'); await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(password).toHaveCount(0); await wordpress.click();
+  await expect(password).toBeInViewport(); await expect(password).toHaveValue('');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('unsaved-secret-marker');
+  expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  await page.screenshot({ path: '/tmp/codebandage-wordpress-direct-setup-390.png', fullPage: false });
 });
