@@ -170,11 +170,21 @@ test('repair requires file consent and exact plan approval, then shows opaque pr
   await page.getByRole('button', { name: 'Prepare approval plan' }).click();
   await page.getByRole('button', { name: /Approve candidate preparation/ }).click();
   expect(approved).toEqual({ version: 1, sourceDigest, budgetMicros: 500000, authorizeRepair: true });
-  const blocked: string[] = []; const received: string[] = []; page.on('requestfailed', (request) => { if (request.url().includes('invalid.example.test')) blocked.push(request.failure()?.errorText ?? 'unknown'); }); page.on('response', (response) => { if (response.url().includes('invalid.example.test')) received.push(response.url()); });
+  // CSP can reject a srcdoc image before Chromium creates a network request.
+  // Verify enforcement itself, not an engine-specific requestfailed event count.
+  const violations: string[] = []; const outgoing: string[] = []; const received: string[] = [];
+  page.on('console', message => { if (message.type() === 'error' && message.text().includes('invalid.example.test/tracker') && /Content Security Policy/.test(message.text())) violations.push(message.text()); });
+  page.on('request', request => { if (request.url().includes('invalid.example.test')) outgoing.push(request.url()); });
+  page.on('response', response => { if (response.url().includes('invalid.example.test')) received.push(response.url()); });
+  // Never allow a broken fixture policy to send traffic to an external host.
+  await page.route('https://invalid.example.test/**', route => route.abort('blockedbyclient'));
   await page.getByRole('button', { name: 'Compare before and after' }).click();
   await expect(page.locator('iframe[title="Candidate page preview"]')).toHaveAttribute('sandbox', '');
   await expect(page.frameLocator('iframe[title="Candidate page preview"]').getByRole('heading', { name: 'Preview content' })).toBeVisible();
-  expect(await page.evaluate(() => 'previewScriptRan' in window)).toBe(false); await expect.poll(() => blocked.length).toBe(2); expect(blocked.every((value) => /csp/i.test(value))).toBe(true); expect(received).toEqual([]);
+  expect(await page.evaluate(() => 'previewScriptRan' in window)).toBe(false);
+  await expect.poll(() => violations.length).toBeGreaterThanOrEqual(2);
+  expect(violations.every(value => /blocked/i.test(value))).toBe(true);
+  expect(outgoing).toEqual([]); expect(received).toEqual([]);
   expect(await page.evaluate(() => { try { return Boolean(document.querySelector('iframe')!.contentWindow!.document); } catch { return false; } })).toBe(false);
   await expect(page.getByText('Production release is disabled.')).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
