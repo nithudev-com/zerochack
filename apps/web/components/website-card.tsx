@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
-import { Card, Dialog } from '@zerochack/ui';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Button, Card } from '@zerochack/ui';
 import styles from './websites.module.css';
 
 export type WebsiteListItem = { id: string; name: string; url: string; connectionSummary?: { kind: 'NONE' | 'SSH' | 'CONNECTOR'; providers: string[]; lastCheckedAt: string | null } };
@@ -32,14 +32,27 @@ export function WebsiteCard({ website, openTools }: { website: WebsiteListItem; 
 /** One modal for the list: no duplicate dialog IDs and no tool execution endpoints. */
 export function WebsiteTools({ website, close }: { website: WebsiteListItem | null; close: () => void }) {
   const [tool, setTool] = useState<string | null>(null);
+  const dialog = useRef<HTMLDialogElement>(null); const titleId = useId();
   const heading = useRef<HTMLHeadingElement>(null); const list = useRef<HTMLDivElement>(null); const previous = useRef<string | null>(null);
+  useEffect(() => {
+    if (website && dialog.current && !dialog.current.open) dialog.current.showModal();
+    if (!website && dialog.current?.open) dialog.current.close();
+  }, [website]);
   useEffect(() => {
     if (tool) { previous.current = tool; heading.current?.focus(); }
     else if (previous.current) Array.from(list.current?.querySelectorAll('button') ?? []).find(button => button.dataset.tool === previous.current)?.focus();
   }, [tool]);
-  return <Dialog open={Boolean(website)} title="Website tools" onClose={() => { setTool(null); previous.current = null; close(); }}>
+  const dismiss = () => { setTool(null); previous.current = null; close(); };
+  return <dialog ref={dialog} className="ui-dialog" aria-labelledby={titleId} onCancel={dismiss} onClose={dismiss} onKeyDown={event => {
+    if (event.key !== 'Tab') return;
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    const first = buttons[0]; const last = buttons.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+  }}>
+    <div className="ui-dialog__header"><h2 id={titleId}>Website tools</h2><Button variant="secondary" size="sm" onClick={dismiss} aria-label="Close dialog">Close</Button></div>
     <div className={styles.toolPanel}><p className={styles.toolSite}>{website?.name}</p>{tool ? <div className={styles.construction}>
       <span className={styles.constructionIcon} aria-hidden="true">◇</span><h3 ref={heading} tabIndex={-1}>{tool} · Under construction</h3><p>We’re building this tool. It isn’t available yet, and no work has started on your website.</p><button type="button" className={styles.backButton} onClick={() => setTool(null)}>← All tools</button>
     </div> : <><p className={styles.toolIntro}>Choose a tool to see its availability. These tools are under construction.</p><div ref={list} className={styles.toolList}>{tools.map(item => <button key={item.name} data-tool={item.name} type="button" className={styles.toolOption} onClick={() => setTool(item.name)}><span className={styles.toolIcon} aria-hidden="true">{item.symbol}</span><span><strong>{item.name}</strong><small>{item.description}</small><span className={styles.coming}>Under construction</span></span><span aria-hidden="true">→</span></button>)}</div></>}</div>
-  </Dialog>;
+  </dialog>;
 }
