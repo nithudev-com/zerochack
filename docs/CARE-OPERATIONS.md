@@ -55,6 +55,14 @@ Run `npx playwright test --config playwright.care.config.ts services.spec.ts` in
 
 ## Local verification
 
+### All-in-one workspace interface
+
+The direct website conversation now uses the same seven work types as service selection, with blue/navy cards, clear connection/environment labels and a non-floating composer. Team and access remain visible; less frequent controls live in the native **Workspace controls** disclosure. **Tools & availability** records real capability gates. Empty conversations offer editable feature/design/troubleshooting prompts; choosing one makes no request and incurs no provider charge.
+
+The trusted conversational instructions support all seven planning topics. A connection check is not permission to start a security assessment; an explicit request and the existing tool authorization prerequisites are still required. This is not a new general-purpose execution runtime. Customer-code execution, automated engineering, production changes and unavailable integrations remain blocked by their original gates. Provider availability is checked by the actual gateway, not inferred from the new UI.
+
+Run `workbench.spec.ts` and the existing `chat.spec.ts` / `services.spec.ts` in both development and production-build browser modes. The workbench tests cover 320/390/1440px, light/dark automated accessibility, all seven briefs, no-write starter prompts, unobstructed fields, truthful disabled controls and secure-capture/environment isolation. Screenshots use synthetic websites and mocked browser API responses, not production customer data.
+
 Use a disposable database whose name includes `test`; never point the integration tests at production. Apply all migrations and run:
 
 ```sh

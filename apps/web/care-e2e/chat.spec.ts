@@ -213,11 +213,12 @@ test('disabled Care shows truthful tools and saves a development brief without s
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${id}`);
   await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
   await expect(page.getByRole('link', { name: 'Connections →' })).toHaveAttribute('href', `/customer/websites/${id}/access`);
+  await page.getByText('Workspace controls', { exact: true }).click();
   await expect(page.getByRole('button', { name: 'Report an issue', exact: true })).toBeDisabled();
   await page.getByText('Tools & availability', { exact: true }).click();
   await expect(page.getByText(/Care workflows are disabled on this server/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Prepare AI source review' })).toBeDisabled();
-  await page.getByRole('button', { name: 'Develop a feature', exact: true }).click();
+  await page.getByRole('button', { name: 'Full-stack web development', exact: true }).click();
   await page.getByLabel('Requested work', { exact: true }).fill('Add a mobile-friendly contact form on the homepage.');
   await page.getByLabel('How should we verify success?').fill('Keyboard navigation works and submitted messages show a receipt.');
   const save = page.getByRole('button', { name: 'Save request for human review' }); await expect(save).toBeDisabled();
@@ -230,7 +231,7 @@ test('disabled Care shows truthful tools and saves a development brief without s
 
 test('task briefs clear on environment changes and refuse apparent credentials', async ({ page }) => {
   let writes = 0; await page.route('**/support/conversations', route => { writes++; return route.fulfill({ json: {} }); });
-  await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Redesign a page', exact: true }).click();
+  await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Website redesign', exact: true }).click();
   await page.getByLabel('Requested work', { exact: true }).fill('password: synthetic-test-only-marker');
   await page.getByLabel('How should we verify success?').fill('Mobile layout must fit the viewport.');
   await page.getByLabel('I reviewed this brief').check(); await page.getByRole('button', { name: 'Save request for human review' }).click();
@@ -251,6 +252,7 @@ for (const width of [390, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(`/customer/websites/${id}`);
     await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
+    await page.getByText('Workspace controls', { exact: true }).click();
     await page.getByRole('button', { name: 'Report an issue', exact: true }).click();
     await page.getByRole('button', { name: /Your AI team/ }).click();
     for (const theme of ['light', 'dark']) {

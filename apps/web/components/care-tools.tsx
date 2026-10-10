@@ -35,6 +35,6 @@ export function CareTools({ jobId, websiteId, environment, review }: { jobId: st
       <button disabled={busy}>{busy ? 'Reading…' : 'Read evidence'}</button>
     </form>
     {environment === 'PRODUCTION' && <form className="care-issue-form" onSubmit={(event) => { event.preventDefault(); void run(true); }}><h4>Propose a monitoring schedule</h4><p>The proposal is saved in your history. Customer review and operator setup are still required before checks run.</p><label>Check and alert cooldown interval (minutes)<input type="number" required min={5} max={10080} value={interval} onChange={(event) => { setInterval(Number(event.target.value)); setProposalKey(null); setConsent(false); }}/></label><label className="care-consent"><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)}/>Save this proposal for review; do not activate monitoring.</label><button disabled={busy || !consent}>Save monitoring proposal</button></form>}
-    {error && <p role="alert" className="care-alert">{error}</p>}{result && <details open><summary>Result and limitations</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 420, overflow: 'auto' }}>{result}</pre></details>}
+    {error && <p role="alert" className="care-alert">{error}</p>}{result && <details open><summary>Result and limitations</summary><pre tabIndex={0} aria-label="Tool result and limitations" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 420, overflow: 'auto' }}>{result}</pre></details>}
   </details></>;
 }
