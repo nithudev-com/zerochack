@@ -49,6 +49,7 @@ jobs:
       - run: npm audit --audit-level=moderate
       - run: npm run db:migrate:deploy
       - run: npm run lint
+      - run: npm run test:build-toolchain
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:integration

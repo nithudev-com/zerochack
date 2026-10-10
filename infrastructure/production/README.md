@@ -151,6 +151,33 @@ connection's public peer; broad networks and caller-supplied forwarded headers
 cannot grant access. Only that peer and loopback receive the application.
 Everyone else receives maintenance HTTP 503. Domain www redirects preserve the URI.
 
+### Moving from preview to public access
+
+The message `CodeBandage is in a restricted preview. Public registration is not open yet.`
+is the deliberate Caddy access gate, not a missing DNS record. A valid certificate
+and healthy private containers do not open that gate. Inspect the current Caddyfile
+and the exact release evidence over authenticated SSH. If the Owner's IP changed,
+refresh the restricted preview with `preview.py`; that is not public publication.
+
+For public publication, satisfy every field in `release-gates.example.json` and run
+`cutover.sh` against the exact deployed candidate and immutable image manifest.
+Do not edit out the peer restriction manually, mark missing tests passed, or remove
+the dependency/container/off-server-backup gates. The backup gate requires a tested
+copy outside this VPS, including an approved plan to recover existing encryption
+keys and artifacts; a local database snapshot alone is not sufficient.
+
+The CSS toolchain pins `postcss-selector-parser` 7.1.6 for the fix documented in
+[GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf).
+`npm run test:build-toolchain` checks nested selectors, Tailwind 3 utilities and the
+actual portal stylesheet. The unused `eslint-config-next` dependency was removed;
+the existing ESLint configuration and CI lint/audit checks are unchanged.
+Tailwind 3 still pulls in `braces` 3.0.3, for which
+[GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
+lists no patched release. The full dependency audit therefore remains a release
+blocker. Do not treat a clean runtime-only audit as a clean build/tools audit or
+blindly run `npm audit fix --force`; a Tailwind major migration needs separate
+visual, browser, accessibility and production-image verification.
+
 This is **RESTRICTED PREVIEW**, not a passed public release. Keep DNS-only mode:
 enabling Cloudflare proxying changes the connection peer and blocks preview access.
 If the Owner's IP changes, reconnect and rerun with the new verified peer. The

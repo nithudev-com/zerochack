@@ -32,6 +32,7 @@
     "test:care-browser": "playwright test --config playwright.static.config.ts",
     "care:browser-preflight": "tsx apps/api/src/scripts/care-browser-preflight.ts",
     "test:care-verification": "node --test infrastructure/verification/profiles.check.mjs",
+    "test:build-toolchain": "node --test scripts/deploy/build-toolchain.test.mjs",
     "care:verification-preflight": "tsx apps/api/src/scripts/care-verification-preflight.ts"
   },
   "devDependencies": {
@@ -42,7 +43,6 @@
     "@typescript-eslint/parser": "^8.40.0",
     "concurrently": "^9.2.0",
     "eslint": "^9.34.0",
-    "eslint-config-next": "^15.5.0",
     "prisma": "6.12.0",
     "tsup": "^8.5.0",
     "tsx": "^4.20.0",
@@ -53,7 +53,8 @@
     "esbuild": "^0.28.1",
     "shell-quote": "1.12.0",
     "source-map-js": "1.2.2",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "postcss-selector-parser": "7.1.6"
   },
   "dependencies": {
     "@prisma/client": "^6.12.0"
