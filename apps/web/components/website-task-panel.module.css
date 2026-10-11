@@ -1,17 +1,9 @@
 .panel a { text-decoration: underline; }
-.panel form { display: grid; gap: 12px; }
-.panel textarea { width: 100%; font: inherit; resize: vertical; }
 .panel summary { cursor: pointer; min-height: 44px; display: list-item; padding-block: 12px; font-size: .875rem; font-weight: 650; }
 .panel dl { margin-block: 12px; display: grid; gap: 8px; font-size: .8125rem; }
 .panel dt { font-weight: 650; }
 .panel dd { margin: 0 0 8px; padding-bottom: 12px; border-bottom: 1px solid var(--care-border); color: var(--care-muted); line-height: 1.65; }
 .panel details > button { margin-bottom: 12px; }
-.context { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; padding: 12px; border: 1px solid var(--care-border); border-radius: 12px; background: var(--care-surface); }
-.context span, .context a { font-size: .8125rem; }
-.context p { grid-column: 1 / -1; line-height: 1.7; }
-.related { display: flex; flex-wrap: wrap; gap: 8px 16px; }
-.related a { display: inline-flex; align-items: center; min-height: 44px; font-size: .8125rem; }
-.panel textarea { min-height: 100px; }
 .panel { margin: 0; border: 0; border-radius: 0; background: var(--care-surface); padding: 24px; }
 .panel .heading { align-items: center; gap: 16px; flex-direction: row; }
 .heading > div { min-width: 0; }
@@ -31,8 +23,5 @@
 .compactDescription { display: none; }
 .scopeNote { font-size: .75rem; line-height: 1.6; color: var(--care-muted); }
 .panel details { border-top: 1px solid var(--care-border); margin-top: 2px; font-size: .8125rem; line-height: 1.7; }
-.panel form { padding: 18px; border: 1px solid var(--care-border); border-radius: 14px; background: var(--care-bg); }
-.panel form button[type=submit] { background: var(--care-accent); color: var(--care-surface); }
 @media (max-width: 760px) { .services { grid-template-columns: repeat(2, minmax(0, 1fr)); } .panel .service { grid-template-columns: 1fr auto; gap: 10px; padding: 14px; min-height: 130px; } .serviceCopy { grid-column: 1 / -1; grid-row: 2; } .arrow { grid-column: 2; grid-row: 1; } .description { display: none; } .compactDescription { display: block; } }
-@media (max-width: 480px) { .panel { padding: 18px 14px; } .heading { align-items: start; } .heading a { font-size: .6875rem; } .panel form { padding: 14px; } .serviceCopy strong { font-size: .8125rem; } .services { gap: 8px; } }
-@media (max-width: 480px) { .context { grid-template-columns: 1fr; } .panel textarea { font-size: 16px; } }
+@media (max-width: 480px) { .panel { padding: 18px 14px; } .heading { align-items: start; } .heading a { font-size: .6875rem; } .serviceCopy strong { font-size: .8125rem; } .services { gap: 8px; } }

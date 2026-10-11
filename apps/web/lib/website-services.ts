@@ -10,6 +10,11 @@ export const websiteServices = [
 ] as const;
 
 export type WebsiteService = (typeof websiteServices)[number];
+// Availability is independent of execution flags. These services are planned,
+// not request forms or enabled workflows. Security retains its existing gates.
+export function websiteServiceUnderConstruction(service: WebsiteService): boolean {
+  return service.id !== 'security';
+}
 export function getWebsiteService(value: string | null | undefined): WebsiteService | undefined {
   return websiteServices.find(service => service.id === value);
 }

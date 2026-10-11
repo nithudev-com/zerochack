@@ -53,13 +53,13 @@ For rollback, first stop new care work and disable the flag. Retain the additive
 
 ## Customer service selection
 
-Websites → Open workspace (and Add and continue) first opens the seven-service picker: hack/security recovery, full-stack development, redesign, issue fixing, server-side work, SEO and automation. Select one service and choose Next to open its scoped request form. Each service has its own description, acceptance prompts, limits and relevant existing resource links.
+Websites → Open workspace (and Add and continue) first opens the seven-service picker: hack/security recovery, full-stack development, redesign, issue fixing, server-side work, SEO and automation. Security retains its existing simple chat flow. The other six workplaces are Under construction / Coming soon; selecting Next opens only an explanatory preview.
 
-The validated `service` query parameter preserves the selected context through workspace navigation and reload. It is not a permission, job type, provider entitlement or execution flag. Unknown values fail closed. Existing direct conversation URLs remain compatible. Unsent drafts and consent are cleared on website/service/environment changes; they are not browser-persisted.
+The validated `service` query parameter preserves selection on reload and Change service. It is not a permission, job type, provider entitlement or execution flag. Unknown values fail closed. All six planned-service scoped routes, including resource bookmarks, stop before mounting chat or tools. Existing unscoped conversations, historical Support requests and security records remain compatible.
 
-Submitting a reviewed brief uses the existing tenant/user-scoped Support conversation API. The saved message records website ID/origin, environment, service ID/label, requested work and acceptance checks; the customer can reopen it in Support for specialist scoping. It does not start a scan, AI task, cron/webhook, paid request, server operation or release. Apparent credentials are refused by the form's defense-in-depth detector; put access only in protected Connections. Do not represent these seven request flows as seven fully activated autonomous execution engines. Existing provider/runtime/authorization/MFA/backup gates still apply to consequential work.
+The six planned-service request forms and their submit code were removed from the workbench. Their selections do not submit Support requests or collect credentials, and do not start a scan, AI task, cron/webhook, paid request, server operation or release. Historical Support storage/API remains unchanged. Put access only in protected Connections/security capture. Existing provider/runtime/authorization/MFA/backup gates still apply to consequential work; this availability change enables nothing.
 
-Run `npx playwright test --config playwright.care.config.ts services.spec.ts` in development and production-build modes. These are API-fixture tests, not live customer-host executions. Confirm real Support persistence against a separate disposable database before deploying the image.
+Run `npx playwright test --config playwright.care.config.ts services.spec.ts` in development and production-build modes. These are API-fixture tests, not live customer-host executions. Cover all six previews, no writes/workflow reads, reload/resource bookmarks, keyboard/mobile accessibility and unchanged security tests.
 
 ## Local verification
 
@@ -69,7 +69,7 @@ The direct website conversation now uses the same seven work types as service se
 
 The trusted conversational instructions support all seven planning topics. A connection check is not permission to start a security assessment; an explicit request and the existing tool authorization prerequisites are still required. This is not a new general-purpose execution runtime. Customer-code execution, automated engineering, production changes and unavailable integrations remain blocked by their original gates. Provider availability is checked by the actual gateway, not inferred from the new UI.
 
-Run `workbench.spec.ts` and the existing `chat.spec.ts` / `services.spec.ts` in both development and production-build browser modes. The workbench tests cover 320/390/1440px, light/dark automated accessibility, all seven briefs, no-write starter prompts, unobstructed fields, truthful disabled controls and secure-capture/environment isolation. Screenshots use synthetic websites and mocked browser API responses, not production customer data.
+Run `workbench.spec.ts` and the existing `chat.spec.ts` / `services.spec.ts` in both development and production-build browser modes. The workbench tests cover 320/390/1440px, light/dark automated accessibility, security chat versus six coming-soon previews, no-write starter prompts, truthful disabled controls and secure-capture/environment isolation. Screenshots use synthetic websites and mocked browser API responses, not production customer data.
 
 Use a disposable database whose name includes `test`; never point the integration tests at production. Apply all migrations and run:
 

@@ -25,11 +25,6 @@ for (const width of [320, 390, 1440]) test(`all-in-one workbench is accessible, 
   const cards = page.getByLabel('Website work types');
   await expect(cards.getByRole('button')).toHaveCount(7);
   expect(await page.locator('.care-composer').evaluate(element => getComputedStyle(element).position)).toBe('static');
-  await page.getByRole('button', { name: 'Full-stack web development', exact: true }).click();
-  const goal = page.getByLabel('Requested work', { exact: true });
-  await goal.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
-  await expect.poll(() => goal.evaluate(element => { const box = element.getBoundingClientRect(); return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === element; })).toBe(true);
-  await page.getByRole('button', { name: 'Cancel brief', exact: true }).click();
   await expect(page.getByText('Execution workflows are not enabled.', { exact: false })).toBeVisible();
   for (const theme of ['light', 'dark']) {
     if (theme === 'dark') await page.getByRole('button', { name: 'Switch to dark theme' }).click();
@@ -41,21 +36,19 @@ for (const width of [320, 390, 1440]) test(`all-in-one workbench is accessible, 
   expect(writes).toEqual([]);
 });
 
-test('work cards open scoped briefs, while security opens simple chat without starting a job', async ({ page }) => {
-  const writes = await fixture(page); await page.goto(base);
+test('work cards open coming-soon previews while security keeps its simple chat without starting a job', async ({ page }) => {
+  const writes = await fixture(page);
   for (const service of websiteServices) {
+    await page.goto(base);
     await page.getByRole('button', { name: service.label, exact: true }).click();
     if (service.id === 'security') {
       await expect(page.getByRole('region', { name: 'Security recovery conversation' })).toBeVisible();
-      await expect(page.getByRole('form', { name: 'Website task brief' })).toHaveCount(0);
       await expect(page.getByRole('button', { name: 'Connect SSH securely' })).toBeVisible();
-      await page.goto(base); continue;
+    } else {
+      await expect(page.getByRole('heading', { name: service.label, exact: true })).toBeVisible();
+      await expect(page.getByText('Under construction', { exact: true })).toBeVisible();
     }
-    const form = page.getByRole('form', { name: 'Website task brief' });
-    await expect(form.getByRole('heading', { name: service.name, exact: true })).toBeVisible();
-    await expect(page.getByLabel('How should we verify success?')).toHaveAttribute('placeholder', service.success);
-    await expect(page.getByRole('button', { name: 'Save request for human review' })).toBeDisabled();
-    await page.getByRole('button', { name: 'Cancel brief', exact: true }).click();
+    await expect(page.getByRole('form', { name: 'Website task brief' })).toHaveCount(0);
   }
   expect(writes).toEqual([]);
 });

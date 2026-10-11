@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { getWebsiteService, websiteServices, websiteWorkspaceHref } from './website-services';
+import { getWebsiteService, websiteServices, websiteWorkspaceHref, websiteServiceUnderConstruction } from './website-services';
 
 describe('customer service selection', () => {
+  it('marks exactly the six planned workplaces under construction without changing security', () => {
+    expect(websiteServices.filter(websiteServiceUnderConstruction).map(service => service.id)).toEqual(['development', 'redesign', 'issue', 'server', 'seo', 'automation']);
+    expect(websiteServiceUnderConstruction(getWebsiteService('security')!)).toBe(false);
+  });
   it('defines exactly seven unique services with concrete scoping and verification prompts', () => {
     expect(websiteServices.map(service => service.id)).toEqual(['security', 'development', 'redesign', 'issue', 'server', 'seo', 'automation']);
     for (const service of websiteServices) {

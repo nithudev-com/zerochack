@@ -23,7 +23,9 @@
 .workplace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .work { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 64px; padding: 12px; border: 1px solid #dde5ef; border-radius: 12px; text-decoration: none; color: #203b5f; background: #fff; }
 .work:hover { border-color: #8ab0e4; background: #f3f8ff; }
-.work strong { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.workCopy { display: grid; gap: 5px; flex: 1; min-width: 0; }
+.work strong { min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.work small { font-size: 11px; color: #75520c; }
 .workIcon { display: grid; flex: none; place-items: center; width: 36px; height: 36px; color: #1754b2; background: #edf4ff; border-radius: 10px; }
 .workIcon svg { width: 20px; height: 20px; }
 .activity { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }

@@ -87,15 +87,15 @@ test('all five tools open truthful construction states and record only explicit 
   expect(writes).toHaveLength(5); await page.reload(); await expect(page.locator('section[aria-labelledby="overview-activity"] li')).toHaveCount(5); expect(writes).toHaveLength(5);
 });
 
-for (const service of websiteServices) test(`Workplace ${service.label} opens its existing selected flow and records one minimal click`, async ({ page }) => {
+for (const service of websiteServices) test(`Workplace ${service.label} opens security or coming-soon preview and records one minimal click`, async ({ page }) => {
   const { writes } = await fixture(page); await page.goto('/customer/overview');
   await page.getByRole('link', { name: service.label, exact: true }).click();
   await expect(page).toHaveURL(new RegExp('/customer/websites/' + firstId + '\\?service=' + service.id));
   if (service.id === 'security') await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
-  else await expect(page.getByRole('heading', { name: `${service.label} workspace`, exact: true })).toBeVisible();
+  else { await expect(page.getByRole('heading', { name: service.label, exact: true })).toBeVisible(); await expect(page.getByText('Under construction', { exact: true })).toBeVisible(); }
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toEqual({ websiteId: firstId, click: { section: 'WORKPLACE', option: service.id } });
-  // The destination is an existing flow, not a new execution engine.
+  // Navigation receipts never authorize work or start an execution engine.
   await page.goto('/customer/overview'); await expect(page.getByText('Workplace · ' + websiteNavigationLabel({ section: 'WORKPLACE', option: service.id }), { exact: true })).toBeVisible();
 });
 

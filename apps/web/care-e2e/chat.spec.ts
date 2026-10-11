@@ -215,39 +215,35 @@ test('secure capture never renders submitted credentials as a bubble', async ({ 
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }))).not.toContain('synthetic-browser-marker');
 });
 
-test('disabled Care shows truthful tools and saves a development brief without starting AI work', async ({ page }) => {
-  let submitted: { subject: string; message: string } | undefined; let aiCalls = 0;
+test('disabled Care retains truthful tool gates and planned workplaces cannot submit requests or AI calls', async ({ page }) => {
+  let writes = 0;
   await page.route('**/care?**', route => route.fulfill({ status: 503, json: { error: { code: 'CAPABILITY_DISABLED', message: 'The new care workspace is not enabled.' } } }));
-  await page.route('**/support/conversations', route => { submitted = route.request().postDataJSON(); return route.fulfill({ status: 201, json: { id: 'request-fixture' } }); });
-  await page.route('**/chat/ingest', route => { aiCalls++; return route.fulfill({ json: {} }); });
+  await page.route('**/support/conversations', route => { writes++; return route.fulfill({ json: {} }); });
+  await page.route('**/chat/ingest', route => { writes++; return route.fulfill({ json: {} }); });
   await page.setViewportSize({ width: 390, height: 844 }); await page.goto(`/customer/websites/${id}`);
   await expect(page.getByLabel('Message CodeBandage')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Connections →' })).toHaveAttribute('href', `/customer/websites/${id}/access`);
-  await page.getByText('Workspace controls', { exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Report an issue', exact: true })).toBeDisabled();
   await page.getByText('Tools & availability', { exact: true }).click();
   await expect(page.getByText(/Care workflows are disabled on this server/)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Prepare AI source review' })).toBeDisabled();
   await page.getByRole('button', { name: 'Full-stack web development', exact: true }).click();
-  await page.getByLabel('Requested work', { exact: true }).fill('Add a mobile-friendly contact form on the homepage.');
-  await page.getByLabel('How should we verify success?').fill('Keyboard navigation works and submitted messages show a receipt.');
-  const save = page.getByRole('button', { name: 'Save request for human review' }); await expect(save).toBeDisabled();
-  await page.getByLabel('I reviewed this brief').check(); await save.click();
-  await expect(page.getByRole('status').filter({ hasText: 'Request saved in Support' })).toBeVisible();
-  expect(submitted?.subject).toBe('Develop a feature: Care UI fixture'); expect(submitted?.message).toContain('Environment: PRODUCTION');
-  expect(submitted?.message).toContain('No permission to execute code'); expect(aiCalls).toBe(0);
-  expect((await new AxeBuilder({ page }).include('.care-chat').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  await expect(page.getByRole('heading', { name: 'Full-stack web development', exact: true })).toBeVisible();
+  await expect(page.getByText('Under construction', { exact: true })).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Website task brief' })).toHaveCount(0);
+  await expect(page.getByLabel('Message CodeBandage')).toHaveCount(0);
+  expect(writes).toBe(0);
 });
 
-test('task briefs clear on environment changes and refuse apparent credentials', async ({ page }) => {
+test('planned redesign and issue workplaces never expose credential entry or task submission', async ({ page }) => {
   let writes = 0; await page.route('**/support/conversations', route => { writes++; return route.fulfill({ json: {} }); });
-  await page.goto(`/customer/websites/${id}`); await page.getByRole('button', { name: 'Website redesign', exact: true }).click();
-  await page.getByLabel('Requested work', { exact: true }).fill('password: synthetic-test-only-marker');
-  await page.getByLabel('How should we verify success?').fill('Mobile layout must fit the viewport.');
-  await page.getByLabel('I reviewed this brief').check(); await page.getByRole('button', { name: 'Save request for human review' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'This appears to contain access information' })).toBeVisible(); expect(writes).toBe(0);
-  await page.getByLabel('Environment', { exact: true }).selectOption('STAGING'); await expect(page.getByRole('form', { name: 'Website task brief' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Fix an issue', exact: true }).click(); await expect(page.getByLabel('Requested work', { exact: true })).toHaveValue('');
+  for (const [label, service] of [['Website redesign', 'redesign'], ['Fix an issue', 'issue']] as const) {
+    await page.goto(`/customer/websites/${id}`);
+    await page.getByRole('button', { name: label, exact: true }).click();
+    await expect(page).toHaveURL(`/customer/websites/${id}?service=${service}`);
+    await expect(page.getByText('Under construction', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Requested work', { exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Secure access details')).toHaveCount(0);
+  }
+  expect(writes).toBe(0);
 });
 
 test('message mode redirects apparent secrets to consent-gated capture before any request', async ({ page }) => {
