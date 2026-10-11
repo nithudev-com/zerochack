@@ -1396,6 +1396,50 @@
         }
       }
     },
+    "/websites/{websiteId}/navigation-activity": {
+      "get": {
+        "summary": "My latest website option clicks; not work results",
+        "tags": [
+          "websites"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "websiteId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response"
+          }
+        }
+      },
+      "post": {
+        "summary": "Record a personal option click without starting work",
+        "tags": [
+          "websites"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "in": "path",
+            "name": "websiteId",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Click recorded; no work started"
+          }
+        }
+      }
+    },
     "/websites/{websiteId}": {
       "get": {
         "parameters": [

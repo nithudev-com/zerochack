@@ -21,6 +21,7 @@ import { verifyReport, reportTypes, type ReportDocument } from '@zerochack/repor
 import { publishTenantEvent } from '../communications/service.js';
 import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
 import { connectionSummary } from './connection-summary.js';
+import { navigationActivity, navigationClickAction, navigationClickInput } from './overview-activity.js';
 
 const websiteInput = z.object({ name: z.string().trim().min(2).max(120), url: z.string().url().max(2048) });
 const websiteUpdate = websiteInput.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
@@ -238,6 +239,27 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
       }
     });
     return websites.map(({ accessCredential, connectors, ...site }) => ({ ...site, connectionSummary: connectionSummary({ ...site, accessCredential, connectors }) }));
+  });
+
+  app.get('/websites/:websiteId/navigation-activity', { schema: { tags: ['websites'], summary: 'My latest website option clicks; not work results' } }, async (request) => {
+    requirePermission(request, 'websites.read');
+    const { websiteId } = parse(idParams, request.params);
+    await websiteForTenant(request.tenantId!, websiteId);
+    const rows = await database.auditLog.findMany({
+      where: { tenantId: request.tenantId!, actorUserId: request.userId!, action: navigationClickAction, resourceType: 'website', resourceId: websiteId },
+      select: { id: true, createdAt: true, metadata: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50
+    });
+    return rows.flatMap(row => { const entry = navigationActivity(row); return entry ? [entry] : []; });
+  });
+
+  app.post('/websites/:websiteId/navigation-activity', { schema: { tags: ['websites'], summary: 'Record a personal option click without starting work', response: { 204: { type: 'null', description: 'Click recorded; no work started' } } }, bodyLimit: 512, config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10000 : 60, timeWindow: '1 minute' } } }, async (request, reply) => {
+    requirePermission(request, 'websites.read');
+    const { websiteId } = parse(idParams, request.params);
+    const click = parse(navigationClickInput, request.body);
+    await websiteForTenant(request.tenantId!, websiteId);
+    await writeAudit({ tenantId: request.tenantId!, actorUserId: request.userId!, requestId: request.id, action: navigationClickAction, resourceType: 'website', resourceId: websiteId, metadata: click });
+    // A click receipt is not a job, approval, provider result or proof of work.
+    return reply.code(204).send();
   });
 
   app.post('/websites', async (request, reply) => {

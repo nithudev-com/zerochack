@@ -1,0 +1,11 @@
+# Website-focused Customer Overview
+
+Overview is a website switcher followed by Tools, Workplace and My activity log. The old generic care metrics/welcome/status/quick-access UI and its unused CSS were removed. Other customer pages, stored security data, historical audits and the legacy read-only overview API remain compatible.
+
+The first default is the earliest-added active website with currently valid recorded SSH/API connection evidence. This is not a reconstructed first-connection timestamp: older access-check timestamps can be overwritten. With no connection, the earliest-added website is shown with its truthful status; with no websites, the page offers Add website. A chosen website is kept in the Overview URL, validated against the accessible list, and survives reload/back. Deleted/inaccessible IDs fall back safely.
+
+Tools uses the existing five under-construction tools. Workplace uses the existing seven service routes; security goes to the simple chat flow and other services to their scoped briefs. Navigation starts no work, job, paid request or new permission.
+
+My activity log contains only this signed-in user's latest 50 Overview tool/workplace clicks on the selected website. Click receipts are stored in existing audit storage, filtered by tenant, actor and website. Only allowlisted section/option IDs and server timestamps are returned. Arbitrary payload fields, content, credentials, actor IDs and execution details are not accepted or exposed. POSTs are authenticated/permission-checked, origin-protected by the existing API boundary, body-bounded and rate-limited. Logs are not proof of execution. Failure to store a click shows an error and never invents a success entry or blocks access to the option. Audit history is not deleted or rewritten.
+
+Unit and disposable-database integration tests cover defaults, invalid selection, allowlists, user/tenant/website isolation, bounded history and zero unintended jobs. Browser fixtures cover mobile/desktop, switching, reload, keyboard/WCAG, all choices, persistence and failure states. Fixtures do not certify a customer's live connector or provider runtime.

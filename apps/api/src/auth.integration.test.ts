@@ -64,6 +64,38 @@ beforeEach(async () => {
 afterAll(async () => { await app.close(); await database.$disconnect(); });
 
 describe('authentication, RBAC, and tenant isolation', () => {
+  it('records only personal website navigation clicks, with bounded history and no work side effects', async () => {
+    const token = await register('Customer', 'clicks@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'clicks@example.test')).headers['set-cookie']);
+    const user = await database.user.findUniqueOrThrow({ where: { email: 'clicks@example.test' } });
+    const website = (await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Click fixture', url: 'https://example.com/' } })).json();
+    const path = `/v1/websites/${website.id}/navigation-activity`;
+    const get = async () => { const response = await app.inject({ method: 'GET', url: path, headers: { cookie } }); expect(response.statusCode).toBe(200); return response.json(); };
+    expect(await get()).toEqual([]);
+    for (const payload of [{ section: 'TOOLS', option: 'seo' }, { section: 'WORKPLACE', option: 'development' }]) expect((await app.inject({ method: 'POST', url: path, headers: { cookie }, payload })).statusCode).toBe(204);
+    const clicks = await get(); expect(clicks).toHaveLength(2); expect(clicks[0]).toMatchObject({ section: 'WORKPLACE', option: 'development' });
+    expect(Object.keys(clicks[0]).sort()).toEqual(['createdAt', 'id', 'option', 'section']);
+    for (const payload of [{ section: 'TOOLS', option: 'development' }, { section: 'WORKPLACE', option: 'marketing' }, { section: 'TOOLS', option: 'seo', content: 'private execution text' }]) expect((await app.inject({ method: 'POST', url: path, headers: { cookie }, payload })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: path, headers: { cookie }, payload: { section: 'TOOLS', option: 'seo', content: 'x'.repeat(1024) } })).statusCode).toBe(413);
+    expect((await app.inject({ method: 'POST', url: path, headers: { cookie, origin: 'https://hostile.example' }, payload: { section: 'TOOLS', option: 'seo' } })).statusCode).toBe(403);
+    const otherToken = await register('Customer', 'clicks-other@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: otherToken } });
+    const otherUser = await database.user.findUniqueOrThrow({ where: { email: 'clicks-other@example.test' } });
+    const otherCookie = cookieFrom((await login('customer', otherUser.email)).headers['set-cookie']);
+    expect((await app.inject({ method: 'GET', url: `${path}?tenantId=${website.tenantId}`, headers: { cookie: otherCookie, 'x-tenant-id': website.tenantId } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: path, headers: { cookie: otherCookie }, payload: { section: 'TOOLS', option: 'seo' } })).statusCode).toBe(404);
+    await database.auditLog.createMany({ data: [
+      { tenantId: website.tenantId, actorUserId: otherUser.id, requestId: 'synthetic-other-actor', action: 'website.navigation_clicked', resourceType: 'website', resourceId: website.id, metadata: { section: 'TOOLS', option: 'marketing' } },
+      { tenantId: website.tenantId, actorUserId: user.id, requestId: 'synthetic-other-website', action: 'website.navigation_clicked', resourceType: 'website', resourceId: crypto.randomUUID(), metadata: { section: 'TOOLS', option: 'chat' } },
+      { tenantId: website.tenantId, actorUserId: user.id, requestId: 'synthetic-other-action', action: 'website.ssh_access_checked', resourceType: 'website', resourceId: website.id, metadata: { host: 'hidden', privateWork: 'hidden' } }
+    ] });
+    expect(await get()).toHaveLength(2);
+    await database.auditLog.createMany({ data: Array.from({ length: 55 }, (_, index) => ({ tenantId: website.tenantId, actorUserId: user.id, requestId: `synthetic-bounded-${index}`, action: 'website.navigation_clicked', resourceType: 'website', resourceId: website.id, metadata: { section: 'TOOLS', option: 'automation' }, createdAt: new Date(Date.now() + index) })) });
+    expect(await get()).toHaveLength(50);
+    expect(await database.careJob.count()).toBe(0); expect(await database.aiUsage.count()).toBe(0); expect(await database.supportConversation.count()).toBe(0);
+    await app.inject({ method: 'POST', url: '/v1/auth/logout', headers: { cookie } });
+    expect((await app.inject({ method: 'GET', url: path, headers: { cookie } })).statusCode).toBe(401);
+  });
+
   it('lists tenant-scoped connection evidence without credential or account details', async () => {
     const token = await register('Customer', 'connections@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
     const cookie = cookieFrom((await login('customer', 'connections@example.test')).headers['set-cookie']);

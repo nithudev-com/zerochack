@@ -1,0 +1,40 @@
+.page { display: grid; gap: 22px; width: 100%; max-width: 1120px; margin-inline: auto; }
+.heading h1 { margin: 0; color: #152641; font-size: clamp(28px, 3vw, 36px); letter-spacing: -.035em; line-height: 1.25; }
+.heading p { margin: 6px 0 0; color: #52627a; font-size: 14px; }
+.switcher, .section, .empty { min-width: 0; padding: 24px; border: 1px solid #dde5ef; border-radius: 18px; background: #fff; }
+.switcher { display: grid; gap: 12px; border-top: 4px solid #175cd3; }
+.switcher label { color: #36516e; font-size: 13px; font-weight: 700; }
+.switcher select { width: 100%; min-width: 0; min-height: 48px; padding: 10px 12px; color: #152641; background: #f7faff; border: 1px solid #a8bed8; border-radius: 10px; font: inherit; font-size: 16px; text-overflow: ellipsis; }
+.switcher [data-connection] { margin: 0; }
+.site { display: grid; gap: 4px; min-width: 0; }
+.site h2 { margin: 0; color: #152641; font-size: 20px; overflow-wrap: anywhere; }
+.site a { color: #405b7b; font-size: 13px; overflow-wrap: anywhere; }
+.sectionHeading { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.sectionHeading h2 { margin: 0; color: #152641; font-size: 20px; letter-spacing: -.02em; }
+.sectionHeading p { margin: 4px 0 0; color: #52627a; font-size: 13px; overflow-wrap: anywhere; }
+.number { display: grid; flex: none; place-items: center; width: 40px; height: 40px; border-radius: 12px; color: #1754b2; background: #edf4ff; font-size: 12px; font-weight: 750; }
+.tools { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.tool { position: relative; display: grid; align-content: start; justify-items: start; gap: 12px; min-width: 0; min-height: 146px; padding: 16px; border: 1px solid #b9dcc9; border-radius: 12px; color: #164d32; background: #f6fcf8; text-align: left; cursor: pointer; }
+.tool:hover { background: #eaf8ef; border-color: #15803d; }
+.tool strong { font-size: 14px; }
+.tool small { color: #715208; font-size: 10px; font-weight: 650; padding: 3px 6px; background: #fff3cb; border-radius: 4px; }
+.tool > span:last-child { position: absolute; right: 12px; top: 14px; }
+.toolIcon { display: grid; place-items: center; width: 34px; height: 34px; background: #dcf5e6; border-radius: 10px; font-size: 22px; }
+.workplace { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.work { display: flex; align-items: center; gap: 12px; min-width: 0; min-height: 64px; padding: 12px; border: 1px solid #dde5ef; border-radius: 12px; text-decoration: none; color: #203b5f; background: #fff; }
+.work:hover { border-color: #8ab0e4; background: #f3f8ff; }
+.work strong { flex: 1; min-width: 0; font-size: 13px; overflow-wrap: anywhere; }
+.workIcon { display: grid; flex: none; place-items: center; width: 36px; height: 36px; color: #1754b2; background: #edf4ff; border-radius: 10px; }
+.workIcon svg { width: 20px; height: 20px; }
+.activity { display: grid; gap: 0; padding: 0; margin: 0; list-style: none; }
+.activity li { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-top: 1px solid #edf0f5; }
+.activityDot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #175cd3; }
+.activity strong { color: #203b5f; font-size: 13px; overflow-wrap: anywhere; }
+.activity time { display: block; margin-top: 4px; color: #52627a; font-size: 11px; }
+.noActivity, .limit { color: #52627a; font-size: 13px; }
+.retry { min-height: 44px; padding: 8px 12px; color: #1754b2; background: #edf4ff; border: 1px solid #a8bed8; border-radius: 8px; cursor: pointer; }
+.empty h2 { margin: 0; font-size: 20px; }
+.empty p { color: #52627a; }
+.page :is(button, select, a):focus-visible { outline: 3px solid #175cd3; outline-offset: 3px; }
+@media (max-width: 1100px) { .tools { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 600px) { .switcher, .section, .empty { padding: 18px; border-radius: 14px; } .page { gap: 16px; } .tools { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } .tool { padding: 12px; min-height: 132px; } .workplace { grid-template-columns: minmax(0, 1fr); } .sectionHeading { margin-bottom: 16px; } .sectionHeading p { font-size: 12px; } }

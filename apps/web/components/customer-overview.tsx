@@ -1,36 +1,50 @@
+'use client';
 import Link from 'next/link';
-import { CustomerIcon, type CustomerIconName } from './customer-icon';
-import type { CustomerOverviewData } from './overview';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useToast } from '@zerochack/ui';
+import { websiteNavigationLabel, type WebsiteNavigationActivity, type WebsiteNavigationClick } from '@zerochack/types';
+import { api } from '../lib/api';
+import { orderedOverviewWebsites, overviewWebsite, type OverviewWebsite } from '../lib/overview-websites';
+import { websiteServices, websiteWorkspaceHref } from '../lib/website-services';
+import { WebsiteConnection, WebsiteTools, websiteTools } from './website-card';
+import { WebsiteServiceIcon } from './website-service-icon';
+import styles from './customer-overview.module.css';
 
-const readable = (value: string) => value.replaceAll('_', ' ').toLowerCase();
-const count = (value: number) => value.toLocaleString();
-
-export function CustomerOverview({ data, refreshing, refresh }: { data: CustomerOverviewData; refreshing: boolean; refresh: () => void }) {
-  const empty = data.monitoring.total === 0;
-  const needsAttention = data.criticalFindings > 0 || data.securityPosture === 'CRITICAL' || data.securityPosture === 'ATTENTION';
-  const posture = empty ? 'Setup needed' : needsAttention ? 'Needs attention' : data.securityPosture === 'HEALTHY' ? 'Healthy' : 'Not assessed';
-  const metrics: Array<{ label: string; value: string; detail: string; icon: CustomerIconName }> = [
-    { label: 'Verified websites', value: count(data.protectedWebsites), detail: `${count(data.monitoring.total)} total in your workspace`, icon: 'websites' },
-    { label: 'Open findings', value: count(data.openFindings), detail: `${count(data.criticalFindings)} critical findings`, icon: 'shield' },
-    { label: 'Monitoring', value: `${count(data.monitoring.active)} / ${count(data.monitoring.total)}`, detail: 'Websites with active monitoring', icon: 'activity' },
-    { label: 'Backups', value: `${count(data.backups.active)} / ${count(data.backups.total)}`, detail: 'Websites with backups active', icon: 'backup' },
-  ];
-  return <div className="cw-overview">
-    <header className="cw-page-heading"><div><span className="cw-eyebrow">CUSTOMER WORKSPACE</span><h1>Overview<span>.</span></h1><p>Your websites, with a clearer next step.</p></div><button className="cw-icon-button cw-refresh" type="button" disabled={refreshing} onClick={refresh} aria-label={refreshing ? 'Refreshing overview' : 'Refresh overview'}><CustomerIcon name="refresh" /></button></header>
-    <section className="cw-welcome" aria-labelledby="cw-welcome-title"><div className="cw-welcome-copy"><span className="cw-welcome-label"><CustomerIcon name="shield" />WEBSITE CARE, SIMPLIFIED</span><h2 id="cw-welcome-title">{empty ? <>Your first website.<br /><span>A confident next step.</span></> : <>Your websites.<br /><span>Everything in perspective.</span></>}</h2><p>{empty ? 'Add your website to start ownership verification and keep your care in one place.' : 'Review your website status, follow up on findings, and keep your next action in sight.'}</p><Link className="cw-button cw-button-light" href="/customer/websites"><CustomerIcon name={empty ? 'plus' : 'websites'} />{empty ? 'Add your first website' : 'Manage websites'}<CustomerIcon name="arrow" /></Link></div><div className="cw-welcome-art" aria-hidden="true"><div><CustomerIcon name="shield" /></div><span>CodeBandage care</span></div></section>
-    <section className="cw-stats-section" aria-labelledby="cw-stats-title"><div className="cw-section-heading"><h2 id="cw-stats-title">At a glance</h2><span>Account overview</span></div><div className="cw-metrics">{metrics.map(({ label, value, detail, icon }) => <Link className="cw-metric" href="/customer/websites" key={label}><span className="cw-metric-icon"><CustomerIcon name={icon} /></span><span className="cw-metric-label">{label}</span><strong>{value}</strong><span className="cw-metric-detail">{detail}</span><CustomerIcon name="arrow" className="cw-metric-arrow" /></Link>)}</div></section>
-    <div className="cw-overview-columns">
-      <section className="cw-panel" aria-labelledby="cw-attention-title"><div className="cw-panel-heading"><div><span className="cw-eyebrow">YOUR NEXT STEPS</span><h2 id="cw-attention-title">What needs attention</h2></div><span className={`cw-posture${needsAttention ? ' cw-posture--attention' : ''}`}>{posture}</span></div>
-        {empty && <div className="cw-get-started"><span className="cw-soft-icon"><CustomerIcon name="websites" /></span><div><h3>Make this space yours</h3><p>Add a website, then verify ownership. Security status appears when assessment data is available.</p><Link href="/customer/websites">Set up a website <CustomerIcon name="arrow" /></Link></div></div>}
-        <div className="cw-attention-list">
-          <Link href="/customer/websites"><span className={`cw-soft-icon${data.criticalFindings ? ' cw-soft-icon--warning' : ''}`}><CustomerIcon name="shield" /></span><span><strong>Critical findings</strong><small>{data.criticalFindings ? 'Review urgent website findings' : 'No critical findings recorded'}</small></span><b>{count(data.criticalFindings)}</b><CustomerIcon name="arrow" /></Link>
-          <Link href="/customer/websites"><span className="cw-soft-icon"><CustomerIcon name="support" /></span><span><strong>Website tickets</strong><small>Continue your website conversations</small></span><b>{count(data.openTickets)}</b><CustomerIcon name="arrow" /></Link>
-          <Link href="/customer/notifications"><span className="cw-soft-icon"><CustomerIcon name="notifications" /></span><span><strong>Unread updates</strong><small>Account and security notifications</small></span><b>{count(data.unreadNotifications)}</b><CustomerIcon name="arrow" /></Link>
-        </div>
+export function CustomerOverview({ websites }: { websites: OverviewWebsite[] }) {
+  const router = useRouter(); const params = useSearchParams(); const client = useQueryClient(); const toast = useToast();
+  const website = overviewWebsite(websites, params.get('website'));
+  const [tool, setTool] = useState<{ websiteId: string; name: string } | null>(null);
+  const activity = useQuery({ queryKey: ['overview-clicks', website?.id], queryFn: () => api<WebsiteNavigationActivity[]>(`/websites/${website!.id}/navigation-activity`), enabled: Boolean(website), retry: false });
+  const record = (click: WebsiteNavigationClick) => {
+    if (!website) return;
+    const websiteId = website.id;
+    void api(`/websites/${websiteId}/navigation-activity`, { method: 'POST', body: JSON.stringify(click), keepalive: true })
+      .then(() => client.invalidateQueries({ queryKey: ['overview-clicks', websiteId] }))
+      .catch(() => toast.notify('Could not save this click to your activity.', 'danger'));
+  };
+  return <div className={styles.page}>
+    <header className={styles.heading}><h1>Overview</h1><p>One website. Your next step.</p></header>
+    {!website ? <section className={styles.empty}><h2>Add your first website</h2><p>Your tools and workplace will appear here.</p><Link className="ui-button ui-button--primary ui-button--md" href="/customer/websites">Add website →</Link></section> : <>
+      <section className={styles.switcher} aria-label="Selected website">
+        <label htmlFor="overview-website">Switch website</label>
+        <select id="overview-website" value={website.id} onChange={event => { setTool(null); router.replace(`/customer/overview?website=${encodeURIComponent(event.target.value)}`, { scroll: false }); }}>
+          {orderedOverviewWebsites(websites).map(site => <option key={site.id} value={site.id}>{site.name} · {new URL(site.url).hostname}</option>)}
+        </select>
+        <div className={styles.site}><h2>{website.name}</h2><a href={website.url} target="_blank" rel="noopener noreferrer">{website.url}</a></div>
+        <WebsiteConnection website={website} />
       </section>
-      <section className="cw-panel cw-details-panel" aria-labelledby="cw-status-title"><div className="cw-panel-heading"><div><span className="cw-eyebrow">STAY INFORMED</span><h2 id="cw-status-title">Care status</h2></div><CustomerIcon name="activity" /></div><dl className="cw-status-list"><div><dt>Latest scan</dt><dd>{data.latestScan ? <><strong>{readable(data.latestScan.status)}</strong><time dateTime={data.latestScan.requestedAt}>Requested {new Date(data.latestScan.requestedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</time></> : <><strong>No scans yet</strong><span>Scan results will appear here.</span></>}</dd></div><div><dt>Your subscription</dt><dd><strong>{data.subscription?.planName ?? 'No subscription'}</strong><span>{data.subscription ? readable(data.subscription.status) : 'Explore the available plans.'}</span></dd></div></dl><Link className="cw-text-link" href="/customer/subscription">View subscription <CustomerIcon name="arrow" /></Link><div className="cw-help-note"><CustomerIcon name="support" /><div><strong>Need a hand?</strong><p>Start a general live help conversation.</p><Link href="/customer/support">Open help <CustomerIcon name="arrow" /></Link></div></div></section>
-    </div>
-    <section className="cw-quick-actions" aria-labelledby="cw-actions-title"><div className="cw-section-heading"><h2 id="cw-actions-title">Quick access</h2></div><div><Link href="/customer/billing"><CustomerIcon name="billing" /><span>Billing & invoices</span><CustomerIcon name="arrow" /></Link><Link href="/customer/profile"><CustomerIcon name="profile" /><span>Profile & security</span><CustomerIcon name="arrow" /></Link><Link href="/account"><CustomerIcon name="shield" /><span>Manage sessions</span><CustomerIcon name="arrow" /></Link></div></section>
-    <p className="cw-overview-footnote"><CustomerIcon name="shield" />Status reflects recorded data, not a guarantee of protection.</p>
+      <section className={styles.section} aria-labelledby="overview-tools"><div className={styles.sectionHeading}><span className={styles.number}>01</span><div><h2 id="overview-tools">Tools</h2><p>Website tools for {website.name}</p></div></div>
+        <div className={styles.tools}>{websiteTools.map(item => <button className={styles.tool} data-overview-tool={item.id} type="button" aria-haspopup="dialog" key={item.id} onClick={() => { record({ section: 'TOOLS', option: item.id }); setTool({ websiteId: website.id, name: item.name }); }}><span className={styles.toolIcon} aria-hidden="true">{item.symbol}</span><strong>{item.name}</strong><small>Under construction</small><span aria-hidden="true">↗</span></button>)}</div>
+      </section>
+      <section className={styles.section} aria-labelledby="overview-workplace"><div className={styles.sectionHeading}><span className={styles.number}>02</span><div><h2 id="overview-workplace">Workplace</h2><p>Choose the work you need</p></div></div>
+        <div className={styles.workplace}>{websiteServices.map(service => <Link className={styles.work} key={service.id} href={websiteWorkspaceHref(website.id, service)} prefetch={false} onClick={() => record({ section: 'WORKPLACE', option: service.id })}><span className={styles.workIcon}><WebsiteServiceIcon service={service.id} /></span><strong>{service.label}</strong><span aria-hidden="true">→</span></Link>)}</div>
+      </section>
+      <section className={styles.section} aria-labelledby="overview-activity"><div className={styles.sectionHeading}><span className={styles.number}>03</span><div><h2 id="overview-activity">My activity log</h2><p>Your recent clicks on this website—not work results</p></div></div>
+        {activity.isLoading ? <p role="status">Loading activity…</p> : activity.isError ? <div role="alert"><p>Activity is unavailable. Your tools and workplace are still accessible.</p><button className={styles.retry} type="button" onClick={() => void activity.refetch()}>Retry activity</button></div> : !activity.data?.length ? <p className={styles.noActivity}>No clicks yet. Choose a tool or workplace above.</p> : <><ol className={styles.activity}>{activity.data.map(entry => <li key={entry.id}><span className={styles.activityDot} aria-hidden="true" /><span><strong>{entry.section === 'TOOLS' ? 'Tools' : 'Workplace'} · {websiteNavigationLabel(entry)}</strong><time dateTime={entry.createdAt}>{new Date(entry.createdAt).toLocaleString()}</time></span></li>)}</ol><small className={styles.limit}>Latest 50 clicks · visible only to you</small></>}
+      </section>
+      <WebsiteTools key={`${website.id}:${tool?.name ?? 'closed'}`} website={tool?.websiteId === website.id ? website : null} {...(tool ? { initialTool: tool.name } : {})} onChoose={name => { const item = websiteTools.find(choice => choice.name === name); if (item) record({ section: 'TOOLS', option: item.id }); }} close={() => setTool(null)} />
+    </>}
   </div>;
 }
