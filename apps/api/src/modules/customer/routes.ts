@@ -419,15 +419,31 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(201).send(result);
   });
 
-  app.patch('/websites/:websiteId/monitoring', async (request) => {
+  app.patch('/websites/:websiteId/monitoring', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async request => {
     requirePermission(request, 'monitoring.manage'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
-    const { enabled } = parse(z.object({ enabled: z.boolean() }), request.body); await websiteForTenant(tenantId, websiteId); const intervalMinutes = (await database.monitoringPolicy.findUnique({ where: { websiteId } }))?.intervalMinutes ?? 60;
-    await database.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled, intervalMinutes }, update: { enabled } });
-    const website = await database.website.update({ where: { id: websiteId }, data: { monitoringStatus: enabled ? 'PENDING' : 'PAUSED' } });
-    try { if (!options.queues?.monitoring) throw new Error('queue unavailable'); if (enabled) { await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60_000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts: { removeOnComplete: 1000, removeOnFail: 5000 } }); await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { jobId: `monitor-${websiteId}-${crypto.randomUUID()}`, removeOnComplete: 1000, removeOnFail: 5000 }); } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`); }
-    catch { await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]); throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. Retry shortly.'); }
-    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip });
-    return website;
+    const input = parse(z.object({ enabled: z.boolean(), intervalMinutes: z.number().int().refine(value => [5, 15, 60].includes(value)).optional(), emailAlerts: z.boolean().optional() }).strict(), request.body);
+    if (input.emailAlerts !== undefined) requirePermission(request, 'notifications.manage');
+    const target = await websiteForTenant(tenantId, websiteId);
+    if (input.enabled && target.connectionStatus !== 'VERIFIED') throw new ApiError(409, 'WEBSITE_NOT_VERIFIED', 'Verify a website connection before enabling monitoring.');
+    const existing = await database.monitoringPolicy.findUnique({ where: { websiteId } }); const intervalMinutes = input.intervalMinutes ?? existing?.intervalMinutes ?? 5;
+    await database.$transaction(async tx => {
+      await tx.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled: input.enabled, intervalMinutes }, update: { enabled: input.enabled, intervalMinutes } });
+      await tx.website.update({ where: { id: websiteId }, data: { monitoringStatus: input.enabled ? 'PENDING' : 'PAUSED' } });
+      if (input.emailAlerts !== undefined) await tx.notificationPreference.upsert({ where: { tenantId_userId_eventType: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT' } }, create: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT', emailEnabled: input.emailAlerts }, update: { emailEnabled: input.emailAlerts } });
+    });
+    try {
+      if (!options.queues?.monitoring) throw new Error('queue unavailable');
+      if (input.enabled) {
+        const opts = { attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 };
+        await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts });
+        await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { ...opts, jobId: `monitor-${websiteId}-${crypto.randomUUID()}` });
+      } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`);
+    } catch {
+      await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]);
+      throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. It remains disabled; retry shortly.');
+    }
+    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: input.enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { intervalMinutes } });
+    return database.website.findUniqueOrThrow({ where: { id: websiteId } });
   });
 
   app.post('/websites/:websiteId/backups', async (request, reply) => {

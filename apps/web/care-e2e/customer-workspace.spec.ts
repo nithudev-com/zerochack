@@ -33,6 +33,7 @@ async function fixture(page: Page, options: { websites?: OverviewWebsite[]; over
     else if (path === '/v1/auth/logout') { expect(method).toBe('POST'); options.onLogout?.(); if (options.logoutError?.()) status = 503; }
     else if (path === '/v1/notifications') body = [];
     else if (path === '/v1/notification-preferences') body = { preferences: [] };
+    else if (path.endsWith('/uptime')) body = { observedAt: new Date().toISOString(), enabled: false, eligible: true, intervalMinutes: 5, emailAlerts: true, state: 'PAUSED', lastCheck: null, windowDays: 30, sampleCount: 0, knownCount: 0, upCount: 0, downCount: 0, unknownCount: 0, passedPercent: null, averageResponseMs: null, truncated: false, days: [], incidents: [], emailHistory: [], emailTemplateEnabled: true };
     else if (/^\/v1\/websites\/[^/]+$/.test(path)) body = { ...first, ...(options.websites ?? [first, second, pending]).find(site => site.id === path.split('/')[3]), connectionStatus: 'VERIFIED', securityStatus: 'UNKNOWN', monitoringStatus: 'NOT_CONFIGURED', backupStatus: 'NOT_CONFIGURED', findings: [], scans: [], tickets: [], backups: [], reports: [] };
     else if (path.endsWith('/access')) body = { configured: false, tools: [] };
     else if (path.includes('/care?') || path.endsWith('/care')) body = { credentials: [], accessRequests: [], jobs: [], roles: [], capabilities: {} };

@@ -1,6 +1,8 @@
 # Website-focused Customer Overview
 
-Overview is a website switcher followed by Tools, Workplace and My activity log. The old generic care metrics/welcome/status/quick-access UI and its unused CSS were removed. Other customer pages, stored security data, historical audits and the legacy read-only overview API remain compatible.
+Overview is a website switcher followed by Uptime monitoring, Tools, Workplace and My activity log. The old generic care metrics/welcome/status/quick-access UI and its unused CSS were removed. Other customer pages, stored security data, historical audits and the legacy read-only overview API remain compatible.
+
+See [Uptime monitoring](UPTIME-MONITORING.md) for real-check status, sampled history, opt-in scheduling and downtime/recovery mail limitations.
 
 The first default is the earliest-added active website with currently valid recorded SSH/API connection evidence. This is not a reconstructed first-connection timestamp: older access-check timestamps can be overwritten. With no connection, the earliest-added website is shown with its truthful status; with no websites, the page offers Add website. A chosen website is kept in the Overview URL, validated against the accessible list, and survives reload/back. Deleted/inaccessible IDs fall back safely.
 

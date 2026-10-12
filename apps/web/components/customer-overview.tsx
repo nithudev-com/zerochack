@@ -10,6 +10,7 @@ import { orderedOverviewWebsites, overviewWebsite, type OverviewWebsite } from '
 import { websiteServices, websiteWorkspaceHref, websiteServiceUnderConstruction } from '../lib/website-services';
 import { WebsiteConnection, WebsiteTools, websiteTools } from './website-card';
 import { WebsiteServiceIcon } from './website-service-icon';
+import { UptimeMonitor } from './uptime-monitor';
 import styles from './customer-overview.module.css';
 
 export function CustomerOverview({ websites }: { websites: OverviewWebsite[] }) {
@@ -35,6 +36,7 @@ export function CustomerOverview({ websites }: { websites: OverviewWebsite[] }) 
         <div className={styles.site}><h2>{website.name}</h2><a href={website.url} target="_blank" rel="noopener noreferrer">{website.url}</a></div>
         <WebsiteConnection website={website} />
       </section>
+      <UptimeMonitor key={website.id} websiteId={website.id} />
       <section className={styles.section} aria-labelledby="overview-tools"><div className={styles.sectionHeading}><span className={styles.number}>01</span><div><h2 id="overview-tools">Tools</h2><p>Website tools for {website.name}</p></div></div>
         <div className={styles.tools}>{websiteTools.map(item => <button className={styles.tool} data-overview-tool={item.id} type="button" aria-haspopup="dialog" key={item.id} onClick={() => { record({ section: 'TOOLS', option: item.id }); setTool({ websiteId: website.id, name: item.name }); }}><span className={styles.toolIcon} aria-hidden="true">{item.symbol}</span><strong>{item.name}</strong><small>Under construction</small><span aria-hidden="true">↗</span></button>)}</div>
       </section>

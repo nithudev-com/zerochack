@@ -7,12 +7,12 @@ import { createLogger, loadEnvironment } from '@zerochack/config';
 import { createQueueRegistry, queueNames } from './queues.js';
 import { createScanWorker } from './scan-worker.js';
 import { createBackupWorker } from './backup-worker.js';
-import { createMonitoringWorker } from './monitoring-worker.js';
+import { createMonitoringWorker, enqueueMonitoringOutbox } from './monitoring-worker.js';
 import { reconcileSchedulers } from './schedulers.js';
 import Redis from 'ioredis';
 import { PlatformSmtp } from '../../api/src/modules/communications/smtp-settings.js';
 import { createNotificationWorker } from './notification-worker.js';
-import { createEmailWorker } from './email-worker.js';
+import { createEmailWorker, reconcileMonitoringEmailJobs } from './email-worker.js';
 import { createReportWorker } from './report-worker.js';
 
 const environment = loadEnvironment();
@@ -23,6 +23,13 @@ const backupWorker = createBackupWorker(environment.REDIS_URL, logger);
 const monitoringWorker = createMonitoringWorker(environment.REDIS_URL, logger);
 const emailProvider = new PlatformSmtp(environment);
 const notificationWorker = createNotificationWorker(environment.REDIS_URL, logger);
+let monitoringOutboxWork: Promise<unknown> | undefined;
+const flushMonitoringOutbox = () => {
+  if (monitoringOutboxWork) return;
+  monitoringOutboxWork = Promise.all([enqueueMonitoringOutbox(registry.queues.get('notifications')!), reconcileMonitoringEmailJobs(notificationWorker.emailQueue)]).catch(() => logger.error({ errorCode: 'MONITORING_OUTBOX_FAILED' }, 'monitoring.outbox_failed')).finally(() => { monitoringOutboxWork = undefined; });
+};
+flushMonitoringOutbox();
+const monitoringOutboxTimer = setInterval(flushMonitoringOutbox, 5000);
 const emailWorker = createEmailWorker(environment.REDIS_URL, logger, emailProvider);
 const reportWorker = createReportWorker(environment.REDIS_URL, logger, environment);
 const schedules = await reconcileSchedulers(registry.queues);
@@ -48,6 +55,8 @@ logger.info({ queues: queueNames, schedules }, 'worker.ready');
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'service.shutdown');
   clearInterval(heartbeatTimer);
+  clearInterval(monitoringOutboxTimer);
+  await monitoringOutboxWork;
   clearInterval(careMaintenance);
   clearInterval(repairTimer);
   clearInterval(reviewTimer);

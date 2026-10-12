@@ -24,3 +24,17 @@ export type WebsiteNavigationActivity = WebsiteNavigationClick & { id: string; c
 export function websiteNavigationLabel(click: WebsiteNavigationClick) {
   return click.section === 'TOOLS' ? websiteNavigationLabels.TOOLS[click.option] : websiteNavigationLabels.WORKPLACE[click.option];
 }
+
+export type UptimeState = 'UP' | 'DOWN' | 'UNKNOWN';
+export type UptimeCheck = { id: string; observedAt: string; state: UptimeState; httpStatus: number | null; responseTimeMs: number | null; errorCode: string | null };
+export type UptimeSummary = {
+  observedAt: string; enabled: boolean; eligible: boolean; intervalMinutes: number; emailAlerts: boolean;
+  state: UptimeState | 'PAUSED' | 'PENDING' | 'STALE'; lastCheck: UptimeCheck | null;
+  windowDays: number; sampleCount: number; knownCount: number; upCount: number; downCount: number; unknownCount: number;
+  passedPercent: number | null; averageResponseMs: number | null; truncated: boolean;
+  days: Array<{ day: string; up: number; down: number; unknown: number }>;
+  incidents: Array<{ id: string; title: string; firstObservedAt: string; lastObservedAt: string; recoveredAt: string | null }>;
+  emailHistory: Array<{ id: string; status: string; createdAt: string; deliveredAt: string | null; attempts: number; lastErrorCode: string | null }>;
+  emailTemplateEnabled: boolean;
+};
+export type UptimeHistory = { checks: UptimeCheck[]; nextCursor: string | null };
