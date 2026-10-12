@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 import { z } from 'zod';
 import { database } from '@zerochack/database';
 import { encryptSecret, generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
-import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, type EngineFinding } from '@zerochack/scanner';
+import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, validatePublicHttpTarget, type EngineFinding } from '@zerochack/scanner';
 import type { Environment } from '@zerochack/config';
 import { ApiError } from '../../errors.js';
 import { authenticate, requirePermission } from '../auth/security.js';
@@ -424,7 +424,10 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     const input = parse(z.object({ enabled: z.boolean(), intervalMinutes: z.number().int().refine(value => [5, 15, 60].includes(value)).optional(), emailAlerts: z.boolean().optional() }).strict(), request.body);
     if (input.emailAlerts !== undefined) requirePermission(request, 'notifications.manage');
     const target = await websiteForTenant(tenantId, websiteId);
-    if (input.enabled && target.connectionStatus !== 'VERIFIED') throw new ApiError(409, 'WEBSITE_NOT_VERIFIED', 'Verify a website connection before enabling monitoring.');
+    if (input.enabled) {
+      try { validatePublicHttpTarget(target.url, target.normalizedHost); }
+      catch { throw new ApiError(400, 'MONITORING_TARGET_INVALID', 'Monitoring requires a public HTTP or HTTPS website URL on port 80 or 443. No SSH connection is needed.'); }
+    }
     const existing = await database.monitoringPolicy.findUnique({ where: { websiteId } }); const intervalMinutes = input.intervalMinutes ?? existing?.intervalMinutes ?? 5;
     await database.$transaction(async tx => {
       await tx.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled: input.enabled, intervalMinutes }, update: { enabled: input.enabled, intervalMinutes } });

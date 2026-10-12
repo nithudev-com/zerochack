@@ -57,6 +57,15 @@ export function validateHostname(hostname: string): void {
   if (isIP(value) && !isPublicAddress(value)) throw new TargetSecurityError('ADDRESS_BLOCKED', 'Private, local, reserved, and metadata addresses are not allowed');
 }
 
+// Public availability checks need a saved URL, not SSH/platform credentials or
+// proof of server control. DNS is still checked and pinned by safeHttpRequest
+// on every probe; a temporarily unresolved site must remain monitorable.
+export function validatePublicHttpTarget(input: string, allowedHostname: string): void {
+  const url = new URL(normalizeWebsiteUrl(input));
+  validateHostname(url.hostname);
+  if (url.hostname !== allowedHostname) throw new TargetSecurityError('TARGET_SCOPE_BLOCKED', 'Target does not match the saved website hostname');
+}
+
 export const systemResolver: DnsResolver = async (hostname) => {
   hostname = unbracket(hostname);
   if (isIP(hostname)) return [{ address: hostname, family: isIP(hostname) as 4 | 6 }];

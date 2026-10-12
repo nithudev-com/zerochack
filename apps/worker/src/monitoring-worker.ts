@@ -3,7 +3,7 @@ import { Worker, type Job } from 'bullmq';
 import Redis from 'ioredis';
 import type { Logger } from 'pino';
 import { database } from '@zerochack/database';
-import { safeHttpRequest, TargetSecurityError, type SafeResponse } from '@zerochack/scanner';
+import { safeHttpRequest, TargetSecurityError, validatePublicHttpTarget, type SafeResponse } from '@zerochack/scanner';
 import type { Prisma } from '@prisma/client';
 
 export type MonitoringJob = { tenantId: string; websiteId: string };
@@ -73,7 +73,8 @@ export async function processMonitoringCheck(job: Job<MonitoringJob>, runner: ty
   if (duplicate && (duplicate.tenantId !== tenantId || duplicate.websiteId !== websiteId)) throw new Error('MONITORING_JOB_BINDING_INVALID');
   if (duplicate?.completedAt) return { events: await database.securityEvent.count({ where: { checkId: duplicate.id } }) };
   const policy = await database.monitoringPolicy.findFirst({ where: { tenantId, websiteId, enabled: true }, include: { website: true } });
-  if (!policy || policy.website.lifecycle !== 'ACTIVE' || policy.website.connectionStatus !== 'VERIFIED') throw new Error('MONITORING_JOB_BINDING_INVALID');
+  if (!policy || policy.website.lifecycle !== 'ACTIVE') throw new Error('MONITORING_JOB_BINDING_INVALID');
+  validatePublicHttpTarget(policy.website.url, policy.website.normalizedHost);
   const check = duplicate ?? await database.monitoringCheck.upsert({ where: { jobId }, update: {}, create: { tenantId, websiteId, jobId } });
   if (check.tenantId !== tenantId || check.websiteId !== websiteId) throw new Error('MONITORING_JOB_BINDING_INVALID');
   const started = performance.now(); let current: MonitoringSnapshot | undefined; let errorCode: string | null = null;
@@ -87,7 +88,7 @@ export async function processMonitoringCheck(job: Job<MonitoringJob>, runner: ty
     const latestCheck = await tx.monitoringCheck.findUniqueOrThrow({ where: { id: check.id } });
     if (latestCheck.completedAt) return { events: await tx.securityEvent.count({ where: { checkId: check.id } }) };
     const active = await tx.monitoringPolicy.findFirst({ where: { websiteId, tenantId, enabled: true }, include: { website: true } });
-    if (!active || active.website.lifecycle !== 'ACTIVE' || active.website.connectionStatus !== 'VERIFIED' || active.website.url !== policy.website.url || active.updatedAt.getTime() !== policy.updatedAt.getTime()) throw new Error('MONITORING_BINDING_CHANGED');
+    if (!active || active.website.lifecycle !== 'ACTIVE' || active.website.url !== policy.website.url || active.website.normalizedHost !== policy.website.normalizedHost || active.updatedAt.getTime() !== policy.updatedAt.getTime()) throw new Error('MONITORING_BINDING_CHANGED');
     const prior = await tx.monitoringCheck.findFirst({ where: { tenantId, websiteId, status: 'SUCCEEDED', id: { not: check.id } }, orderBy: { completedAt: 'desc' } });
     const reachabilityFailure = ['CONNECTION_FAILED', 'CONNECTION_TIMEOUT', 'DNS_UNRESOLVED'].includes(errorCode ?? '');
     const changes: DetectedChange[] = current ? detectMonitoringChanges(prior?.snapshot as MonitoringSnapshot | undefined, current, active.indicators)

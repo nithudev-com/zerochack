@@ -266,6 +266,40 @@ describe('authentication, RBAC, and tenant isolation', () => {
     const tenantBToken = await register('Customer', 'billing-attacker@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: tenantBToken } }); const tenantBCookie = cookieFrom((await login('customer', 'billing-attacker@example.test')).headers['set-cookie']); expect((await app.inject({ method: 'POST', url: `/v1/commercial/payments/${second.json().id}/verify`, headers: { cookie: tenantBCookie } })).statusCode).toBe(404);
   });
 
+  it('allows public uptime on a newly added website without SSH, while preserving target and tenant protections', async () => {
+    const token = await register('Customer', 'public-uptime@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'public-uptime@example.test')).headers['set-cookie']);
+    const added = await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Public uptime only', url: 'https://example.com/' } });
+    expect(added.statusCode).toBe(201); const site = added.json(); const tenantId = site.tenantId;
+    expect(site.connectionStatus).toBe('PENDING');
+    expect(await database.websiteAccessCredential.count({ where: { websiteId: site.id } })).toBe(0);
+    expect(await database.websiteConnector.count({ where: { websiteId: site.id } })).toBe(0);
+    const overview = await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie } });
+    expect(overview.json()).toMatchObject({ eligible: true, enabled: false, state: 'PAUSED', knownCount: 0, passedPercent: null });
+    expect(await database.monitoringCheck.count({ where: { websiteId: site.id } })).toBe(0);
+    // This integration app deliberately has no queues. Reaching the scheduler
+    // proves the connector gate is gone, without pretending this is activation.
+    const enable = await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: true, intervalMinutes: 5, emailAlerts: false } });
+    expect(enable.statusCode).toBe(503); expect(enable.json().error.code).toBe('SCHEDULER_UNAVAILABLE');
+    await database.monitoringPolicy.update({ where: { websiteId: site.id }, data: { enabled: true } });
+    const response = { url: site.url, status: 200, headers: {}, body: Buffer.from('public healthy'), resolvedAddress: '93.184.216.34', redirects: [] };
+    let probes = 0;
+    await processMonitoringCheck({ id: 'public-uptime-no-ssh', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { probes++; return response; });
+    expect(probes).toBe(1);
+    expect((await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie } })).json()).toMatchObject({ eligible: true, state: 'UP', knownCount: 1 });
+    expect((await database.website.findUniqueOrThrow({ where: { id: site.id } })).connectionStatus).toBe('PENDING');
+    // A malformed stored target cannot bypass validation through direct calls.
+    await database.website.update({ where: { id: site.id }, data: { url: 'http://169.254.169.254/', normalizedHost: '169.254.169.254' } });
+    expect((await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: true } })).json().error.code).toBe('MONITORING_TARGET_INVALID');
+    expect((await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/monitoring/checks`, headers: { cookie } })).statusCode).toBe(400);
+    await expect(processMonitoringCheck({ id: 'public-uptime-private-refused', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { probes++; return response; })).rejects.toThrow();
+    expect(probes).toBe(1);
+    await database.website.update({ where: { id: site.id }, data: { url: site.url, normalizedHost: site.normalizedHost, lifecycle: 'ARCHIVED' } });
+    expect((await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: true } })).statusCode).toBe(404);
+    await expect(processMonitoringCheck({ id: 'public-uptime-archived-refused', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { probes++; return response; })).rejects.toThrow('MONITORING_JOB_BINDING_INVALID');
+    expect(probes).toBe(1);
+  });
+
   it('fails closed for backup and restore, enforces retention scope, and deduplicates monitoring alert storms', async () => {
     const token = await register('Customer', 'operations@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } }); const cookie = cookieFrom((await login('customer', 'operations@example.test')).headers['set-cookie']); const identity = (await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { cookie } })).json(); const tenantId = identity.tenant.id as string;
     const site = await database.website.create({ data: { tenantId, name: 'Operations site', url: 'https://example.com/', normalizedHost: 'example.com', connectionStatus: 'VERIFIED', connectedAt: new Date() } });

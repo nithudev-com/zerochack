@@ -6,7 +6,7 @@ const stamp = new Date().toISOString();
 function summary(state: UptimeSummary['state'] = 'UP'): UptimeSummary {
   return { observedAt: stamp, enabled: true, eligible: true, intervalMinutes: 5, emailAlerts: true, state, lastCheck: { id: first, state: 'UP', httpStatus: 200, responseTimeMs: 120, errorCode: null, observedAt: stamp }, windowDays: 30, sampleCount: 5, knownCount: 4, upCount: 3, downCount: 1, unknownCount: 1, passedPercent: 75, averageResponseMs: 120, truncated: false, days: Array.from({ length: 30 }, (_, index) => ({ day: new Date(Date.now() - (29 - index) * 86400000).toISOString().slice(0, 10), up: index === 29 ? 3 : 0, down: index === 28 ? 1 : 0, unknown: 0 })), incidents: [{ id: first, title: 'Website availability failure', firstObservedAt: stamp, lastObservedAt: stamp, recoveredAt: stamp }], emailHistory: [{ id: first, status: 'DELIVERED', createdAt: stamp, deliveredAt: stamp, attempts: 1, lastErrorCode: null }], emailTemplateEnabled: true };
 }
-async function fixture(page: Page, options: { state?: UptimeSummary['state']; failure?: boolean; noSamples?: boolean; eligible?: boolean; saveFailure?: boolean } = {}) {
+async function fixture(page: Page, options: { state?: UptimeSummary['state']; failure?: boolean; noSamples?: boolean; eligible?: boolean; saveFailure?: boolean; disconnected?: boolean } = {}) {
   const writes: Array<{ path: string; body: unknown }> = []; let data = summary(options.state);
   if (options.noSamples) data = { ...data, enabled: false, state: 'PAUSED', lastCheck: null, sampleCount: 0, knownCount: 0, upCount: 0, downCount: 0, unknownCount: 0, passedPercent: null, averageResponseMs: null, incidents: [], emailHistory: [] };
   if (options.eligible === false) data.eligible = false;
@@ -16,7 +16,7 @@ async function fixture(page: Page, options: { state?: UptimeSummary['state']; fa
     if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (req.method() !== 'GET') writes.push({ path, body: req.postDataJSON() });
     if (path.endsWith('/auth/me')) return route.fulfill({ headers, json: { roles: ['Customer'] } });
-    if (path === '/v1/websites') return route.fulfill({ headers, json: [first, second].map((id, index) => ({ id, name: index ? 'Second website' : 'First website', url: `https://${index ? 'second' : 'first'}.example/`, createdAt: stamp, connectionSummary: { kind: 'SSH', providers: ['ssh'], lastCheckedAt: stamp } })) });
+    if (path === '/v1/websites') return route.fulfill({ headers, json: [first, second].map((id, index) => ({ id, name: index ? 'Second website' : 'First website', url: `https://${index ? 'second' : 'first'}.example/`, createdAt: stamp, connectionSummary: { kind: options.disconnected ? 'DISCONNECTED' : 'SSH', providers: options.disconnected ? [] : ['ssh'], lastCheckedAt: options.disconnected ? null : stamp } })) });
     if (path.endsWith('/uptime')) return options.failure ? route.fulfill({ headers, status: 503, json: { error: { code: 'UNAVAILABLE', message: 'Monitoring is temporarily unavailable.' } } }) : route.fulfill({ headers, json: path.includes(second) ? { ...data, enabled: false, state: 'PAUSED', lastCheck: null, passedPercent: null, averageResponseMs: null, incidents: [], emailHistory: [] } : data });
     if (path.endsWith('/uptime/history')) {
       const before = new URL(req.url()).searchParams.get('before');
@@ -55,12 +55,28 @@ test('saving is explicit, check-now only queues work, and switching never keeps 
   await panel.getByRole('button', { name: 'Check now' }).click(); await expect(panel.getByText(/Check queued/)).toBeVisible(); expect(writes).toHaveLength(2);
   await page.getByLabel('Switch website').selectOption(second); await expect(panel.getByText('Paused', { exact: true })).toBeVisible(); await expect(panel.getByText(/Check queued/)).toHaveCount(0); await expect(panel.getByText('75.00%', { exact: true })).toHaveCount(0);
 });
-test('unconfigured and failed monitors never invent 100% uptime, with stale warning and reduced-motion support', async ({ page }) => {
+test('unsafe and failed monitors never invent 100% uptime, with stale warning and reduced-motion support', async ({ page }) => {
   await fixture(page, { noSamples: true, eligible: false }); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
   await expect(panel.getByText('No checks yet', { exact: true })).toBeVisible(); await expect(panel.getByText('100.00%', { exact: true })).toHaveCount(0); await panel.getByText('Monitoring & email settings', { exact: true }).click(); await expect(page.getByLabel('Enable website monitoring')).toBeDisabled();
   await page.unroute('**/v1/**'); await fixture(page, { state: 'STALE' }); await page.reload(); await expect(panel.getByText(/latest check is overdue/)).toBeVisible();
   await page.emulateMedia({ reducedMotion: 'reduce' }); expect(await panel.evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   await page.unroute('**/v1/**'); await fixture(page, { failure: true }); await page.reload(); await expect(panel.getByText('Status unavailable', { exact: true })).toBeVisible(); await expect(panel.getByText('75.00%', { exact: true })).toHaveCount(0); await expect(panel.getByRole('button', { name: 'Retry monitoring' })).toBeVisible();
+});
+test('a newly added disconnected website can opt into HTTP uptime without SSH or connector writes', async ({ page }) => {
+  const writes = await fixture(page, { noSamples: true, disconnected: true }); await page.goto('/customer/overview');
+  const panel = page.getByRole('region', { name: 'Uptime monitoring' });
+  await expect(panel.getByText('Paused', { exact: true })).toBeVisible();
+  await expect(panel.getByText(/no SSH or platform connection needed/)).toBeVisible();
+  expect(writes).toEqual([]);
+  await panel.getByText('Monitoring & email settings', { exact: true }).click();
+  const toggle = page.getByLabel('Enable website monitoring'); await expect(toggle).toBeEnabled(); await expect(toggle).not.toBeChecked();
+  await toggle.check(); expect(writes).toEqual([]);
+  await panel.getByRole('button', { name: 'Save monitoring settings' }).click();
+  await expect(panel.getByText(/Monitoring settings saved/)).toBeVisible();
+  expect(writes).toEqual([{ path: `/v1/websites/${first}/monitoring`, body: { enabled: true, intervalMinutes: 5, emailAlerts: true } }]);
+  await panel.getByRole('button', { name: 'Check now' }).click();
+  await expect(panel.getByText(/Check queued/)).toBeVisible();
+  expect(writes.map(item => item.path)).toEqual([`/v1/websites/${first}/monitoring`, `/v1/websites/${first}/monitoring/checks`]);
 });
 test('scheduler failure refreshes the paused state and never claims activation', async ({ page }) => {
   const writes = await fixture(page, { noSamples: true, saveFailure: true }); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
