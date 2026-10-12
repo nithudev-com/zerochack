@@ -6,7 +6,7 @@ import { database } from '@zerochack/database';
 import { ApiError } from '../../errors.js';
 import { authenticate, requireOwnerMfa, requirePermission } from '../auth/security.js';
 import { writeAudit } from '../auth/service.js';
-import { summarizeUptime, uptimeCheck } from './uptime.js';
+import { summarizeUptime, uptimeCheck, uptimeWindowStart } from './uptime.js';
 import { validatePublicHttpTarget } from '@zerochack/scanner';
 
 const uuid = z.string().uuid();
@@ -15,30 +15,33 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T { const result = sche
 function owner(request: FastifyRequest, permission: string): void { requireOwnerMfa(request); requirePermission(request, permission); }
 async function website(tenantId: string, websiteId: string) { const value = await database.website.findFirst({ where: { id: websiteId, tenantId, lifecycle: 'ACTIVE' } }); if (!value) throw new ApiError(404, 'WEBSITE_NOT_FOUND', 'Website was not found'); return value; }
 function monitoringEligible(target: { url: string; normalizedHost: string }): boolean { try { validatePublicHttpTarget(target.url, target.normalizedHost); return true; } catch { return false; } }
+const uptimeRangeQuery = z.object({ days: z.coerce.number().int().refine(value => [7, 30].includes(value)).optional(), hours: z.coerce.number().int().refine(value => [1, 24].includes(value)).optional() });
+const exclusiveUptimeRange = (value: { days?: number | undefined; hours?: number | undefined }) => value.days === undefined || value.hours === undefined;
 
 export const operationsRoutes: FastifyPluginAsync<{ environment: Environment; queues?: { backups?: Queue; monitoring?: Queue } }> = async (app, options) => {
   app.addHook('preHandler', async (request) => authenticate(request, options.environment)); app.addHook('onSend', async (_request, reply) => { void reply.header('cache-control', 'private, no-store'); });
 
   app.get('/websites/:websiteId/uptime', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async request => {
     requirePermission(request, 'websites.read'); const websiteId = parse(uuid, (request.params as { websiteId?: string }).websiteId); const tenantId = request.tenantId!; const target = await website(tenantId, websiteId);
-    const { days } = parse(z.object({ days: z.coerce.number().int().refine(value => [7, 30].includes(value)).default(30) }).strict(), request.query);
-    const now = new Date(); const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days + 1));
+    const { days = 30, hours } = parse(uptimeRangeQuery.strict().refine(exclusiveUptimeRange, 'Choose either days or hours'), request.query);
+    const now = new Date(); const since = uptimeWindowStart(now, days, hours);
     const [policy, preference, checks, last, incidents, mailEvents, templateCount] = await Promise.all([
       database.monitoringPolicy.findUnique({ where: { websiteId } }), database.notificationPreference.findUnique({ where: { tenantId_userId_eventType: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT' } } }),
-      database.monitoringCheck.findMany({ where: { tenantId, websiteId, completedAt: { gte: since } }, orderBy: [{ completedAt: 'desc' }, { id: 'desc' }], take: 10001 }),
+      database.monitoringCheck.findMany({ where: { tenantId, websiteId, completedAt: { gte: since, lte: now } }, orderBy: [{ completedAt: 'desc' }, { id: 'desc' }], take: 10001 }),
       database.monitoringCheck.findFirst({ where: { tenantId, websiteId, completedAt: { not: null } }, orderBy: [{ completedAt: 'desc' }, { id: 'desc' }] }),
       database.securityEvent.findMany({ where: { tenantId, websiteId, type: 'AVAILABILITY', firstSeenAt: { gte: since } }, orderBy: { firstSeenAt: 'desc' }, take: 20, select: { id: true, title: true, firstSeenAt: true, lastSeenAt: true, resolvedAt: true } }),
       database.communicationEvent.findMany({ where: { tenantId, recipientUserId: request.userId!, eventType: 'MONITORING_ALERT', OR: [{ payload: { path: ['monitoring', 'websiteId'], equals: websiteId } }, { payload: { path: ['websiteId'], equals: websiteId } }] }, orderBy: { createdAt: 'desc' }, take: 20, select: { id: true, createdAt: true, processedAt: true, emailDelivery: { select: { status: true, deliveredAt: true, attempts: true, lastErrorCode: true } } } }),
       database.emailTemplateVersion.count({ where: { eventType: 'MONITORING_ALERT', enabled: true } })
     ]);
-    return { ...summarizeUptime(checks.slice(0, 10000), { now, days, enabled: policy?.enabled ?? false, eligible: monitoringEligible(target), intervalMinutes: policy?.intervalMinutes ?? 5, emailAlerts: preference?.emailEnabled ?? true, last, truncated: checks.length > 10000 }), incidents: incidents.map(event => ({ id: event.id, title: event.title, firstObservedAt: event.firstSeenAt.toISOString(), lastObservedAt: event.lastSeenAt.toISOString(), recoveredAt: event.resolvedAt?.toISOString() ?? null })), emailHistory: mailEvents.map(event => ({ id: event.id, createdAt: event.createdAt.toISOString(), status: event.emailDelivery?.status ?? (event.processedAt ? 'SUPPRESSED' : 'PENDING'), deliveredAt: event.emailDelivery?.deliveredAt?.toISOString() ?? null, attempts: event.emailDelivery?.attempts ?? 0, lastErrorCode: event.emailDelivery?.lastErrorCode ?? null })), emailTemplateEnabled: templateCount > 0 };
+    return { ...summarizeUptime(checks.slice(0, 10000), { now, days, hours, enabled: policy?.enabled ?? false, eligible: monitoringEligible(target), intervalMinutes: policy?.intervalMinutes ?? 5, emailAlerts: preference?.emailEnabled ?? true, last, truncated: checks.length > 10000 }), incidents: incidents.map(event => ({ id: event.id, title: event.title, firstObservedAt: event.firstSeenAt.toISOString(), lastObservedAt: event.lastSeenAt.toISOString(), recoveredAt: event.resolvedAt?.toISOString() ?? null })), emailHistory: mailEvents.map(event => ({ id: event.id, createdAt: event.createdAt.toISOString(), status: event.emailDelivery?.status ?? (event.processedAt ? 'SUPPRESSED' : 'PENDING'), deliveredAt: event.emailDelivery?.deliveredAt?.toISOString() ?? null, attempts: event.emailDelivery?.attempts ?? 0, lastErrorCode: event.emailDelivery?.lastErrorCode ?? null })), emailTemplateEnabled: templateCount > 0 };
   });
   app.get('/websites/:websiteId/uptime/history', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async request => {
     requirePermission(request, 'websites.read'); const websiteId = parse(uuid, (request.params as { websiteId?: string }).websiteId); const tenantId = request.tenantId!; await website(tenantId, websiteId);
-    const { before } = parse(z.object({ before: uuid.optional() }).strict(), request.query);
+    const { before, days, hours } = parse(uptimeRangeQuery.extend({ before: uuid.optional() }).strict().refine(exclusiveUptimeRange, 'Choose either days or hours'), request.query);
+    const now = new Date(); const since = days === undefined && hours === undefined ? null : uptimeWindowStart(now, days ?? 30, hours);
     const cursor = before ? await database.monitoringCheck.findFirst({ where: { id: before, tenantId, websiteId }, select: { startedAt: true, id: true } }) : null;
     if (before && !cursor) throw new ApiError(404, 'CHECK_NOT_FOUND', 'The monitoring history cursor was not found.');
-    const checks = await database.monitoringCheck.findMany({ where: { tenantId, websiteId, ...(cursor ? { OR: [{ startedAt: { lt: cursor.startedAt } }, { startedAt: cursor.startedAt, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ startedAt: 'desc' }, { id: 'desc' }], take: 51 });
+    const checks = await database.monitoringCheck.findMany({ where: { tenantId, websiteId, ...(since ? { completedAt: { gte: since, lte: now } } : {}), ...(cursor ? { OR: [{ startedAt: { lt: cursor.startedAt } }, { startedAt: cursor.startedAt, id: { lt: cursor.id } }] } : {}) }, orderBy: [{ startedAt: 'desc' }, { id: 'desc' }], take: 51 });
     return { checks: checks.slice(0, 50).map(uptimeCheck), nextCursor: checks.length > 50 ? checks[49]!.id : null };
   });
 

@@ -30,7 +30,7 @@ export type UptimeCheck = { id: string; observedAt: string; state: UptimeState; 
 export type UptimeSummary = {
   observedAt: string; enabled: boolean; eligible: boolean; intervalMinutes: number; emailAlerts: boolean;
   state: UptimeState | 'PAUSED' | 'PENDING' | 'STALE'; lastCheck: UptimeCheck | null;
-  windowDays: number; sampleCount: number; knownCount: number; upCount: number; downCount: number; unknownCount: number;
+  windowDays: number; windowHours?: number; sampleCount: number; knownCount: number; upCount: number; downCount: number; unknownCount: number;
   passedPercent: number | null; averageResponseMs: number | null; truncated: boolean;
   days: Array<{ day: string; up: number; down: number; unknown: number }>;
   incidents: Array<{ id: string; title: string; firstObservedAt: string; lastObservedAt: string; recoveredAt: string | null }>;

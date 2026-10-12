@@ -46,7 +46,20 @@ test('history, incidents and own email deliveries are readable and older checks 
   const writes = await fixture(page); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
   await panel.getByRole('button', { name: 'View check history' }).click(); await expect(panel.getByText('SMTP accepted', { exact: true })).toBeVisible();
   await expect(panel.getByText('Recovered', { exact: true })).toBeVisible(); await panel.getByRole('button', { name: 'Load older checks' }).click(); await expect(panel.getByText('HTTP 503 · 120 ms', { exact: true })).toBeVisible();
-  await page.getByLabel('Monitoring history window').selectOption('7'); expect(writes).toEqual([]);
+  await page.getByLabel('Monitoring history window').selectOption('7d'); expect(writes).toEqual([]);
+});
+test('last hour and last 24 hours use real API ranges and isolate the check-history cache', async ({ page }) => {
+  const reads: string[] = []; page.on('request', request => { if (request.method() === 'GET' && request.url().includes('/uptime')) reads.push(request.url()); });
+  const writes = await fixture(page); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
+  await expect(panel.getByText('75.00%', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'View check history' }).click();
+  for (const [value, hours] of [['1h', '1'], ['24h', '24']] as const) {
+    await page.getByLabel('Monitoring history window').selectOption(value);
+    await expect(panel.getByRole('img', { name: new RegExp(`Last ${hours} hour`) })).toBeVisible();
+    await expect.poll(() => reads.some(url => new URL(url).pathname.endsWith('/uptime') && new URL(url).searchParams.get('hours') === hours)).toBe(true);
+    await expect.poll(() => reads.some(url => new URL(url).pathname.endsWith('/uptime/history') && new URL(url).searchParams.get('hours') === hours)).toBe(true);
+  }
+  expect(writes).toEqual([]);
 });
 test('saving is explicit, check-now only queues work, and switching never keeps another website settings draft', async ({ page }) => {
   const writes = await fixture(page); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
