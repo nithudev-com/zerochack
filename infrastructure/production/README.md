@@ -147,21 +147,34 @@ migrations, SMTP authentication, image readiness and the actual findings, run
 `python3 scripts/deploy/preview.py /protected/release.env YOUR_CURRENT_PUBLIC_IP`
 over the authenticated VPS SSH connection. The script verifies a clean committed
 revision and matching immutable image labels. The IP must exactly match that
-connection's public peer; broad networks and caller-supplied forwarded headers
-cannot grant access. Only that peer and loopback receive the application.
-Everyone else receives maintenance HTTP 503. Domain www redirects preserve the URI.
+connection's public peer **only as a deployment-authority check**, not as the website
+access rule. Caddy checks the existing API `/v1/auth/me` for a real approved-account
+session and active tenant membership before forwarding protected documents/APIs.
+IP changes no longer require reconfiguration. Anonymous documents go to `/sign-in`;
+login, MFA, recovery and explicit static assets work from any network. Protected API
+requests retain JSON 401/403. Owner MFA and each endpoint's permissions remain
+enforced by the application. Cookie presence or forwarded headers never grant
+access. Registration is blocked at Caddy, including for already signed-in accounts.
+Only loopback can probe readiness without a session. Www redirects preserve the URI.
+
+This remains **restricted preview**, not a public release: only existing approved
+active accounts can use it. Normal session expiry requires signing in again, not an
+IP-maintenance screen. Keep `/_next/data`, arbitrary documents, metrics and unknown
+APIs behind the session gate. Never add wildcard auth/asset bypasses. Run local smoke
+through verified HTTPS loopback and test approved, revoked, expired, suspended and
+inactive-membership sessions through the actual Caddy/API boundary.
 
 ### Moving from preview to public access
 
 The message `CodeBandage is in a restricted preview. Public registration is not open yet.`
 is the deliberate Caddy access gate, not a missing DNS record. A valid certificate
 and healthy private containers do not open that gate. Inspect the current Caddyfile
-and the exact release evidence over authenticated SSH. If the Owner's IP changed,
-refresh the restricted preview with `preview.py`; that is not public publication.
+and the exact release evidence over authenticated SSH. Apply the reviewed account
+preview instead of repeatedly adding new IPs; this is not public publication.
 
 For public publication, satisfy every field in `release-gates.example.json` and run
 `cutover.sh` against the exact deployed candidate and immutable image manifest.
-Do not edit out the peer restriction manually, mark missing tests passed, or remove
+Do not replace the account gate with the unrestricted Caddyfile, mark missing tests passed, or remove
 the dependency/container/off-server-backup gates. The backup gate requires a tested
 copy outside this VPS, including an approved plan to recover existing encryption
 keys and artifacts; a local database snapshot alone is not sufficient.

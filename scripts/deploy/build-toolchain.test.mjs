@@ -5,6 +5,7 @@ import test from 'node:test';
 import postcss from 'postcss';
 import nested from 'postcss-nested';
 import tailwind from 'tailwindcss';
+import './preview-policy.test.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 

@@ -1,38 +1,97 @@
+# Persistent restricted preview: real application sessions, never a moving IP.
+(preview_api) {
+  reverse_proxy 127.0.0.1:4000 {
+    header_up X-Forwarded-For {remote_host}
+    header_up -CF-Connecting-IP
+    header_up -X-Real-IP
+    flush_interval -1
+    transport http {
+      dial_timeout 5s
+      response_header_timeout 30s
+    }
+  }
+}
+
+(preview_web) {
+  reverse_proxy 127.0.0.1:3000 {
+    header_up X-Forwarded-For {remote_host}
+    header_up -CF-Connecting-IP
+    header_up -X-Real-IP
+    transport http {
+      dial_timeout 5s
+      response_header_timeout 30s
+    }
+  }
+}
+
 www.codebandage.com {
   redir https://codebandage.com{uri} 308
 }
 
 codebandage.com {
-  @preview remote_ip __PREVIEW_IP__ 127.0.0.1 ::1
-  handle @preview {
+  header X-Robots-Tag "noindex, nofollow"
+  route {
+    # Registration remains closed for everyone, including signed-in accounts.
+    @registration path /v1/auth/register /customer/register /agency/register /affiliate/register
+    handle @registration {
+      header Cache-Control "private, no-store"
+      header Content-Type "text/plain; charset=utf-8"
+      respond "CodeBandage registration is closed during private preview. Existing accounts can sign in at /sign-in." 503
+    }
+
+    # Only real liveness/readiness on the local management boundary.
+    @local_health {
+      remote_ip 127.0.0.1 ::1
+      path /v1/health/live /v1/health/ready
+    }
+    handle @local_health {
+      import preview_api
+    }
+
+    # Explicit account-entry endpoints, not a broad /auth/* bypass.
+    @account_entry path /v1/auth/customer/login /v1/auth/agency/login /v1/auth/affiliate/login /v1/auth/specialist/login /v1/auth/owner/login /v1/auth/me /v1/auth/logout /v1/auth/forgot-password /v1/auth/reset-password /v1/auth/resend-verification /v1/auth/verify-email /v1/auth/mfa/enroll /v1/auth/mfa/confirm /v1/auth/mfa/verify
+    handle @account_entry {
+      import preview_api
+    }
+
+    @public_web path /sign-in /customer/login /agency/login /affiliate/login /specialist/login /owner/login /mfa /forgot-password /reset-password /verify-email /approval-pending /suspended /deactivated /rejected /_next/static/* /brand/* /favicon.ico /icon.svg /manifest.webmanifest /opengraph-image.png
+    handle @public_web {
+      import preview_web
+    }
+
     @api path /v1 /v1/*
     handle @api {
-      reverse_proxy 127.0.0.1:4000 {
+      # Cookie presence is not authorization; the API validates the real session.
+      forward_auth 127.0.0.1:4000 {
+        uri /v1/auth/me
         header_up X-Forwarded-For {remote_host}
         header_up -CF-Connecting-IP
         header_up -X-Real-IP
-        flush_interval -1
         transport http {
           dial_timeout 5s
-          response_header_timeout 30s
+          response_header_timeout 10s
         }
       }
+      import preview_api
     }
+
     handle {
-      reverse_proxy 127.0.0.1:3000 {
+      forward_auth 127.0.0.1:4000 {
+        uri /v1/auth/me
         header_up X-Forwarded-For {remote_host}
         header_up -CF-Connecting-IP
         header_up -X-Real-IP
         transport http {
           dial_timeout 5s
-          response_header_timeout 30s
+          response_header_timeout 10s
+        }
+        @signin_required status 401 403
+        handle_response @signin_required {
+          header Cache-Control "private, no-store"
+          redir * /sign-in 303
         }
       }
+      import preview_web
     }
-  }
-  handle {
-    header Cache-Control "no-store"
-    header X-Robots-Tag "noindex, nofollow"
-    respond "CodeBandage is in a restricted preview. Public registration is not open yet." 503
   }
 }

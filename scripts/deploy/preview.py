@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""IP-restricted acceptance preview; never records public release gates as passed."""
+"""Account-protected acceptance preview; never marks public launch gates passed."""
 import datetime
 import fcntl
 import ipaddress
@@ -49,7 +49,9 @@ for name in ['app.env', 'smtp.env', 'postgres.env']:
     item = state / name
     if not item.is_file() or item.stat().st_mode & 0o077 or item.stat().st_uid != 0:
         raise SystemExit('Missing or unprotected state: ' + name)
-config = (root / 'infrastructure/production/Caddyfile.preview').read_text().replace('__PREVIEW_IP__', address)
+config = (root / 'infrastructure/production/Caddyfile.preview').read_text()
+if '__PREVIEW_IP__' in config or 'forward_auth' not in config:
+    raise SystemExit('Persistent account preview configuration required.')
 fd, name = tempfile.mkstemp(prefix='Caddyfile.preview-', dir='/etc/caddy')
 os.close(fd)
 candidate = Path(name)
@@ -81,7 +83,8 @@ except subprocess.CalledProcessError:
     raise
 record = state / ('preview-' + stamp + '.json')
 record.write_text(json.dumps({'status': 'RESTRICTED PREVIEW', 'commit': revision,
-    'manifest': str(manifest), 'allowed_peer': address, 'previous_caddy': str(backup)}, indent=2) + '\n')
+    'manifest': str(manifest), 'access_mode': 'approved-application-session',
+    'deployment_peer': address, 'previous_caddy': str(backup)}, indent=2) + '\n')
 record.chmod(0o600)
-print('RESTRICTED PREVIEW enabled for the authenticated SSH peer only.')
+print('RESTRICTED PREVIEW enabled for approved application accounts, independent of client IP.')
 print('Public launch gates remain incomplete; use cutover.sh only after passing them.')
