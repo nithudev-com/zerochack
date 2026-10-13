@@ -150,7 +150,9 @@ revision and matching immutable image labels. The IP must exactly match that
 connection's public peer **only as a deployment-authority check**, not as the website
 access rule. Caddy checks the existing API `/v1/auth/me` for a real approved-account
 session and active tenant membership before forwarding protected documents/APIs.
-IP changes no longer require reconfiguration. Anonymous documents go to `/sign-in`;
+IP changes no longer require reconfiguration. The exact marketing homepage `/` is public,
+including its query strings; it must return 200 directly rather than redirect to login.
+Private anonymous documents go to `/sign-in`; no `/*` homepage bypass is permitted.
 login, MFA, recovery and explicit static assets work from any network. Protected API
 requests retain JSON 401/403. Owner MFA and each endpoint's permissions remain
 enforced by the application. Cookie presence or forwarded headers never grant

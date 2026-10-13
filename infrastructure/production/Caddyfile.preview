@@ -54,7 +54,8 @@ codebandage.com {
       import preview_api
     }
 
-    @public_web path /sign-in /customer/login /agency/login /affiliate/login /specialist/login /owner/login /mfa /forgot-password /reset-password /verify-email /approval-pending /suspended /deactivated /rejected /_next/static/* /brand/* /favicon.ico /icon.svg /manifest.webmanifest /opengraph-image.png
+    # Only the exact marketing homepage is public; never allow /* here.
+    @public_web path / /sign-in /customer/login /agency/login /affiliate/login /specialist/login /owner/login /mfa /forgot-password /reset-password /verify-email /approval-pending /suspended /deactivated /rejected /_next/static/* /brand/* /favicon.ico /icon.svg /manifest.webmanifest /opengraph-image.png
     handle @public_web {
       import preview_web
     }

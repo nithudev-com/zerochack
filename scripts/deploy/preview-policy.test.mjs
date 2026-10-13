@@ -16,6 +16,9 @@ test('registration and private endpoints never enter a broad anonymous bypass', 
   assert(entry && !entry.includes('*') && !entry.includes('/v1/auth/register'));
   const assets = config.split('\n').find(line => line.includes('@public_web path'));
   assert(assets && !assets.includes('/_next/data') && !assets.includes('/_next/*') && !assets.includes('/customer/*'));
+  const publicPaths = assets.trim().split(/\s+/).slice(2);
+  assert(publicPaths.includes('/'), 'the exact homepage must not redirect to sign-in');
+  assert(!publicPaths.includes('/*'), 'homepage access must not expose private routes');
   assert(!config.includes('/v1/metrics')); assert(config.includes('remote_ip 127.0.0.1 ::1'));
 });
 test('preview keeps forwarding trust, streaming, CSP and public-release gates intact', () => {
