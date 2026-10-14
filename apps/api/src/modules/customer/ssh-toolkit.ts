@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createConnection } from 'node:net';
 import { Client, type ConnectConfig } from 'ssh2';
 import { resolvePublicTarget } from '@zerochack/scanner';
 
@@ -10,19 +11,58 @@ export type ServerInspection = { platform: string; roots: string[]; scannedFiles
 function fingerprint(key: Buffer): string { return `SHA256:${createHash('sha256').update(key).digest('base64')}`; }
 
 export async function connectSsh(access: SshAccess): Promise<{ client: Client; fingerprint: string }> {
-  const addresses = await resolvePublicTarget(new URL(`https://${access.host}`));
-  const selected = addresses[0]!; let observedFingerprint = ''; let keyChanged = false;
-  const config: ConnectConfig = {
-    host: selected.address, port: access.port, username: access.username, readyTimeout: 12_000,
-    hostVerifier: (key: Buffer) => { observedFingerprint = fingerprint(key); keyChanged = Boolean(access.hostKeyFingerprint && access.hostKeyFingerprint !== observedFingerprint); return !keyChanged; },
-    ...(access.authMethod === 'SSH_KEY' ? { privateKey: access.secret } : { password: access.secret })
-  };
-  return new Promise((resolve, reject) => {
-    const client = new Client(); const timer = setTimeout(() => { client.end(); reject(Object.assign(new Error('SSH connection timed out'), { code: 'SSH_TIMEOUT' })); }, 15_000);
-    client.once('ready', () => { clearTimeout(timer); resolve({ client, fingerprint: observedFingerprint }); });
-    client.once('error', (error) => { clearTimeout(timer); client.end(); reject(Object.assign(error, { code: keyChanged ? 'SSH_HOST_KEY_CHANGED' : /authentication/iu.test(error.message) ? 'SSH_AUTH_FAILED' : 'SSH_CONNECTION_FAILED' })); });
-    client.connect(config);
-  });
+  // No trust-on-first-use, including the older non-vault credential path.
+  const supplied = access.hostKeyFingerprint?.trim();
+  if (!supplied || !/^SHA256:[A-Za-z0-9+/]{43}=?$/u.test(supplied)) throw sshFailure('HOST_IDENTITY_REQUIRED');
+  const expected = supplied.endsWith('=') ? supplied : supplied + '=';
+  if (!['PASSWORD', 'SSH_KEY'].includes(access.authMethod)) throw sshFailure('SSH_AUTH_METHOD_UNSUPPORTED');
+  const deadline = Date.now() + 15_000;
+  let dnsTimer: ReturnType<typeof setTimeout> | undefined;
+  let addresses;
+  try {
+    addresses = await Promise.race([
+      resolvePublicTarget(new URL(`https://${access.host}`)),
+      new Promise<never>((_resolve, reject) => { dnsTimer = setTimeout(() => reject(sshFailure('SSH_DNS_TIMEOUT')), 5000); })
+    ]);
+  } finally { clearTimeout(dnsTimer); }
+  let lastFailure = sshFailure('SSH_CONNECTION_FAILED');
+  // Only retry transport failures, across already-validated public addresses.
+  // Never retry an authentication rejection or a changed host identity.
+  for (const selected of addresses.slice(0, 3)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw sshFailure('SSH_TIMEOUT');
+    try {
+      return await new Promise<{ client: Client; fingerprint: string }>((resolve, reject) => {
+        const socket = createConnection({ host: selected.address, port: access.port });
+        const client = new Client(); let settled = false; let observed = ''; let keyChanged = false;
+        const fail = (code: string) => {
+          if (settled) return; settled = true; clearTimeout(timer);
+          client.end(); socket.destroy(); reject(sshFailure(code));
+        };
+        const timer = setTimeout(() => fail('SSH_TIMEOUT'), Math.min(remaining, 12_000));
+        socket.on('error', () => fail('SSH_CONNECTION_FAILED'));
+        socket.once('close', () => fail('SSH_CONNECTION_FAILED'));
+        client.once('ready', () => { if (settled) return; settled = true; clearTimeout(timer); resolve({ client, fingerprint: observed }); });
+        client.on('error', error => fail(keyChanged ? 'SSH_HOST_KEY_CHANGED' : /authentication/iu.test(error.message) ? 'SSH_AUTH_FAILED' : /timed out/iu.test(error.message) ? 'SSH_TIMEOUT' : 'SSH_CONNECTION_FAILED'));
+        const config: ConnectConfig = {
+          sock: socket, username: access.username, readyTimeout: Math.min(remaining, 12_000),
+          keepaliveInterval: 5000, keepaliveCountMax: 2,
+          hostVerifier: (key: Buffer) => { observed = fingerprint(key); keyChanged = expected !== observed; return !keyChanged; },
+          ...(access.authMethod === 'SSH_KEY' ? { privateKey: access.secret } : { password: access.secret })
+        };
+        try { client.connect(config); } catch { fail('SSH_CREDENTIAL_FORMAT'); }
+      });
+    } catch (error) {
+      lastFailure = error as Error & { code: string };
+      if (!['SSH_CONNECTION_FAILED', 'SSH_TIMEOUT'].includes(lastFailure.code)) throw lastFailure;
+    }
+  }
+  throw lastFailure;
+}
+
+function sshFailure(code: string): Error & { code: string } {
+  // Never propagate library messages that could reflect submitted credentials.
+  return Object.assign(new Error('SSH connection was not verified.'), { code });
 }
 
 function executeScript(client: Client, script: string, timeoutMs = 120_000): Promise<string> {

@@ -11,7 +11,7 @@ import styles from './security-chat.module.css';
 
 type Website = { id: string; name: string; url: string };
 type Message = { id: string; type: string; content: string; createdAt: string; author?: { displayName: string | null } | null };
-type Access = { status: string; secretStored: boolean; lastCheckedAt: string | null; lastErrorCode: string | null };
+type Access = { status: string; secretStored: boolean; lastCheckedAt: string | null; lastErrorCode: string | null; authorizationExpiresAt?: string | null };
 type Care = { capabilities: { secureCapture?: boolean }; jobs: unknown[]; accessRequests: Array<{ status: string }> };
 // Keep credential-like text out of MESSAGE requests, including authenticated URLs.
 const sensitive = (text: string) => /-----BEGIN .*PRIVATE KEY-----|\b(?:password|passwd|pwd|secret|token|api[_ -]?key|private[_ -]?key)\s*[:=]\s*\S+|\bBearer\s+\S+|\bsk-[\w-]{12,}|\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/@:]{1,1024}:[^\s/@]{1,4096}@/iu.test(text);
@@ -27,7 +27,8 @@ export function SecurityChat({ website }: { website: Website }) {
   const care = useQuery({ queryKey: ['security-capture', website.id], queryFn: () => api<Care>(`${base}/care?environment=PRODUCTION`), retry: false, refetchInterval: 10000 });
   const chat = useInfiniteQuery({ queryKey: ['chat', website.id, 'PRODUCTION'], queryFn: ({ pageParam }) => api<Message[]>(`${base}/chat?environment=PRODUCTION${pageParam ? `&before=${pageParam}` : ''}`), initialPageParam: null as string | null, getNextPageParam: page => page.length === 200 ? page[0]!.id : undefined, refetchInterval: 5000, retry: false });
   const messages = [...new Map((chat.data?.pages.slice().reverse().flat() ?? []).map(message => [message.id, message])).values()];
-  const ready = !checkFailed && !access.isError && access.data?.status === 'READY_FOR_SECURE_SESSION' && Boolean(access.data.secretStored && access.data.lastCheckedAt && !access.data.lastErrorCode);
+  const authorized = !access.data?.authorizationExpiresAt || Date.parse(access.data.authorizationExpiresAt) > Date.now();
+  const ready = authorized && !checkFailed && !access.isError && access.data?.status === 'READY_FOR_SECURE_SESSION' && Boolean(access.data.secretStored && access.data.lastCheckedAt && !access.data.lastErrorCode);
   const canCapture = !care.isError && care.data?.capabilities.secureCapture === true;
   const hasActivity = Boolean(care.data?.jobs.length || care.data?.accessRequests.some(request => ['PENDING', 'APPROVED'].includes(request.status)));
   const refresh = async () => { await Promise.all([access.refetch(), chat.refetch(), client.invalidateQueries({ queryKey: ['website', website.id] }), client.invalidateQueries({ queryKey: ['care', website.id] })]); };
@@ -71,7 +72,7 @@ export function SecurityChat({ website }: { website: Website }) {
         {ready ? <><h2>What suspicious changes have you noticed?</h2><p>For example: redirects, unexpected pop-ups, changed pages, unknown users or a malware warning. When did it start?</p><p className={styles.note}>SSH was last checked {new Date(access.data!.lastCheckedAt!).toLocaleString()}. No assessment or cleanup has started.</p></> : <><h2>First, connect your SSH access securely.</h2><p>Use a dedicated server account for a website you own or administer. Never put a password or private key in this chat.</p><button className={styles.primary} aria-expanded={connectionOpen} aria-controls={`security-ssh-${website.id}`} disabled={busy} onClick={() => { setConnectionOpen(!connectionOpen); setError(''); }}>{connectionOpen ? 'Close secure SSH form' : 'Connect SSH securely'}</button><p className={styles.note}>You can describe the problem now. Connection checks and website changes are separate.</p></>}
       </article>
       {ready && !connectionOpen && <button className={styles.secondary} aria-expanded={false} aria-controls={`security-ssh-${website.id}`} disabled={busy} onClick={() => setConnectionOpen(true)}>Manage SSH access</button>}
-      {connectionOpen && <SecureSsh key={website.id} id={website.id} defaultHost={new URL(website.url).hostname} available={canCapture} loading={care.isLoading} access={access.isError ? null : access.data ?? null} onChanged={refresh} onChecked={() => { setCheckFailed(false); setConnectionOpen(false); }} onCheckFailed={() => setCheckFailed(true)} close={() => setConnectionOpen(false)} />}
+      {connectionOpen && <SecureSsh key={website.id} id={website.id} available={canCapture} loading={care.isLoading} access={access.isError ? null : access.data ?? null} onChanged={refresh} onChecked={() => { setCheckFailed(false); setConnectionOpen(false); }} onCheckFailed={() => setCheckFailed(true)} close={() => setConnectionOpen(false)} />}
       {access.isError && <p role="alert">SSH status could not be verified. <button className={styles.secondary} onClick={() => void access.refetch()}>Retry SSH status</button></p>}
       {busy && <p role="status" className={styles.note}>Waiting for the assistant response…</p>}
       <div ref={bottom} />
@@ -86,8 +87,8 @@ export function SecurityChat({ website }: { website: Website }) {
   </section>;
 }
 
-function SecureSsh({ id, defaultHost, available, loading, access, onChanged, onChecked, onCheckFailed, close }: { id: string; defaultHost: string; available: boolean; loading: boolean; access: Access | null; onChanged: () => Promise<void>; onChecked: () => void; onCheckFailed: () => void; close: () => void }) {
-  const [host, setHost] = useState(defaultHost); const [port, setPort] = useState('22'); const [username, setUsername] = useState('');
+function SecureSsh({ id, available, loading, access, onChanged, onChecked, onCheckFailed, close }: { id: string; available: boolean; loading: boolean; access: Access | null; onChanged: () => Promise<void>; onChecked: () => void; onCheckFailed: () => void; close: () => void }) {
+  const [host, setHost] = useState(''); const [port, setPort] = useState('22'); const [username, setUsername] = useState('');
   const [method, setMethod] = useState('SSH_KEY'); const [secret, setSecret] = useState(''); const [fingerprint, setFingerprint] = useState('');
   const [consent, setConsent] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const sending = useRef(false); const alive = useRef(true); const controller = useRef<AbortController | null>(null);
@@ -110,23 +111,25 @@ function SecureSsh({ id, defaultHost, available, loading, access, onChanged, onC
       if (!alive.current) return;
       onCheckFailed();
       // Do not reflect server responses from sensitive operations or restore secrets.
-      setError(caught instanceof ApiClientError && caught.code === 'HOST_IDENTITY_REQUIRED' ? 'Add the trusted host fingerprint from your hosting provider.' : 'SSH setup or connection check failed. Check the saved status, host fingerprint and account details. No assessment or changes started.');
+      const safeErrors: Record<string, string> = { HOST_IDENTITY_REQUIRED: 'Add the trusted host fingerprint from your hosting provider.', SSH_HOST_KEY_CHANGED: 'The server identity did not match. Verify the fingerprint through your provider; do not bypass this check.', SSH_AUTH_FAILED: 'The SSH server rejected the username, password or private key. Check these in your provider’s dashboard.', AUTHORIZATION_REQUIRED: 'SSH authorization expired or was revoked. Re-enter the account and approve a new check.', SSH_CHECK_IN_PROGRESS: 'A check is already running for this website. Wait for its result before retrying.', SSH_CHECK_LIMIT: 'SSH checks are busy. Please retry shortly.', SSH_ACCESS_CHANGED: 'The saved account changed during the check. Check the current saved account.', SSH_DNS_TIMEOUT: 'SSH DNS lookup timed out. Check the provider’s SSH hostname and retry.', SSH_TIMEOUT: 'The SSH server did not respond in time. Check the host, port and firewall, then retry.', SSH_CREDENTIAL_FORMAT: 'The private key format is not supported. Use a dedicated unencrypted SSH key or the password option.' };
+      setError((caught instanceof ApiClientError ? safeErrors[caught.code] : undefined) ?? 'SSH setup or connection check failed. Check the saved status, host fingerprint and account details. No assessment or changes started.');
       await onChanged();
     } finally { sending.current = false; if (alive.current) setBusy(false); }
   }
   return <section className={styles.ssh} id={`security-ssh-${id}`} aria-label="Secure SSH connection">
     <h2>Secure SSH connection</h2><p>Credentials go directly to encrypted storage, not to AI or conversation history.</p>
     {loading ? <p role="status">Checking secure capture availability…</p> : !available && <p role="alert">Secure capture is unavailable in this deployment. Do not enter credentials. Contact support; automated security work is not enabled.</p>}
-    {access?.secretStored && <div className={styles.saved}><p>Stored access · {access.status.toLowerCase().replaceAll('_', ' ')}. Secret hidden.</p><button className={styles.secondary} disabled={busy} onClick={() => void run(false)}>Check saved SSH connection</button><p><Link href={`/customer/websites/${id}/access?service=security`}>Review or revoke stored access</Link></p></div>}
+    {access?.secretStored && <div className={styles.saved}><p>Stored access · {access.status.toLowerCase().replaceAll('_', ' ')}. Secret hidden.</p>{access.authorizationExpiresAt && <p>Authorization expires {new Date(access.authorizationExpiresAt).toLocaleString()}. Re-enter access and consent after expiry.</p>}<button className={styles.secondary} disabled={busy || !available || Boolean(access.authorizationExpiresAt && Date.parse(access.authorizationExpiresAt) <= Date.now())} onClick={() => void run(false)}>Check saved SSH connection</button><p><Link href={`/customer/websites/${id}/access?service=security`}>Review or revoke stored access</Link></p></div>}
     <form aria-label="Secure SSH form" onSubmit={event => { event.preventDefault(); void run(true); }}>
       <fieldset disabled={!available || busy}><legend className="sr-only">SSH account details</legend>
-        <div className={styles.fields}><label>Server host<input required maxLength={253} pattern="[a-zA-Z0-9.\-]+" value={host} autoComplete="off" onChange={event => { setHost(event.target.value); changed(); }}/></label><label>SSH port<input required type="number" min={1} max={65535} value={port} onChange={event => { setPort(event.target.value); changed(); }}/></label></div>
+        <div className={styles.fields}><label>Server host<input required maxLength={253} pattern="[a-zA-Z0-9.\-]+" value={host} placeholder="SSH hostname or public IP" autoComplete="off" onChange={event => { setHost(event.target.value); changed(); }}/></label><label>SSH port<input required type="number" min={1} max={65535} value={port} onChange={event => { setPort(event.target.value); changed(); }}/></label></div>
+        <p><small>Use the SSH host from your hosting provider. Your website domain may point to a CDN, not the SSH server.</small></p>
         <label>SSH username<input required maxLength={120} value={username} autoComplete="off" onChange={event => { setUsername(event.target.value); changed(); }}/></label>
         <label>Authentication method<select aria-label="Authentication method" value={method} onChange={event => { setMethod(event.target.value); setSecret(''); changed(); }}><option value="SSH_KEY">Private key</option><option value="PASSWORD">Password</option></select></label>
         <label>Trusted host fingerprint<input required pattern="SHA256:[A-Za-z0-9+/]{43}=?" value={fingerprint} placeholder="SHA256:…" autoComplete="off" aria-describedby={`ssh-fingerprint-help-${id}`} onChange={event => { setFingerprint(event.target.value); changed(); }}/></label><p id={`ssh-fingerprint-help-${id}`}><small>Get this through your hosting provider’s trusted console. Do not guess or bypass it.</small></p>
         <label>{method === 'SSH_KEY' ? 'SSH private key' : 'SSH password'}{method === 'SSH_KEY' ? <textarea required maxLength={50000} value={secret} autoComplete="off" autoCorrect="off" spellCheck={false} data-private="true" onChange={event => { setSecret(event.target.value); changed(); }}/> : <input required type="password" maxLength={50000} value={secret} autoComplete="new-password" data-private="true" onChange={event => { setSecret(event.target.value); changed(); }}/>}</label>
         <label className={styles.consent}><input required type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)}/><span>I own or administer this server and authorize encrypted storage and a pinned SSH connection check only. Assessment, cleanup and changes need separate approval.</span></label>
-        <button className={styles.primary} disabled={busy || !consent || !secret || !fingerprint}>{busy ? 'Checking connection…' : 'Save securely & check SSH'}</button>
+        <button className={styles.primary} disabled={busy || !consent || !host || !username || !secret || !fingerprint}>{busy ? 'Checking connection…' : 'Save securely & check SSH'}</button>
       </fieldset>
     </form>
     {error && <p className={styles.error} role="alert">{error}</p>}

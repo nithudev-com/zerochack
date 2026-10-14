@@ -4,7 +4,7 @@ import AxeBuilder from '@axe-core/playwright';
 const id = 'c43690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const base = `/customer/websites/${id}`; const url = `${base}?service=security`;
 const stamp = '2026-10-10T06:00:00.000Z'; const fingerprint = `SHA256:${'a'.repeat(43)}`;
-async function fixture(page: Page, options: { ready?: boolean; disabled?: boolean; checkFailure?: boolean; captureFailure?: boolean; chatFailure?: boolean; statusFailure?: boolean; savedJobs?: boolean } = {}) {
+async function fixture(page: Page, options: { ready?: boolean; expired?: boolean; disabled?: boolean; checkFailure?: boolean; captureFailure?: boolean; chatFailure?: boolean; statusFailure?: boolean; savedJobs?: boolean } = {}) {
   let stored = options.ready ?? false; let checked = options.ready ?? false;
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   const messages = [{ id: 'old-1', type: 'CUSTOMER', content: 'A saved question from yesterday.', createdAt: stamp }];
@@ -14,7 +14,7 @@ async function fixture(page: Page, options: { ready?: boolean; disabled?: boolea
     const send = (body: unknown, status = 200) => route.fulfill({ headers, status, json: body });
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (request.method() !== 'GET') writes.push({ path, body: request.postData() ? request.postDataJSON() : {} });
-    const metadata = { status: checked ? 'READY_FOR_SECURE_SESSION' : 'CONFIGURED', secretStored: true, lastCheckedAt: checked ? stamp : null, lastErrorCode: null };
+    const metadata = { status: checked ? 'READY_FOR_SECURE_SESSION' : 'CONFIGURED', secretStored: true, lastCheckedAt: checked ? stamp : null, lastErrorCode: null, authorizationExpiresAt: options.expired ? '2020-01-01T00:00:00Z' : null };
     if (path.endsWith('/auth/me')) return send({ roles: ['Customer'] });
     if (path === `/v1/websites/${id}`) return send({ id, name: 'Security fixture', url: 'https://example.test', connectionStatus: 'VERIFIED' });
     if (path.endsWith('/access')) return options.statusFailure ? send({ error: { code: 'UNAVAILABLE', message: 'Unavailable' } }, 503) : send(stored ? metadata : null);
@@ -40,6 +40,7 @@ async function fixture(page: Page, options: { ready?: boolean; disabled?: boolea
 }
 async function fillSsh(page: Page) {
   await page.getByRole('button', { name: 'Connect SSH securely', exact: true }).click();
+  await page.getByLabel('Server host', { exact: true }).fill('ssh.provider.example');
   await page.getByLabel('SSH username', { exact: true }).fill('deployment');
   await page.getByLabel('Authentication method', { exact: true }).selectOption('PASSWORD');
   await page.getByLabel('Trusted host fingerprint', { exact: true }).fill(fingerprint);
@@ -97,6 +98,11 @@ for (const captureFailure of [false, true]) test(`${captureFailure ? 'capture' :
 test('disabled secure capture locks secret entry instead of pretending a connection works', async ({ page }) => {
   const writes = await fixture(page, { disabled: true }); await page.goto(url); await page.getByRole('button', { name: 'Connect SSH securely' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Secure capture is unavailable' })).toBeVisible(); await expect(page.getByLabel('SSH private key')).toBeDisabled(); await expect(page.getByRole('button', { name: 'Save securely & check SSH' })).toBeDisabled(); expect(writes).toEqual([]);
+});
+test('an expired saved authorization is not presented as a usable connection', async ({ page }) => {
+  const writes = await fixture(page, { ready: true, expired: true }); await page.goto(url);
+  await expect(page.getByRole('heading', { name: 'First, connect your SSH access securely.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toHaveCount(0); expect(writes).toEqual([]);
 });
 test('credential-like chat text is never sent, persisted in storage or kept as a draft', async ({ page }) => {
   const writes = await fixture(page, { ready: true }); await page.goto(url);

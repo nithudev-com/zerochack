@@ -2,14 +2,14 @@ import type { RouteHandlerMethod } from 'fastify';
 import { looksSensitive } from '@zerochack/care';
 import { brokerSecret, captureAccess, trackedChat, finishChat } from '../care/service.js';
 import { EventEmitter } from 'node:events';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { resolveTxt } from 'node:dns/promises';
 import type { FastifyInstance } from 'fastify';
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { z } from 'zod';
 import { database } from '@zerochack/database';
-import { encryptSecret, generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
+import { generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
 import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, validatePublicHttpTarget, type EngineFinding } from '@zerochack/scanner';
 import type { Environment } from '@zerochack/config';
 import { ApiError } from '../../errors.js';
@@ -35,6 +35,8 @@ const accessInput = z.object({
   port: z.number().int().min(1).max(65_535).default(22),
   username: z.string().trim().min(1).max(120),
   authMethod: z.enum(['PASSWORD', 'SSH_KEY']),
+  hostKeyFingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}=?$/).optional(),
+  idempotencyKey: z.string().uuid().optional(),
   secret: z.string().min(1).max(50_000),
   authorizationConfirmed: z.literal(true)
 });
@@ -113,30 +115,43 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return conversation;
   };
 
-  const checkWebsiteAccess = async (input: { tenantId: string; websiteId: string; actorUserId: string; requestId: string; ipAddress: string; announce?: boolean }) => {
+  type CheckInput = { tenantId: string; websiteId: string; actorUserId: string; requestId: string; ipAddress: string; announce?: boolean };
+  const activeSshChecks = new Set<string>();
+  const checkWebsiteAccess = async (input: CheckInput) => {
+    const key = `${input.tenantId}:${input.websiteId}`;
+    if (activeSshChecks.has(key)) throw new ApiError(409, 'SSH_CHECK_IN_PROGRESS', 'An SSH check is already running for this website.');
+    if (activeSshChecks.size >= 4) throw new ApiError(429, 'SSH_CHECK_LIMIT', 'SSH checks are busy. Retry shortly.');
+    activeSshChecks.add(key);
+    try { return await performWebsiteAccessCheck(input); } finally { activeSshChecks.delete(key); }
+  };
+  const performWebsiteAccessCheck = async (input: CheckInput) => {
     await websiteForTenant(input.tenantId, input.websiteId);
     const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_CONFIGURED', 'Add your scoped server access in the encrypted Secure Access form before checking it.');
-    if (access.vaultCredentialId && !access.hostKeyFingerprint) throw new ApiError(409, 'HOST_IDENTITY_REQUIRED', 'Add the trusted SHA256 host fingerprint from your hosting provider to Secure capture before connecting.');
+    if (!access.hostKeyFingerprint) throw new ApiError(409, 'HOST_IDENTITY_REQUIRED', 'Add the trusted SHA256 host fingerprint from your hosting provider before connecting.');
+    const unchanged = { id: access.id, tenantId: input.tenantId, websiteId: input.websiteId, host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, encryptedSecret: access.encryptedSecret, vaultCredentialId: access.vaultCredentialId, hostKeyFingerprint: access.hostKeyFingerprint, updatedAt: access.updatedAt };
     try {
       const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint });
       connection.client.end();
-      const [updated] = await database.$transaction([
-        database.websiteAccessCredential.update({ where: { websiteId: input.websiteId }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } }),
-        database.website.update({ where: { id: input.websiteId }, data: { connectionStatus: 'VERIFIED', connectedAt: new Date(), connectionErrorCode: null } })
-      ]);
+      const updated = await database.$transaction(async tx => {
+        const changed = await tx.websiteAccessCredential.updateMany({ where: { ...unchanged, website: { is: { tenantId: input.tenantId, lifecycle: 'ACTIVE' } }, ...(access.vaultCredentialId ? { vaultCredential: { is: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'STORED', authorizationExpiresAt: { gt: new Date() } } } } : {}) }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null } });
+        if (changed.count !== 1) throw new ApiError(409, 'SSH_ACCESS_CHANGED', 'SSH access changed or expired during this check. Check the current saved account.');
+        await tx.website.update({ where: { id: input.websiteId }, data: { connectionStatus: 'VERIFIED', connectedAt: new Date(), connectionErrorCode: null } });
+        return tx.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: input.websiteId }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, vaultCredential: { select: { authorizationExpiresAt: true } } } });
+      });
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: 'Your SSH details are correct and the server identity has been pinned. I am ready to run the bounded read-only security assessment. I will never place your password or private key in this chat or in an AI prompt.' } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: 'SSH authentication succeeded and the trusted server identity matched. No assessment, cleanup or changes started. Your password or private key was not added to chat or sent to AI.' } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       await writeAudit({ tenantId: input.tenantId, actorUserId: input.actorUserId, requestId: input.requestId, action: 'website.ssh_access_checked', resourceType: 'website', resourceId: input.websiteId, ipAddress: input.ipAddress, metadata: { hostKeyPinned: true } });
-      return { ...updated, secretStored: true, guidance: 'SSH authentication succeeded. The server key is pinned and secure access is ready.' };
+      const { vaultCredential, ...metadata } = updated;
+      return { ...metadata, secretStored: true, authorizationExpiresAt: vaultCredential?.authorizationExpiresAt ?? null, guidance: 'SSH authentication succeeded. No assessment or changes started.' };
     } catch (error) {
       const code = error instanceof TargetSecurityError ? error.code : sshErrorCode(error);
-      await database.websiteAccessCredential.update({ where: { websiteId: input.websiteId }, data: { status: 'NEEDS_ATTENTION', lastCheckedAt: new Date(), lastErrorCode: code } });
-      const guidance = code === 'SSH_AUTH_FAILED' ? 'I could reach the SSH server, but authentication failed. Recheck the SSH username and use a current password or private key from your hosting dashboard. If you do not know where to find it, tell me your hosting company in chat or choose live support.' : code === 'SSH_HOST_KEY_CHANGED' ? 'The server identity changed since the last successful connection. For safety I stopped. Confirm the change with your hosting provider before rotating the saved access.' : 'I could not reach the SSH service. Confirm the SSH host and port in your hosting dashboard and check whether remote SSH access is enabled.';
+      await database.websiteAccessCredential.updateMany({ where: unchanged, data: { status: 'NEEDS_ATTENTION', lastCheckedAt: new Date(), lastErrorCode: code } });
+      const guidance = code === 'AUTHORIZATION_REQUIRED' ? 'Stored SSH authorization expired or was revoked. Re-enter access in the secure form and approve a new connection check.' : code === 'SSH_ACCESS_CHANGED' ? 'The saved account changed or expired during this check. Check the current saved account; the old result was not applied.' : code === 'SSH_AUTH_FAILED' ? 'The SSH server rejected authentication. Check the username and current key or password in your hosting dashboard.' : code === 'SSH_HOST_KEY_CHANGED' ? 'The server identity did not match your trusted fingerprint. Confirm the identity through your hosting provider before changing the saved fingerprint.' : 'SSH was not verified. Check the SSH host and port from your provider, DNS, firewall and account details. A website domain may point to a CDN rather than its SSH server.';
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: guidance } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: guidance } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       throw new ApiError(409, code, guidance);
@@ -306,8 +321,11 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     requirePermission(request, 'websites.read');
     const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
     await websiteForTenant(tenantId, websiteId);
-    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
-    return access ? { ...access, secretStored: true } : null;
+    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, encryptedSecret: true, vaultCredentialId: true, vaultCredential: { select: { status: true, authorizationExpiresAt: true } } } });
+    if (!access) return null;
+    const { encryptedSecret, vaultCredentialId, vaultCredential, ...metadata } = access;
+    const authorized = !vaultCredentialId || Boolean(options.environment.CARE_ENABLED && vaultCredential?.status === 'STORED' && vaultCredential.authorizationExpiresAt > new Date());
+    return { ...metadata, ...(!authorized ? { status: 'NEEDS_ATTENTION', lastErrorCode: 'AUTHORIZATION_REQUIRED' } : {}), secretStored: vaultCredentialId ? vaultCredential?.status === 'STORED' : Boolean(encryptedSecret), authorizationExpiresAt: vaultCredential?.authorizationExpiresAt ?? null };
   });
 
   app.put('/websites/:websiteId/access', async (request) => {
@@ -316,21 +334,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     await websiteForTenant(tenantId, websiteId);
     const host = input.host.toLowerCase();
     try { validateHostname(host); } catch (error) { if (error instanceof TargetSecurityError) throw new ApiError(400, error.code, error.message); throw error; }
-    const encryptedSecret = encryptSecret(input.secret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY);
-    const access = await database.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
-      const previous = await tx.websiteAccessCredential.findUnique({ where: { websiteId } });
-      if (previous?.vaultCredentialId) {
-        await tx.careCredential.updateMany({ where: { id: previous.vaultCredentialId, tenantId, websiteId }, data: { status: 'REVOKED', encryptedEnvelope: '' } });
-        await tx.careAccessRequest.updateMany({ where: { credentialId: previous.vaultCredentialId }, data: { status: 'REVOKED' } });
-      }
-      return tx.websiteAccessCredential.upsert({
-      where: { websiteId },
-      create: { tenantId, websiteId, host, port: input.port, username: input.username, authMethod: input.authMethod, encryptedSecret },
-      update: { vaultCredentialId: null, host, port: input.port, username: input.username, authMethod: input.authMethod, encryptedSecret, hostKeyFingerprint: null, status: 'CONFIGURED', lastCheckedAt: null, lastErrorCode: null },
-      select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true }
-    });
-    });
+    await captureAccess(request, websiteId, { content: JSON.stringify({ kind: 'SSH', host, port: input.port, username: input.username, authMethod: input.authMethod, secret: input.secret, ...(input.hostKeyFingerprint ? { hostKeyFingerprint: input.hostKeyFingerprint } : {}) }), environment: 'PRODUCTION', authorizationConfirmed: input.authorizationConfirmed, idempotencyKey: input.idempotencyKey ?? randomUUID() }, options.environment);
+    const access = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
     await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'website.access_saved', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { host, port: input.port, authMethod: input.authMethod, secretStored: true } });
     return { ...access, secretStored: true };
   });

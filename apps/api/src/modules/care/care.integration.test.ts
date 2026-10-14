@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { database } from '@zerochack/database';
 import { hashOpaqueToken, totp } from '@zerochack/auth';
@@ -6,6 +6,7 @@ import { loadEnvironment } from '@zerochack/config';
 import { brokerSecret } from './service.js';
 import { maintainCareRecords } from '../../../../worker/src/care-maintenance.js';
 import { buildApp } from '../../app.js';
+import * as sshToolkit from '../customer/ssh-toolkit.js';
 
 const environment = loadEnvironment({ NODE_ENV: 'test', CARE_ENABLED: 'true', DATABASE_URL: process.env.DATABASE_URL, REDIS_URL: 'redis://127.0.0.1:6380', SESSION_SECRET: 'care-test-session-secret-at-least-32-characters', CARE_VAULT_KEY: Buffer.alloc(32, 19).toString('base64'), CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' });
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -32,6 +33,36 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('care routes through actual authentication and database paths', () => {
+  it('pins encrypted access, isolates tenants, rejects expiry and discards checks of replaced credentials', async () => {
+    const site = await database.website.create({ data: { tenantId: customer.tenantId, name: 'SSH race fixture', url: 'https://ssh.example.test', normalizedHost: 'ssh.example.test' } });
+    const url = `/v1/websites/${site.id}/access`; const headers = { cookie: customer.cookie };
+    const pin = `SHA256:${'a'.repeat(43)}`;
+    const payload = { host: 'ssh.example.test', port: 22, username: 'fixture', authMethod: 'PASSWORD', secret: marker, hostKeyFingerprint: pin, authorizationConfirmed: true, idempotencyKey: randomUUID() };
+    expect((await app.inject({ method: 'PUT', url, headers, payload: { ...payload, authorizationConfirmed: false } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PUT', url, headers: { cookie: other.cookie }, payload })).statusCode).toBe(404);
+    const disabled = await buildApp({ ...environment, CARE_ENABLED: false });
+    try { expect((await disabled.inject({ method: 'PUT', url, headers, payload })).statusCode).toBe(503); } finally { await disabled.close(); }
+    expect((await app.inject({ method: 'PUT', url, headers, payload })).statusCode).toBe(200);
+    const saved = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: site.id } });
+    expect(saved.hostKeyFingerprint).toBe(pin); expect(saved.encryptedSecret).toBe(''); expect(saved.vaultCredentialId).toBeTruthy();
+    const metadata = await app.inject({ method: 'GET', url, headers }); expect(metadata.body).not.toContain(marker); expect(metadata.body).not.toContain('encryptedEnvelope');
+    let release!: (value: Awaited<ReturnType<typeof sshToolkit.connectSsh>>) => void;
+    let entered!: () => void; const started = new Promise<void>(resolve => { entered = resolve; });
+    const end = vi.fn();
+    const connection = vi.spyOn(sshToolkit, 'connectSsh').mockImplementation(() => { entered(); return new Promise(resolve => { release = resolve; }); });
+    try {
+      const checking = app.inject({ method: 'POST', url: url + '/check', headers }); await started;
+      expect((await app.inject({ method: 'POST', url: url + '/check', headers })).statusCode).toBe(409);
+      expect((await app.inject({ method: 'PUT', url, headers, payload: { ...payload, username: 'replacement', idempotencyKey: randomUUID() } })).statusCode).toBe(200);
+      release({ client: { end } as unknown as Awaited<ReturnType<typeof sshToolkit.connectSsh>>['client'], fingerprint: pin });
+      const stale = await checking; expect(stale.statusCode).toBe(409); expect(stale.json().error.code).toBe('SSH_ACCESS_CHANGED'); expect(end).toHaveBeenCalledOnce();
+      const current = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: site.id } }); expect(current.username).toBe('replacement'); expect(current.status).toBe('CONFIGURED'); expect(current.lastErrorCode).toBeNull();
+      await database.careCredential.update({ where: { id: current.vaultCredentialId! }, data: { authorizationExpiresAt: new Date(0) } });
+      const expired = await app.inject({ method: 'GET', url, headers }); expect(expired.json()).toMatchObject({ status: 'NEEDS_ATTENTION', lastErrorCode: 'AUTHORIZATION_REQUIRED' });
+      const rejected = await app.inject({ method: 'POST', url: url + '/check', headers }); expect(rejected.statusCode).toBe(409); expect(rejected.json().error.code).toBe('AUTHORIZATION_REQUIRED'); expect(connection).toHaveBeenCalledOnce();
+      expect(await database.aiUsage.count({ where: { tenantId: customer.tenantId } })).toBe(0);
+    } finally { connection.mockRestore(); }
+  });
   it('isolates record tools by tenant and returns no account secrets or unbounded errors', async () => {
     const job = await database.careJob.create({ data: { tenantId: customer.tenantId, websiteId: siteId, userId: customer.userId, requestKey: randomUUID(), kind: 'REPAIR', environment: 'PRODUCTION', summary: 'Scoped record tool fixture', state: 'FAILED', errorCode: marker } });
     const url = `/v1/jobs/${job.id}/tools/`;
@@ -143,7 +174,8 @@ describe.sequential('care routes through actual authentication and database path
     const replacement = await app.inject({ method: 'PUT', url: `/v1/websites/${siteId}/access`, headers: { cookie: customer.cookie }, payload: { host: 'server.example.com', port: 22, username: 'deploy', authMethod: 'PASSWORD', secret: 'synthetic-legacy-replacement', authorizationConfirmed: true } });
     expect(replacement.statusCode, replacement.body).toBe(200);
     expect(await database.careCredential.findUniqueOrThrow({ where: { id: currentId } })).toMatchObject({ status: 'REVOKED', encryptedEnvelope: '' });
-    expect((await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: siteId } })).vaultCredentialId).toBeNull();
+    const replacementBridge = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: siteId } });
+    expect(replacementBridge.vaultCredentialId).not.toBeNull(); expect(replacementBridge.vaultCredentialId).not.toBe(currentId); expect(replacementBridge.encryptedSecret).toBe('');
   });
 
   it('expires stored material and marks lost worker heartbeats stale without replay', async () => {
