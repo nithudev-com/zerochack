@@ -25,9 +25,10 @@ for (const width of [320, 390, 1440]) test(`website card and five under-construc
   const open = page.getByRole('link', { name: 'Open workspace', exact: true }); await expect(open).toHaveAttribute('href', `/customer/websites/${id}/services`);
   const tools = page.getByRole('button', { name: 'Tools', exact: true }); await expect(tools).toHaveCSS('background-color', 'rgb(21, 128, 61)'); await tools.click();
   const dialog = page.getByRole('dialog', { name: 'Website tools' }); await expect(dialog).toBeVisible();
+  await expect(dialog.locator('[data-tool] strong')).toHaveText(['Security', 'SEO', 'Automation', 'Marketing', 'Chat Agent']);
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   await page.screenshot({ path: `/tmp/codebandage-website-tools-${width}.png`, fullPage: true });
-  for (const name of ['SEO', 'Security', 'Automation', 'Marketing', 'Chat Agent']) {
+  for (const name of ['Security', 'SEO', 'Automation', 'Marketing', 'Chat Agent']) {
     const choice = dialog.locator(`[data-tool="${name}"]`); await expect(choice).toContainText('Under construction'); await choice.click();
     await expect(dialog.getByRole('heading', { name: `${name} · Under construction` })).toBeFocused();
     await expect(dialog.getByText(/no work has started/)).toBeVisible();

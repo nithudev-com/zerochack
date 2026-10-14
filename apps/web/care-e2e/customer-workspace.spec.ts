@@ -52,6 +52,7 @@ for (const width of [320, 390, 768, 1440]) test(`website-focused overview is sim
   for (const heading of ['Tools', 'Workplace', 'My activity log']) await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
   for (const old of ['At a glance', 'Care status', 'What needs attention', 'Quick access', 'Open findings', 'Latest scan']) await expect(page.getByText(old, { exact: true })).toHaveCount(0);
   await expect(page.locator('[data-overview-tool]')).toHaveCount(5);
+  await expect(page.locator('[data-overview-tool] strong')).toHaveText(['Security', 'SEO', 'Automation', 'Marketing', 'Chat Agent']);
   const workplace = page.locator('section[aria-labelledby="overview-workplace"]');
   for (const service of websiteServices) await expect(workplace.getByRole('link', { name: service.label, exact: true })).toHaveAttribute('href', `/customer/websites/${firstId}?service=${service.id}`);
   expect(writes).toEqual([]);

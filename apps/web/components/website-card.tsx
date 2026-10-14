@@ -7,8 +7,8 @@ import styles from './websites.module.css';
 
 export type WebsiteListItem = { id: string; name: string; url: string; connectionSummary?: { kind: 'NONE' | 'SSH' | 'CONNECTOR'; providers: string[]; lastCheckedAt: string | null } };
 export const websiteTools = ([
-  { id: 'seo', symbol: '↗', description: 'Search visibility and website optimization.' },
   { id: 'security', symbol: '◇', description: 'Website protection and security checks.' },
+  { id: 'seo', symbol: '↗', description: 'Search visibility and website optimization.' },
   { id: 'automation', symbol: 'ϟ', description: 'Repeatable workflows and routine tasks.' },
   { id: 'marketing', symbol: '◎', description: 'Campaigns and audience growth.' },
   { id: 'chat', symbol: '✦', description: 'A conversational assistant for your website.' }
