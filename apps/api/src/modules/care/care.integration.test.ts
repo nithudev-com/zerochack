@@ -36,12 +36,12 @@ describe.sequential('care routes through actual authentication and database path
   it('pins encrypted access, isolates tenants, rejects expiry and discards checks of replaced credentials', async () => {
     const site = await database.website.create({ data: { tenantId: customer.tenantId, name: 'SSH race fixture', url: 'https://ssh.example.test', normalizedHost: 'ssh.example.test' } });
     const url = `/v1/websites/${site.id}/access`; const headers = { cookie: customer.cookie };
-    const pin = `SHA256:${'a'.repeat(43)}`;
-    const payload = { host: 'ssh.example.test', port: 22, username: 'fixture', authMethod: 'PASSWORD', secret: marker, hostKeyFingerprint: pin, authorizationConfirmed: true, idempotencyKey: randomUUID() };
+    const pin = `SHA256:${'a'.repeat(43)}=`;
+    const payload = { host: 'ssh.example.com', port: 22, username: 'fixture', authMethod: 'PASSWORD', secret: marker, hostKeyFingerprint: pin, authorizationConfirmed: true, idempotencyKey: randomUUID() };
     expect((await app.inject({ method: 'PUT', url, headers, payload: { ...payload, authorizationConfirmed: false } })).statusCode).toBe(400);
     expect((await app.inject({ method: 'PUT', url, headers: { cookie: other.cookie }, payload })).statusCode).toBe(404);
     const disabled = await buildApp({ ...environment, CARE_ENABLED: false });
-    try { expect((await disabled.inject({ method: 'PUT', url, headers, payload })).statusCode).toBe(503); } finally { await disabled.close(); }
+    try { const blocked = await disabled.inject({ method: 'PUT', url, headers, payload }); expect(blocked.statusCode, blocked.body).toBe(503); } finally { await disabled.close(); }
     expect((await app.inject({ method: 'PUT', url, headers, payload })).statusCode).toBe(200);
     const saved = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: site.id } });
     expect(saved.hostKeyFingerprint).toBe(pin); expect(saved.encryptedSecret).toBe(''); expect(saved.vaultCredentialId).toBeTruthy();
