@@ -21,6 +21,7 @@ import { verifyReport, reportTypes, type ReportDocument } from '@zerochack/repor
 import { publishTenantEvent } from '../communications/service.js';
 import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
 import { connectionSummary } from './connection-summary.js';
+import { verifySshHost } from './ssh-host-trust.js';
 import { navigationActivity, navigationClickAction, navigationClickInput } from './overview-activity.js';
 
 const websiteInput = z.object({ name: z.string().trim().min(2).max(120), url: z.string().url().max(2048) });
@@ -36,6 +37,7 @@ const accessInput = z.object({
   username: z.string().trim().min(1).max(120),
   authMethod: z.enum(['PASSWORD', 'SSH_KEY']),
   hostKeyFingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}=?$/).optional(),
+  firstConnectionTrustConfirmed: z.boolean().default(false),
   idempotencyKey: z.string().uuid().optional(),
   secret: z.string().min(1).max(50_000),
   authorizationConfirmed: z.literal(true)
@@ -128,10 +130,9 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     await websiteForTenant(input.tenantId, input.websiteId);
     const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_CONFIGURED', 'Add your scoped server access in the encrypted Secure Access form before checking it.');
-    if (!access.hostKeyFingerprint) throw new ApiError(409, 'HOST_IDENTITY_REQUIRED', 'Add the trusted SHA256 host fingerprint from your hosting provider before connecting.');
     const unchanged = { id: access.id, tenantId: input.tenantId, websiteId: input.websiteId, host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, encryptedSecret: access.encryptedSecret, vaultCredentialId: access.vaultCredentialId, hostKeyFingerprint: access.hostKeyFingerprint, updatedAt: access.updatedAt };
     try {
-      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint });
+      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint }, verifySshHost(access, input.actorUserId, input.requestId));
       connection.client.end();
       const updated = await database.$transaction(async tx => {
         const changed = await tx.websiteAccessCredential.updateMany({ where: { ...unchanged, website: { is: { tenantId: input.tenantId, lifecycle: 'ACTIVE' } }, ...(access.vaultCredentialId ? { vaultCredential: { is: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'STORED', authorizationExpiresAt: { gt: new Date() } } } } : {}) }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null } });
@@ -140,7 +141,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
         return tx.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: input.websiteId }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, vaultCredential: { select: { authorizationExpiresAt: true } } } });
       });
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: 'SSH authentication succeeded and the trusted server identity matched. No assessment, cleanup or changes started. Your password or private key was not added to chat or sent to AI.' } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: 'SSH authentication succeeded. The server identity is saved and later changes will be blocked. No assessment, cleanup or changes started. Your password or private key was not added to chat or sent to AI.' } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       await writeAudit({ tenantId: input.tenantId, actorUserId: input.actorUserId, requestId: input.requestId, action: 'website.ssh_access_checked', resourceType: 'website', resourceId: input.websiteId, ipAddress: input.ipAddress, metadata: { hostKeyPinned: true } });
@@ -334,7 +335,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     await websiteForTenant(tenantId, websiteId);
     const host = input.host.toLowerCase();
     try { validateHostname(host); } catch (error) { if (error instanceof TargetSecurityError) throw new ApiError(400, error.code, error.message); throw error; }
-    await captureAccess(request, websiteId, { content: JSON.stringify({ kind: 'SSH', host, port: input.port, username: input.username, authMethod: input.authMethod, secret: input.secret, ...(input.hostKeyFingerprint ? { hostKeyFingerprint: input.hostKeyFingerprint } : {}) }), environment: 'PRODUCTION', authorizationConfirmed: input.authorizationConfirmed, idempotencyKey: input.idempotencyKey ?? randomUUID() }, options.environment);
+    await captureAccess(request, websiteId, { content: JSON.stringify({ kind: 'SSH', host, port: input.port, username: input.username, authMethod: input.authMethod, secret: input.secret, firstConnectionTrustConfirmed: input.firstConnectionTrustConfirmed, ...(input.hostKeyFingerprint ? { hostKeyFingerprint: input.hostKeyFingerprint } : {}) }), environment: 'PRODUCTION', authorizationConfirmed: input.authorizationConfirmed, idempotencyKey: input.idempotencyKey ?? randomUUID() }, options.environment);
     const access = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
     await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'website.access_saved', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { host, port: input.port, authMethod: input.authMethod, secretStored: true } });
     return { ...access, secretStored: true };

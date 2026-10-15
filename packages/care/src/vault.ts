@@ -13,6 +13,7 @@ const credentialSchema = z.object({
   port: z.number().int().min(1).max(65535).default(22),
   username: z.string().trim().min(1).max(120),
   hostKeyFingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}=?$/).optional(),
+  firstConnectionTrustConfirmed: z.boolean().default(false),
   secret: z.string().min(1).max(50000),
   authMethod: z.enum(['PASSWORD', 'SSH_KEY', 'TOKEN']).default('PASSWORD')
 }).strict();

@@ -3,7 +3,7 @@ import AxeBuilder from '@axe-core/playwright';
 
 const id = 'c43690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const base = `/customer/websites/${id}`; const url = `${base}?service=security`;
-const stamp = '2026-10-10T06:00:00.000Z'; const fingerprint = `SHA256:${'a'.repeat(43)}`;
+const stamp = '2026-10-10T06:00:00.000Z';
 async function fixture(page: Page, options: { ready?: boolean; expired?: boolean; disabled?: boolean; checkFailure?: boolean; captureFailure?: boolean; chatFailure?: boolean; statusFailure?: boolean; savedJobs?: boolean } = {}) {
   let stored = options.ready ?? false; let checked = options.ready ?? false;
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
@@ -42,8 +42,6 @@ async function fillSsh(page: Page) {
   await page.getByRole('button', { name: 'Connect SSH securely', exact: true }).click();
   await page.getByLabel('Server host', { exact: true }).fill('ssh.provider.example');
   await page.getByLabel('SSH username', { exact: true }).fill('deployment');
-  await page.getByLabel('Authentication method', { exact: true }).selectOption('PASSWORD');
-  await page.getByLabel('Trusted host fingerprint', { exact: true }).fill(fingerprint);
   await page.getByLabel('SSH password', { exact: true }).fill('synthetic-test-only-not-a-real-secret');
 }
 
@@ -75,29 +73,29 @@ test('checked SSH asks about symptoms; chat saves real replies and never starts 
   expect(writes).toHaveLength(1); expect(writes[0]!.body).toMatchObject({ mode: 'MESSAGE', content: 'My homepage redirects to another site. I noticed it this morning.' }); expect(writes[0]!.path).toBe(`/v1/websites/${id}/chat/ingest`);
   await page.reload(); await expect(page.getByText('Which pages changed, and when did you first notice?')).toBeVisible(); expect(writes).toHaveLength(1);
 });
-test('SSH requires consent and trusted fingerprint; success asks the next question without starting jobs', async ({ page }) => {
+test('four-field SSH requires consent but no fingerprint; success starts no jobs', async ({ page }) => {
   const writes = await fixture(page); await page.goto(url); await fillSsh(page);
-  const submit = page.getByRole('button', { name: 'Save securely & check SSH', exact: true }); await expect(submit).toBeDisabled();
-  await page.getByLabel('I own or administer this server').check(); await page.getByLabel('SSH port', { exact: true }).fill('2222'); await expect(page.getByLabel('I own or administer this server')).not.toBeChecked(); await page.getByLabel('I own or administer this server').check();
+  const submit = page.getByRole('button', { name: 'Connect SSH', exact: true }); await expect(submit).toBeDisabled();
+  await page.getByLabel('I own or administer this server').check(); await page.getByLabel('SSH port', { exact: true }).fill('65002'); await expect(page.getByLabel('I own or administer this server')).not.toBeChecked(); await page.getByLabel('I own or administer this server').check();
   expect((await new AxeBuilder({ page }).include('[aria-label="Secure SSH connection"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   await submit.click(); await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toBeVisible();
   expect(writes.map(row => row.path)).toEqual([`/v1/websites/${id}/chat/ingest`, `/v1/websites/${id}/access/check`]); expect(writes[0]!.body).toMatchObject({ mode: 'SECURE', authorizationConfirmed: true, environment: 'PRODUCTION' });
-  expect(JSON.parse(writes[0]!.body.content as string)).toMatchObject({ kind: 'SSH', port: 2222, username: 'deployment', authMethod: 'PASSWORD', hostKeyFingerprint: fingerprint }); expect(await page.locator('body').innerText()).not.toContain('synthetic-test-only-not-a-real-secret');
+  expect(JSON.parse(writes[0]!.body.content as string)).toMatchObject({ kind: 'SSH', port: 65002, username: 'deployment', authMethod: 'PASSWORD', firstConnectionTrustConfirmed: true }); expect(await page.locator('body').innerText()).not.toContain('synthetic-test-only-not-a-real-secret');
   await page.reload(); await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toBeVisible(); expect(writes).toHaveLength(2);
 });
-test('missing fingerprint prevents submission; cancelling discards credentials and consent', async ({ page }) => {
-  const writes = await fixture(page); await page.goto(url); await fillSsh(page); await page.getByLabel('Trusted host fingerprint').fill(''); await page.getByLabel('I own or administer this server').check();
-  await expect(page.getByRole('button', { name: 'Save securely & check SSH' })).toBeDisabled(); await page.getByRole('button', { name: 'Cancel SSH setup' }).click(); await page.getByRole('button', { name: 'Connect SSH securely' }).click();
-  await page.getByLabel('Authentication method').selectOption('PASSWORD'); await expect(page.getByLabel('SSH password')).toHaveValue(''); await expect(page.getByLabel('I own or administer this server')).not.toBeChecked(); expect(writes).toEqual([]);
+test('four fields, password default, key alternative and cancellation clears secrets', async ({ page }) => {
+  const writes = await fixture(page); await page.goto(url); await fillSsh(page); await expect(page.getByLabel('Trusted host fingerprint')).toHaveCount(0); await expect(page.getByLabel('SSH password')).toHaveAttribute('type', 'password');
+  await expect(page.getByRole('button', { name: 'Connect SSH' })).toBeDisabled(); await page.getByRole('button', { name: 'Cancel SSH setup' }).click(); await page.getByRole('button', { name: 'Connect SSH securely' }).click();
+  await expect(page.getByLabel('SSH password')).toHaveValue(''); await page.getByRole('button', { name: 'Use a private key instead' }).click(); await expect(page.getByLabel('SSH private key')).toBeVisible(); await page.getByRole('button', { name: 'Use a password instead' }).click(); await expect(page.getByLabel('I own or administer this server')).not.toBeChecked(); expect(writes).toEqual([]);
 });
 for (const captureFailure of [false, true]) test(`${captureFailure ? 'capture' : 'connection'} failure stays blocked, hides secrets/errors and never retries automatically`, async ({ page }) => {
-  const writes = await fixture(page, { captureFailure, checkFailure: !captureFailure }); await page.goto(url); await fillSsh(page); await page.getByLabel('I own or administer this server').check(); await page.getByRole('button', { name: 'Save securely & check SSH' }).click();
+  const writes = await fixture(page, { captureFailure, checkFailure: !captureFailure }); await page.goto(url); await fillSsh(page); await page.getByLabel('I own or administer this server').check(); await page.getByRole('button', { name: 'Connect SSH' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'SSH setup or connection check failed' })).toBeVisible(); await expect(page.getByLabel('SSH password')).toHaveValue(''); await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toHaveCount(0);
   expect(await page.locator('body').innerText()).not.toContain('synthetic-sensitive-error-never-render'); expect(writes).toHaveLength(captureFailure ? 1 : 2);
 });
 test('disabled secure capture locks secret entry instead of pretending a connection works', async ({ page }) => {
   const writes = await fixture(page, { disabled: true }); await page.goto(url); await page.getByRole('button', { name: 'Connect SSH securely' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Secure capture is unavailable' })).toBeVisible(); await expect(page.getByLabel('SSH private key')).toBeDisabled(); await expect(page.getByRole('button', { name: 'Save securely & check SSH' })).toBeDisabled(); expect(writes).toEqual([]);
+  await expect(page.getByRole('alert').filter({ hasText: 'Secure capture is unavailable' })).toBeVisible(); await expect(page.getByLabel('SSH password')).toBeDisabled(); await expect(page.getByRole('button', { name: 'Connect SSH' })).toBeDisabled(); expect(writes).toEqual([]);
 });
 test('an expired saved authorization is not presented as a usable connection', async ({ page }) => {
   const writes = await fixture(page, { ready: true, expired: true }); await page.goto(url);

@@ -44,6 +44,20 @@ async function fixture() {
   return { access, attempts: () => attempts, commands: () => commands };
 }
 describe('pinned SSH protocol against an isolated real ssh2 server', () => {
+  it('saves an explicitly approved first identity before sending the password', async () => {
+    const target = await fixture(); let saved = '';
+    const result = await connectSsh({ ...target.access, hostKeyFingerprint: null }, async observed => { expect(target.attempts()).toBe(0); saved = observed; return true; });
+    result.client.end(); expect(saved.replace(/=$/u, '')).toBe(pin); expect(target.attempts()).toBe(1); expect(target.commands()).toBe(0);
+  });
+  it('rejects a changed stored identity before password authentication', async () => {
+    const target = await fixture();
+    await expect(connectSsh({ ...target.access, hostKeyFingerprint: null }, async () => false)).rejects.toMatchObject({ code: 'SSH_HOST_KEY_CHANGED' }); expect(target.attempts()).toBe(0);
+  });
+  it('fails closed when first-connection consent is missing or storage is unavailable', async () => {
+    const target = await fixture();
+    await expect(connectSsh({ ...target.access, hostKeyFingerprint: null }, async () => { throw Object.assign(new Error('fixture-only'), { code: 'HOST_IDENTITY_REQUIRED' }); })).rejects.toMatchObject({ code: 'HOST_IDENTITY_REQUIRED' }); expect(target.attempts()).toBe(0);
+    await expect(connectSsh({ ...target.access, hostKeyFingerprint: null }, async () => { throw new Error('fixture-only-sensitive'); })).rejects.toMatchObject({ code: 'SSH_HOST_VERIFICATION_FAILED', message: 'SSH connection was not verified.' }); expect(target.attempts()).toBe(0);
+  });
   it.each(['PASSWORD', 'SSH_KEY'])('authenticates %s without executing a command', async method => {
     const target = await fixture();
     const result = await connectSsh({ ...target.access, authMethod: method, secret: method === 'SSH_KEY' ? userKey : target.access.secret });

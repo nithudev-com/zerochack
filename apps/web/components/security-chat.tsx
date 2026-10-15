@@ -89,7 +89,7 @@ export function SecurityChat({ website }: { website: Website }) {
 
 function SecureSsh({ id, available, loading, access, onChanged, onChecked, onCheckFailed, close }: { id: string; available: boolean; loading: boolean; access: Access | null; onChanged: () => Promise<void>; onChecked: () => void; onCheckFailed: () => void; close: () => void }) {
   const [host, setHost] = useState(''); const [port, setPort] = useState('22'); const [username, setUsername] = useState('');
-  const [method, setMethod] = useState('SSH_KEY'); const [secret, setSecret] = useState(''); const [fingerprint, setFingerprint] = useState('');
+  const [method, setMethod] = useState('PASSWORD'); const [secret, setSecret] = useState('');
   const [consent, setConsent] = useState(false); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   const sending = useRef(false); const alive = useRef(true); const controller = useRef<AbortController | null>(null);
   const base = `/websites/${id}`;
@@ -100,7 +100,7 @@ function SecureSsh({ id, available, loading, access, onChanged, onChecked, onChe
     sending.current = true; setBusy(true); setError(''); controller.current = new AbortController();
     const submittedSecret = secret; setSecret(''); setConsent(false);
     try {
-      if (save) await api(`${base}/chat/ingest`, { method: 'POST', signal: controller.current.signal, body: JSON.stringify({ mode: 'SECURE', idempotencyKey: crypto.randomUUID(), content: JSON.stringify({ kind: 'SSH', host, port: Number(port), username, authMethod: method, hostKeyFingerprint: fingerprint, secret: submittedSecret }), environment: 'PRODUCTION', authorizationConfirmed: true }) });
+      if (save) await api(`${base}/chat/ingest`, { method: 'POST', signal: controller.current.signal, body: JSON.stringify({ mode: 'SECURE', idempotencyKey: crypto.randomUUID(), content: JSON.stringify({ kind: 'SSH', host, port: Number(port), username, authMethod: method, firstConnectionTrustConfirmed: true, secret: submittedSecret }), environment: 'PRODUCTION', authorizationConfirmed: true }) });
       if (!alive.current) return;
       // Only authenticate the pinned SSH connection. Never enqueue assessment/repair.
       const checked = await api<Access>(`${base}/access/check`, { method: 'POST', signal: controller.current.signal });
@@ -111,8 +111,8 @@ function SecureSsh({ id, available, loading, access, onChanged, onChecked, onChe
       if (!alive.current) return;
       onCheckFailed();
       // Do not reflect server responses from sensitive operations or restore secrets.
-      const safeErrors: Record<string, string> = { HOST_IDENTITY_REQUIRED: 'Add the trusted host fingerprint from your hosting provider.', SSH_HOST_KEY_CHANGED: 'The server identity did not match. Verify the fingerprint through your provider; do not bypass this check.', SSH_AUTH_FAILED: 'The SSH server rejected the username, password or private key. Check these in your provider’s dashboard.', AUTHORIZATION_REQUIRED: 'SSH authorization expired or was revoked. Re-enter the account and approve a new check.', SSH_CHECK_IN_PROGRESS: 'A check is already running for this website. Wait for its result before retrying.', SSH_CHECK_LIMIT: 'SSH checks are busy. Please retry shortly.', SSH_ACCESS_CHANGED: 'The saved account changed during the check. Check the current saved account.', SSH_DNS_TIMEOUT: 'SSH DNS lookup timed out. Check the provider’s SSH hostname and retry.', SSH_TIMEOUT: 'The SSH server did not respond in time. Check the host, port and firewall, then retry.', SSH_CREDENTIAL_FORMAT: 'The private key format is not supported. Use a dedicated unencrypted SSH key or the password option.' };
-      setError((caught instanceof ApiClientError ? safeErrors[caught.code] : undefined) ?? 'SSH setup or connection check failed. Check the saved status, host fingerprint and account details. No assessment or changes started.');
+      const safeErrors: Record<string, string> = { HOST_IDENTITY_REQUIRED: 'Save your SSH details again and confirm first-connection trust.', SSH_HOST_KEY_CHANGED: 'The saved server identity changed. Connection blocked: contact support and verify the change with your hosting provider.', SSH_AUTH_FAILED: 'The SSH server rejected the username, password or private key. Check these in your provider’s dashboard.', AUTHORIZATION_REQUIRED: 'SSH authorization expired or was revoked. Re-enter the account and approve a new check.', SSH_CHECK_IN_PROGRESS: 'A check is already running for this website. Wait for its result before retrying.', SSH_CHECK_LIMIT: 'SSH checks are busy. Please retry shortly.', SSH_ACCESS_CHANGED: 'The saved account changed during the check. Check the current saved account.', SSH_DNS_TIMEOUT: 'SSH DNS lookup timed out. Check the provider’s SSH hostname and retry.', SSH_TIMEOUT: 'The SSH server did not respond in time. Check the host, port and firewall, then retry.', SSH_CREDENTIAL_FORMAT: 'The private key format is not supported. Use a dedicated unencrypted SSH key or the password option.' };
+      setError((caught instanceof ApiClientError ? safeErrors[caught.code] : undefined) ?? 'SSH setup or connection check failed. Check the saved status, server address, port and account details. No assessment or changes started.');
       await onChanged();
     } finally { sending.current = false; if (alive.current) setBusy(false); }
   }
@@ -125,11 +125,11 @@ function SecureSsh({ id, available, loading, access, onChanged, onChecked, onChe
         <div className={styles.fields}><label>Server host<input required maxLength={253} pattern="[a-zA-Z0-9.\-]+" value={host} placeholder="SSH hostname or public IP" autoComplete="off" onChange={event => { setHost(event.target.value); changed(); }}/></label><label>SSH port<input required type="number" min={1} max={65535} value={port} onChange={event => { setPort(event.target.value); changed(); }}/></label></div>
         <p><small>Use the SSH host from your hosting provider. Your website domain may point to a CDN, not the SSH server.</small></p>
         <label>SSH username<input required maxLength={120} value={username} autoComplete="off" onChange={event => { setUsername(event.target.value); changed(); }}/></label>
-        <label>Authentication method<select aria-label="Authentication method" value={method} onChange={event => { setMethod(event.target.value); setSecret(''); changed(); }}><option value="SSH_KEY">Private key</option><option value="PASSWORD">Password</option></select></label>
-        <label>Trusted host fingerprint<input required pattern="SHA256:[A-Za-z0-9+/]{43}=?" value={fingerprint} placeholder="SHA256:…" autoComplete="off" aria-describedby={`ssh-fingerprint-help-${id}`} onChange={event => { setFingerprint(event.target.value); changed(); }}/></label><p id={`ssh-fingerprint-help-${id}`}><small>Get this through your hosting provider’s trusted console. Do not guess or bypass it.</small></p>
         <label>{method === 'SSH_KEY' ? 'SSH private key' : 'SSH password'}{method === 'SSH_KEY' ? <textarea required maxLength={50000} value={secret} autoComplete="off" autoCorrect="off" spellCheck={false} data-private="true" onChange={event => { setSecret(event.target.value); changed(); }}/> : <input required type="password" maxLength={50000} value={secret} autoComplete="new-password" data-private="true" onChange={event => { setSecret(event.target.value); changed(); }}/>}</label>
-        <label className={styles.consent}><input required type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)}/><span>I own or administer this server and authorize encrypted storage and a pinned SSH connection check only. Assessment, cleanup and changes need separate approval.</span></label>
-        <button className={styles.primary} disabled={busy || !consent || !host || !username || !secret || !fingerprint}>{busy ? 'Checking connection…' : 'Save securely & check SSH'}</button>
+        <button type="button" className={styles.secondary} onClick={() => { setMethod(method === 'PASSWORD' ? 'SSH_KEY' : 'PASSWORD'); setSecret(''); changed(); }}>{method === 'PASSWORD' ? 'Use a private key instead' : 'Use a password instead'}</button>
+        <p className={styles.note}>The first connection trusts and saves this server’s identity. Later identity changes are blocked. No fingerprint typing needed.</p>
+        <label className={styles.consent}><input required type="checkbox" checked={consent} onChange={event => setConsent(event.target.checked)}/><span>I own or administer this server and authorize encrypted storage, first-connection trust and an SSH connection check only. Changes need separate approval.</span></label>
+        <button className={styles.primary} disabled={busy || !consent || !host || !username || !secret}>{busy ? 'Connecting…' : 'Connect SSH'}</button>
       </fieldset>
     </form>
     {error && <p className={styles.error} role="alert">{error}</p>}

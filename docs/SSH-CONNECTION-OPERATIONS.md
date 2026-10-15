@@ -28,9 +28,23 @@ keyboard authentication and SSH certificates are not currently supported.
 Enter the SSH hostname/public IP and port supplied by the hosting provider. A
 website hostname may resolve to Cloudflare or another CDN, which cannot accept
 SSH for the origin. Public target validation rejects private/loopback and mixed
-public/private DNS answers. Connections require a SHA256 host-key fingerprint
-obtained through the provider's trusted console, not copied blindly from a failed
-connection. On that trusted server console, a provider-supported command is:
+public/private DNS answers. The normal form has host/IP, port, username and
+password, with a private-key alternative. It does not ask customers to type a
+fingerprint. Its consent explicitly authorizes **trust on first connection**.
+Before sending authentication, the backend records the first observed server key
+in a tenant/site/host/port-scoped append-only audit anchor. Later connections must
+match that identity, including after password rotation, expiry, revocation or
+switching away from and back to a target. Failed password authentication does not
+erase the already accepted server identity.
+
+This is an explicit usability/security trade-off: an attacker intercepting the
+very first connection could become the initially trusted server. It is not
+independent hosting-provider identity verification. Existing preverified pins are
+preserved and adopted into the same anchors; old API clients without a pin or
+explicit first-connection consent fail closed. No new database schema is needed.
+
+When investigating an identity-change warning, support must independently check
+the hosting console. On that trusted console, a provider-supported command is:
 
 ```sh
 ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
@@ -39,7 +53,10 @@ ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub -E sha256
 Use the fingerprint of the host key actually negotiated by the SSH server. Never
 disable host verification or replace a changed pin without investigating. When
 the provider rotates its host key, confirm it through the trusted console and
-submit fresh credentials and consent. No trust-on-first-use fallback exists.
+request a separately approved identity-recovery operation. There is no automatic
+replacement or customer bypass of a changed key; simply resubmitting a password
+or checking first-connection consent cannot overwrite an existing anchor. An
+identity-reset workflow is not implemented by this change.
 
 A check authenticates, records the observed pinned identity, then disconnects;
 it executes no commands and cannot promise a permanent session or availability.

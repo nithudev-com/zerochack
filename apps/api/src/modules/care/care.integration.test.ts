@@ -7,6 +7,7 @@ import { brokerSecret } from './service.js';
 import { maintainCareRecords } from '../../../../worker/src/care-maintenance.js';
 import { buildApp } from '../../app.js';
 import * as sshToolkit from '../customer/ssh-toolkit.js';
+import { verifySshHost } from '../customer/ssh-host-trust.js';
 
 const environment = loadEnvironment({ NODE_ENV: 'test', CARE_ENABLED: 'true', DATABASE_URL: process.env.DATABASE_URL, REDIS_URL: 'redis://127.0.0.1:6380', SESSION_SECRET: 'care-test-session-secret-at-least-32-characters', CARE_VAULT_KEY: Buffer.alloc(32, 19).toString('base64'), CORS_ORIGINS: 'http://localhost:3000', LOG_LEVEL: 'silent' });
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -33,6 +34,26 @@ beforeAll(async () => {
 afterAll(async () => { await app?.close(); await database.$disconnect(); });
 
 describe.sequential('care routes through actual authentication and database paths', () => {
+  it('remembers consented first-connection identities across rotation, expiry, revoke and target switching', async () => {
+    const site = await database.website.create({ data: { tenantId: customer.tenantId, name: 'Simple SSH fixture', url: 'https://example.com', normalizedHost: 'example.com' } });
+    const url = `/v1/websites/${site.id}/access`; const headers = { cookie: customer.cookie };
+    const payload = { host: 'ssh.example.com', port: 65002, username: 'fixture', authMethod: 'PASSWORD', secret: marker, authorizationConfirmed: true };
+    const save = async (details = {}) => { const response = await app.inject({ method: 'PUT', url, headers, payload: { ...payload, ...details, idempotencyKey: randomUUID() } }); expect(response.statusCode, response.body).toBe(200); return database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: site.id } }); };
+    const key = `SHA256:${'b'.repeat(43)}=`; const changed = `SHA256:${'c'.repeat(43)}=`;
+    const noConsent = await save(); await expect(verifySshHost(noConsent, customer.userId, randomUUID())(key)).rejects.toMatchObject({ code: 'HOST_IDENTITY_REQUIRED' });
+    const first = await save({ firstConnectionTrustConfirmed: true }); expect(first.hostKeyFingerprint).toBeNull();
+    expect(await verifySshHost(first, customer.userId, randomUUID())(key)).toBe(true); expect(await verifySshHost(first, customer.userId, randomUUID())(changed)).toBe(false);
+    const rotated = await save({ firstConnectionTrustConfirmed: true, username: 'rotated' }); expect(rotated.hostKeyFingerprint).toBe(key);
+    await expect(verifySshHost(first, customer.userId, randomUUID())(key)).rejects.toMatchObject({ code: 'SSH_ACCESS_CHANGED' });
+    await database.careCredential.update({ where: { id: rotated.vaultCredentialId! }, data: { authorizationExpiresAt: new Date(0) } });
+    await expect(verifySshHost(rotated, customer.userId, randomUUID())(key)).rejects.toMatchObject({ code: 'AUTHORIZATION_REQUIRED' });
+    expect((await app.inject({ method: 'DELETE', url, headers })).statusCode).toBe(204);
+    const restored = await save({ firstConnectionTrustConfirmed: true }); expect(restored.hostKeyFingerprint).toBe(key); expect(await verifySshHost(restored, customer.userId, randomUUID())(changed)).toBe(false);
+    await save({ host: 'other.example.com', firstConnectionTrustConfirmed: true });
+    const returned = await save({ firstConnectionTrustConfirmed: true }); expect(returned.hostKeyFingerprint).toBe(key);
+    const rejected = await app.inject({ method: 'PUT', url, headers, payload: { ...payload, hostKeyFingerprint: changed, firstConnectionTrustConfirmed: true } }); expect(rejected.statusCode).toBe(409); expect(rejected.json().error.code).toBe('SSH_HOST_KEY_CHANGED');
+    expect(await database.aiUsage.count({ where: { tenantId: customer.tenantId } })).toBe(0);
+  });
   it('pins encrypted access, isolates tenants, rejects expiry and discards checks of replaced credentials', async () => {
     const site = await database.website.create({ data: { tenantId: customer.tenantId, name: 'SSH race fixture', url: 'https://ssh.example.test', normalizedHost: 'ssh.example.test' } });
     const url = `/v1/websites/${site.id}/access`; const headers = { cookie: customer.cookie };

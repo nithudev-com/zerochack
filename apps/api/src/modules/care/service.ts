@@ -9,6 +9,7 @@ import { decryptSecret } from '@zerochack/auth';
 import { CareError, parseSecureCapture, sealSecret, openSecret, looksSensitive } from '@zerochack/care';
 import { ApiError } from '../../errors.js';
 import { requirePermission } from '../auth/security.js';
+import { rememberSshHost, trustedSshHost } from '../customer/ssh-host-trust.js';
 
 export const credentialMetadata = { id: true, kind: true, environment: true, host: true, port: true, username: true, version: true, status: true, createdAt: true, authorizationExpiresAt: true } as const;
 export async function careWebsite(request: FastifyRequest, websiteId: string, tx?: Prisma.TransactionClient) {
@@ -44,11 +45,16 @@ export async function captureAccess(request: FastifyRequest, websiteId: string, 
       records.push(record);
       if (item.kind === 'SSH' && input.environment === 'PRODUCTION') {
         const oldBridge = await tx.websiteAccessCredential.findUnique({ where: { websiteId } });
+        if (oldBridge?.hostKeyFingerprint && !await rememberSshHost(tx, oldBridge, oldBridge.hostKeyFingerprint, request.userId!, 'PREVERIFIED', request.id)) throw new ApiError(409, 'SSH_HOST_KEY_CHANGED', 'The saved server identity requires support review.');
         if (oldBridge?.vaultCredentialId && !oldIds.includes(oldBridge.vaultCredentialId)) {
           await tx.careCredential.updateMany({ where: { id: oldBridge.vaultCredentialId, tenantId, websiteId }, data: { status: 'REVOKED', encryptedEnvelope: '' } });
           await tx.careAccessRequest.updateMany({ where: { credentialId: oldBridge.vaultCredentialId }, data: { status: 'REVOKED' } });
         }
-        const data = { host: record.host, port: record.port, username: item.username, authMethod: item.authMethod, encryptedSecret: '', vaultCredentialId: id, hostKeyFingerprint: item.hostKeyFingerprint ? (item.hostKeyFingerprint.endsWith('=') ? item.hostKeyFingerprint : item.hostKeyFingerprint + '=') : null, status: 'CONFIGURED', lastCheckedAt: null, lastErrorCode: null };
+        const known = await trustedSshHost(tx, { tenantId, websiteId, host: record.host, port: record.port });
+        const submittedPin = item.hostKeyFingerprint ? (item.hostKeyFingerprint.endsWith('=') ? item.hostKeyFingerprint : item.hostKeyFingerprint + '=') : null;
+        if (known && submittedPin && known !== submittedPin) throw new ApiError(409, 'SSH_HOST_KEY_CHANGED', 'The server identity changed. Contact support; it was not replaced.');
+        if (item.firstConnectionTrustConfirmed) await tx.auditLog.create({ data: { tenantId, actorUserId: request.userId!, requestId: request.id, action: 'care.ssh_first_connection_authorized', resourceType: 'care_credential', resourceId: id, metadata: { host: record.host, port: record.port } } });
+        const data = { host: record.host, port: record.port, username: item.username, authMethod: item.authMethod, encryptedSecret: '', vaultCredentialId: id, hostKeyFingerprint: known ?? submittedPin, status: 'CONFIGURED', lastCheckedAt: null, lastErrorCode: null };
         await tx.websiteAccessCredential.upsert({ where: { websiteId }, create: { tenantId, websiteId, ...data }, update: data });
       }
     }

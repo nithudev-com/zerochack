@@ -118,8 +118,8 @@ function AccessSetup({ site }: { site: Website }) {
   const care = useQuery({ queryKey: ['security-capture', site.id], queryFn: () => api<{ capabilities: { secureCapture?: boolean } }>(`/websites/${site.id}/care?environment=PRODUCTION`), retry: false, refetchInterval: 10000 });
   const canCapture = !care.isError && care.data?.capabilities.secureCapture === true;
   const [host, setHost] = useState(''); const [port, setPort] = useState('22'); const [username, setUsername] = useState('');
-  const [authMethod, setAuthMethod] = useState<'PASSWORD'|'SSH_KEY'>('SSH_KEY'); const [secret, setSecret] = useState('');
-  const [fingerprint, setFingerprint] = useState(''); const [confirmed, setConfirmed] = useState(false);
+  const [authMethod, setAuthMethod] = useState<'PASSWORD'|'SSH_KEY'>('PASSWORD'); const [secret, setSecret] = useState('');
+  const [confirmed, setConfirmed] = useState(false);
   const changed = () => setConfirmed(false);
   const refresh = () => { void client.invalidateQueries({ queryKey: ['website-access', site.id] }); void client.invalidateQueries({ queryKey: ['website', site.id] }); void client.invalidateQueries({ queryKey: ['chat', site.id] }); };
   const checkConnection = () => api<AccessCredential & { guidance: string }>(`/websites/${site.id}/access/check`, { method: 'POST' });
@@ -128,7 +128,7 @@ function AccessSetup({ site }: { site: Website }) {
   const save = useMutation({ mutationFn: async () => {
     if (!canCapture || !confirmed) throw new Error('Secure capture and authorization are required.');
     const submittedSecret = secret; setSecret(''); setConfirmed(false);
-    await api<AccessCredential>(`/websites/${site.id}/access`, { method: 'PUT', body: JSON.stringify({ host, port: Number(port), username, authMethod, secret: submittedSecret, hostKeyFingerprint: fingerprint, idempotencyKey: crypto.randomUUID(), authorizationConfirmed: true }) });
+    await api<AccessCredential>(`/websites/${site.id}/access`, { method: 'PUT', body: JSON.stringify({ host, port: Number(port), username, authMethod, secret: submittedSecret, firstConnectionTrustConfirmed: true, idempotencyKey: crypto.randomUUID(), authorizationConfirmed: true }) });
     return checkConnection();
   }, onSuccess: workflowSuccess, onError: workflowError });
   const check = useMutation({ mutationFn: checkConnection, onSuccess: workflowSuccess, onError: workflowError });
@@ -154,13 +154,12 @@ function AccessSetup({ site }: { site: Website }) {
             <Input label="Server host" placeholder="SSH hostname or public IP" value={host} onChange={event => { setHost(event.target.value); changed(); }} required />
             <Input label="SSH port" type="number" min={1} max={65535} value={port} onChange={event => { setPort(event.target.value); changed(); }} required />
             <Input label="SSH username" value={username} onChange={event => { setUsername(event.target.value); changed(); }} required />
-            <Select label="Authentication method" value={authMethod} onChange={event => { setAuthMethod(event.target.value as 'PASSWORD'|'SSH_KEY'); setSecret(''); changed(); }}><option value="SSH_KEY">Private key</option><option value="PASSWORD">Password</option></Select>
           </div>
-          <Input label="Trusted host fingerprint" required pattern="SHA256:[A-Za-z0-9+/]{43}=?" value={fingerprint} placeholder="SHA256:…" autoComplete="off" onChange={event => { setFingerprint(event.target.value); changed(); }} />
-          <p>Get this fingerprint through your provider's trusted console. Never guess or bypass the identity check.</p>
           <label className="secret-field"><span>{authMethod === 'SSH_KEY' ? 'Private key' : 'Password'}</span>{authMethod === 'SSH_KEY' ? <textarea value={secret} autoComplete="off" spellCheck={false} data-private="true" onChange={event => { setSecret(event.target.value); changed(); }} required maxLength={50000} /> : <input type="password" value={secret} autoComplete="new-password" data-private="true" onChange={event => { setSecret(event.target.value); changed(); }} required maxLength={50000} />}</label>
-          <label className="access-consent"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} required/><span>I own or administer this server and authorize encrypted credential storage and a pinned SSH connection check only. Assessments and changes require separate approval.</span></label>
-          <Button disabled={busy || !confirmed || !host || !username || !secret || !fingerprint}>{save.isPending ? 'Checking connection…' : 'Save and check SSH'}</Button>
+          <Button type="button" variant="secondary" onClick={() => { setAuthMethod(authMethod === 'PASSWORD' ? 'SSH_KEY' : 'PASSWORD'); setSecret(''); changed(); }}>{authMethod === 'PASSWORD' ? 'Use a private key instead' : 'Use a password instead'}</Button>
+          <p>The first connection trusts and saves this server’s identity. Later identity changes are blocked.</p>
+          <label className="access-consent"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} required/><span>I own or administer this server and authorize encrypted storage, first-connection trust and an SSH check only. Changes need separate approval.</span></label>
+          <Button disabled={busy || !confirmed || !host || !username || !secret}>{save.isPending ? 'Connecting…' : 'Connect SSH'}</Button>
         </fieldset>
       </form>
     </Card><Card className="live-help-choice"><span className="eyebrow">I do not have these details</span><h3>Connect me to live support</h3><p>We will open your live support conversation. Never send credentials in chat.</p><Button variant="secondary" disabled={liveHelp.isPending} onClick={() => liveHelp.mutate()}>{liveHelp.isPending ? 'Connecting…' : 'Connect to a live agent'}</Button></Card></div>
