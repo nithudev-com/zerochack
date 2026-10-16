@@ -6,12 +6,12 @@ import { loadEnvironment } from '@zerochack/config';
 import type { EmailMessage, EmailProvider } from '@zerochack/email';
 import { buildApp } from './app.js';
 import { processScan } from '../../worker/src/scan-worker.js';
-import type { Job } from 'bullmq';
+import type { Job, Queue } from 'bullmq';
 import { TargetSecurityError } from '@zerochack/scanner';
 import { createHmac } from 'node:crypto';
 import { PaymentProviderError, verifyHmacSha256, type PaymentProvider } from '@zerochack/payments';
 import { processBackupCreate, processRestore, processRetention } from '../../worker/src/backup-worker.js';
-import { processMonitoringCheck } from '../../worker/src/monitoring-worker.js';
+import { processMonitoringCheck, enqueueMonitoringOutbox } from '../../worker/src/monitoring-worker.js';
 import type { BackupProvider } from '@zerochack/storage';
 import { createCommissionForPayment, reverseCommissionForPayment } from './modules/affiliate/service.js';
 import { publishCommunicationEvent } from './modules/communications/service.js';
@@ -64,6 +64,57 @@ beforeEach(async () => {
 afterAll(async () => { await app.close(); await database.$disconnect(); });
 
 describe('authentication, RBAC, and tenant isolation', () => {
+  it('records only personal website navigation clicks, with bounded history and no work side effects', async () => {
+    const token = await register('Customer', 'clicks@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'clicks@example.test')).headers['set-cookie']);
+    const user = await database.user.findUniqueOrThrow({ where: { email: 'clicks@example.test' } });
+    const website = (await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Click fixture', url: 'https://example.com/' } })).json();
+    const path = `/v1/websites/${website.id}/navigation-activity`;
+    const get = async () => { const response = await app.inject({ method: 'GET', url: path, headers: { cookie } }); expect(response.statusCode).toBe(200); return response.json(); };
+    expect(await get()).toEqual([]);
+    for (const payload of [{ section: 'TOOLS', option: 'seo' }, { section: 'WORKPLACE', option: 'development' }]) expect((await app.inject({ method: 'POST', url: path, headers: { cookie }, payload })).statusCode).toBe(204);
+    const clicks = await get(); expect(clicks).toHaveLength(2); expect(clicks[0]).toMatchObject({ section: 'WORKPLACE', option: 'development' });
+    expect(Object.keys(clicks[0]).sort()).toEqual(['createdAt', 'id', 'option', 'section']);
+    for (const payload of [{ section: 'TOOLS', option: 'development' }, { section: 'WORKPLACE', option: 'marketing' }, { section: 'TOOLS', option: 'seo', content: 'private execution text' }]) expect((await app.inject({ method: 'POST', url: path, headers: { cookie }, payload })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'POST', url: path, headers: { cookie }, payload: { section: 'TOOLS', option: 'seo', content: 'x'.repeat(1024) } })).statusCode).toBe(413);
+    expect((await app.inject({ method: 'POST', url: path, headers: { cookie, origin: 'https://hostile.example' }, payload: { section: 'TOOLS', option: 'seo' } })).statusCode).toBe(403);
+    const otherToken = await register('Customer', 'clicks-other@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: otherToken } });
+    const otherUser = await database.user.findUniqueOrThrow({ where: { email: 'clicks-other@example.test' } });
+    const otherCookie = cookieFrom((await login('customer', otherUser.email)).headers['set-cookie']);
+    expect((await app.inject({ method: 'GET', url: `${path}?tenantId=${website.tenantId}`, headers: { cookie: otherCookie, 'x-tenant-id': website.tenantId } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'POST', url: path, headers: { cookie: otherCookie }, payload: { section: 'TOOLS', option: 'seo' } })).statusCode).toBe(404);
+    await database.auditLog.createMany({ data: [
+      { tenantId: website.tenantId, actorUserId: otherUser.id, requestId: 'synthetic-other-actor', action: 'website.navigation_clicked', resourceType: 'website', resourceId: website.id, metadata: { section: 'TOOLS', option: 'marketing' } },
+      { tenantId: website.tenantId, actorUserId: user.id, requestId: 'synthetic-other-website', action: 'website.navigation_clicked', resourceType: 'website', resourceId: crypto.randomUUID(), metadata: { section: 'TOOLS', option: 'chat' } },
+      { tenantId: website.tenantId, actorUserId: user.id, requestId: 'synthetic-other-action', action: 'website.ssh_access_checked', resourceType: 'website', resourceId: website.id, metadata: { host: 'hidden', privateWork: 'hidden' } }
+    ] });
+    expect(await get()).toHaveLength(2);
+    await database.auditLog.createMany({ data: Array.from({ length: 55 }, (_, index) => ({ tenantId: website.tenantId, actorUserId: user.id, requestId: `synthetic-bounded-${index}`, action: 'website.navigation_clicked', resourceType: 'website', resourceId: website.id, metadata: { section: 'TOOLS', option: 'automation' }, createdAt: new Date(Date.now() + index) })) });
+    expect(await get()).toHaveLength(50);
+    expect(await database.careJob.count()).toBe(0); expect(await database.aiUsage.count()).toBe(0); expect(await database.supportConversation.count()).toBe(0);
+    await app.inject({ method: 'POST', url: '/v1/auth/logout', headers: { cookie } });
+    expect((await app.inject({ method: 'GET', url: path, headers: { cookie } })).statusCode).toBe(401);
+  });
+
+  it('lists tenant-scoped connection evidence without credential or account details', async () => {
+    const token = await register('Customer', 'connections@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'connections@example.test')).headers['set-cookie']);
+    const created = (await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Connection fixture', url: 'https://example.com/' } })).json();
+    const list = async () => { const response = await app.inject({ method: 'GET', url: '/v1/websites', headers: { cookie } }); expect(response.statusCode).toBe(200); return response.json(); };
+    expect((await list())[0].connectionSummary.kind).toBe('NONE');
+    await database.website.update({ where: { id: created.id }, data: { connectionStatus: 'VERIFIED' } });
+    const user = await database.user.findUniqueOrThrow({ where: { email: 'connections@example.test' } }); const checked = new Date();
+    await database.websiteConnector.create({ data: { tenantId: created.tenantId, websiteId: created.id, provider: 'wordpress', endpoint: 'https://example.com/', websiteUrl: created.url, encryptedSecret: 'synthetic-ciphertext-not-returned', authorizedBy: user.id, authorizationExpiresAt: new Date(Date.now() + 86400000), status: 'AUTHENTICATED_READ', lastCheckedAt: checked } });
+    const other = (await list())[0]; expect(other.connectionSummary).toEqual({ kind: 'CONNECTOR', providers: ['wordpress'], lastCheckedAt: checked.toISOString() });
+    expect(other).not.toHaveProperty('connectors'); expect(other).not.toHaveProperty('accessCredential'); expect(JSON.stringify(other)).not.toContain('synthetic-ciphertext-not-returned'); expect(JSON.stringify(other)).not.toContain('authorizedBy');
+    await database.websiteAccessCredential.create({ data: { tenantId: created.tenantId, websiteId: created.id, host: 'example.com', username: 'fixture-hidden-account', authMethod: 'SSH_KEY', encryptedSecret: 'synthetic-ssh-ciphertext-not-returned', status: 'READY_FOR_SECURE_SESSION', lastCheckedAt: checked } });
+    const ssh = (await list())[0]; expect(ssh.connectionSummary.kind).toBe('SSH'); expect(JSON.stringify(ssh)).not.toContain('fixture-hidden-account'); expect(JSON.stringify(ssh)).not.toContain('synthetic-ssh-ciphertext-not-returned');
+    await database.website.update({ where: { id: created.id }, data: { connectionStatus: 'PENDING' } }); expect((await list())[0].connectionSummary.kind).toBe('NONE');
+    const otherToken = await register('Customer', 'connections-other@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: otherToken } });
+    const otherCookie = cookieFrom((await login('customer', 'connections-other@example.test')).headers['set-cookie']);
+    expect((await app.inject({ method: 'GET', url: `/v1/websites?tenantId=${created.tenantId}`, headers: { cookie: otherCookie, 'x-tenant-id': created.tenantId } })).json()).toEqual([]);
+  });
+
   it('registers, verifies once, enforces portal role, creates and revokes a session', async () => {
     const token = await register('Customer', 'customer@example.test');
     expect((await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } })).json()).toEqual({ status: 'APPROVED' });
@@ -215,6 +266,40 @@ describe('authentication, RBAC, and tenant isolation', () => {
     const tenantBToken = await register('Customer', 'billing-attacker@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: tenantBToken } }); const tenantBCookie = cookieFrom((await login('customer', 'billing-attacker@example.test')).headers['set-cookie']); expect((await app.inject({ method: 'POST', url: `/v1/commercial/payments/${second.json().id}/verify`, headers: { cookie: tenantBCookie } })).statusCode).toBe(404);
   });
 
+  it('allows public uptime on a newly added website without SSH, while preserving target and tenant protections', async () => {
+    const token = await register('Customer', 'public-uptime@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'public-uptime@example.test')).headers['set-cookie']);
+    const added = await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Public uptime only', url: 'https://example.com/' } });
+    expect(added.statusCode).toBe(201); const site = added.json(); const tenantId = site.tenantId;
+    expect(site.connectionStatus).toBe('PENDING');
+    expect(await database.websiteAccessCredential.count({ where: { websiteId: site.id } })).toBe(0);
+    expect(await database.websiteConnector.count({ where: { websiteId: site.id } })).toBe(0);
+    const overview = await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie } });
+    expect(overview.json()).toMatchObject({ eligible: true, enabled: false, state: 'PAUSED', knownCount: 0, passedPercent: null });
+    expect(await database.monitoringCheck.count({ where: { websiteId: site.id } })).toBe(0);
+    // This integration app deliberately has no queues. Reaching the scheduler
+    // proves the connector gate is gone, without pretending this is activation.
+    const enable = await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: true, intervalMinutes: 5, emailAlerts: false } });
+    expect(enable.statusCode).toBe(503); expect(enable.json().error.code).toBe('SCHEDULER_UNAVAILABLE');
+    await database.monitoringPolicy.update({ where: { websiteId: site.id }, data: { enabled: true } });
+    const response = { url: site.url, status: 200, headers: {}, body: Buffer.from('public healthy'), resolvedAddress: '93.184.216.34', redirects: [] };
+    let probes = 0;
+    await processMonitoringCheck({ id: 'public-uptime-no-ssh', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { probes++; return response; });
+    expect(probes).toBe(1);
+    expect((await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie } })).json()).toMatchObject({ eligible: true, state: 'UP', knownCount: 1 });
+    expect((await database.website.findUniqueOrThrow({ where: { id: site.id } })).connectionStatus).toBe('PENDING');
+    // A malformed stored target cannot bypass validation through direct calls.
+    await database.website.update({ where: { id: site.id }, data: { url: 'http://169.254.169.254/', normalizedHost: '169.254.169.254' } });
+    expect((await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: true } })).json().error.code).toBe('MONITORING_TARGET_INVALID');
+    expect((await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/monitoring/checks`, headers: { cookie } })).statusCode).toBe(400);
+    await expect(processMonitoringCheck({ id: 'public-uptime-private-refused', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { probes++; return response; })).rejects.toThrow();
+    expect(probes).toBe(1);
+    await database.website.update({ where: { id: site.id }, data: { url: site.url, normalizedHost: site.normalizedHost, lifecycle: 'ARCHIVED' } });
+    expect((await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: true } })).statusCode).toBe(404);
+    await expect(processMonitoringCheck({ id: 'public-uptime-archived-refused', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { probes++; return response; })).rejects.toThrow('MONITORING_JOB_BINDING_INVALID');
+    expect(probes).toBe(1);
+  });
+
   it('fails closed for backup and restore, enforces retention scope, and deduplicates monitoring alert storms', async () => {
     const token = await register('Customer', 'operations@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } }); const cookie = cookieFrom((await login('customer', 'operations@example.test')).headers['set-cookie']); const identity = (await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { cookie } })).json(); const tenantId = identity.tenant.id as string;
     const site = await database.website.create({ data: { tenantId, name: 'Operations site', url: 'https://example.com/', normalizedHost: 'example.com', connectionStatus: 'VERIFIED', connectedAt: new Date() } });
@@ -226,6 +311,67 @@ describe('authentication, RBAC, and tenant isolation', () => {
     const attackerToken = await register('Customer', 'operations-attacker@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: attackerToken } }); const attackerCookie = cookieFrom((await login('customer', 'operations-attacker@example.test')).headers['set-cookie']); expect((await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/backups/${retainedBackup.id}/restore-authorizations`, headers: { cookie: attackerCookie } })).statusCode).toBe(404);
     await database.monitoringPolicy.update({ where: { websiteId: site.id }, data: { enabled: true, indicators: { expectedStatus: 200 }, alertCooldownMinutes: 60 } }); const response = { url: 'https://example.com/', status: 503, headers: {}, body: Buffer.from('maintenance'), resolvedAddress: '93.184.216.34', redirects: [] }; const runner = async () => response; const firstJob = { id: 'monitor-job-1', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job<{ tenantId: string; websiteId: string }>; expect(await processMonitoringCheck(firstJob, runner)).toEqual({ events: 2 }); expect(await processMonitoringCheck(firstJob, runner)).toEqual({ events: 2 }); expect(await database.monitoringCheck.count({ where: { tenantId, websiteId: site.id } })).toBe(1); expect(await database.securityAlert.count({ where: { tenantId, websiteId: site.id } })).toBe(2);
     await processMonitoringCheck({ id: 'monitor-job-2', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, runner); expect(await database.securityAlert.count({ where: { tenantId, websiteId: site.id } })).toBe(2); expect(await database.notification.count({ where: { tenantId } })).toBe(2); expect((await database.securityAlert.aggregate({ where: { tenantId, websiteId: site.id }, _sum: { suppressedCount: true } }))._sum.suppressedCount).toBe(2); expect(await database.ticket.count({ where: { tenantId, websiteId: site.id, title: { startsWith: 'Monitoring escalation:' } } })).toBe(2);
+
+    // A storm creates one durable email event per completed probe/transition,
+    // not one email on every suppressed repeat or each security indicator.
+    expect(await database.communicationEvent.count({ where: { tenantId, eventType: 'MONITORING_ALERT' } })).toBe(1);
+    const payloads: Array<Record<string, unknown>> = [];
+    const outboxQueue = { async add(_name: string, data: { eventId: string }) { payloads.push(data); return {}; } };
+    await expect(enqueueMonitoringOutbox({ async add() { throw new Error('FIXTURE_QUEUE_DOWN'); } })).rejects.toThrow('FIXTURE_QUEUE_DOWN');
+    expect(await database.communicationEvent.count({ where: { tenantId, eventType: 'MONITORING_ALERT', processedAt: null } })).toBe(1);
+    await enqueueMonitoringOutbox(outboxQueue); expect(payloads).toHaveLength(1);
+    const healthy = async () => ({ ...response, status: 200, body: Buffer.from('healthy') });
+    await processMonitoringCheck({ id: 'monitor-recovery', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, healthy);
+    expect(await database.securityEvent.count({ where: { tenantId, websiteId: site.id, type: 'AVAILABILITY', resolvedAt: { not: null } } })).toBe(1);
+    expect(await database.securityAlert.count({ where: { tenantId, websiteId: site.id, status: 'RESOLVED' } })).toBe(2);
+    const recovery = await database.communicationEvent.findFirstOrThrow({ where: { tenantId, payload: { path: ['monitoring', 'state'], equals: 'RECOVERED' } } });
+    expect(await database.emailTemplateVersion.count({ where: { eventType: 'MONITORING_ALERT', enabled: true } })).toBe(1);
+    let queuedDelivery: string | undefined;
+    const failQueue = { async add() { throw new Error('FIXTURE_EMAIL_QUEUE_DOWN'); } } as unknown as Queue;
+    await expect(processCommunicationEvent(recovery.id, failQueue)).rejects.toThrow('FIXTURE_EMAIL_QUEUE_DOWN');
+    const beforeRetry = await database.emailDelivery.findUniqueOrThrow({ where: { eventId: recovery.id } });
+    await processCommunicationEvent(recovery.id, { async add(_name: string, data: { deliveryId: string }) { queuedDelivery = data.deliveryId; return {}; } } as unknown as Queue);
+    expect(queuedDelivery).toBe(beforeRetry.id); expect(await database.emailDelivery.count({ where: { eventId: recovery.id } })).toBe(1);
+    let sent = 0;
+    const provider: EmailProvider = { async send(message) { sent++; expect(message.monitoring?.state).toBe('RECOVERED'); expect(message.monitoring?.overviewUrl).toContain(site.id); return { providerMessageId: 'fixture-uptime-email' }; } };
+    await processEmailDelivery({ data: { deliveryId: beforeRetry.id }, attemptsMade: 0, opts: { attempts: 5 } } as never, provider);
+    await processEmailDelivery({ data: { deliveryId: beforeRetry.id }, attemptsMade: 1, opts: { attempts: 5 } } as never, provider); expect(sent).toBe(1);
+    const overview = await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime?days=7`, headers: { cookie } });
+    expect(overview.statusCode).toBe(200); expect(overview.json()).toMatchObject({ state: 'UP', knownCount: 3, upCount: 1, downCount: 2 }); expect(overview.json().emailHistory[0]).toMatchObject({ status: 'DELIVERED', attempts: 1 });
+    expect((await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie: attackerCookie } })).statusCode).toBe(404);
+    const oldCursor = (await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime/history`, headers: { cookie } })).json().checks[0].id;
+    expect((await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime/history?before=${oldCursor}`, headers: { cookie } })).json().checks).toHaveLength(2);
+    await processMonitoringCheck({ id: 'monitor-down-again', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, runner);
+    await processMonitoringCheck({ id: 'monitor-refused', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { throw new TargetSecurityError('DNS_UNSAFE', 'Blocked private target'); });
+    expect(await database.securityEvent.count({ where: { tenantId, websiteId: site.id, type: 'AVAILABILITY', resolvedAt: null } })).toBe(1);
+    expect((await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie } })).json().state).toBe('UNKNOWN');
+    // A retry of a job left RUNNING by a crashed worker is completed, not dropped.
+    await database.monitoringCheck.create({ data: { tenantId, websiteId: site.id, jobId: 'monitor-resume-running' } });
+    await processMonitoringCheck({ id: 'monitor-resume-running', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, healthy);
+    expect(await database.monitoringCheck.findUniqueOrThrow({ where: { jobId: 'monitor-resume-running' } })).toMatchObject({ status: 'SUCCEEDED' });
+    await database.emailDelivery.update({ where: { id: beforeRetry.id }, data: { status: 'RETRYING', attempts: 4, deliveredAt: null } });
+    let limitedSends = 0; const failingProvider: EmailProvider = { async send() { limitedSends++; throw new Error('FIXTURE_SMTP_FAILED'); } };
+    await expect(processEmailDelivery({ data: { deliveryId: beforeRetry.id }, attemptsMade: 0, opts: { attempts: 5 } } as never, failingProvider)).rejects.toThrow('FIXTURE_SMTP_FAILED');
+    await processEmailDelivery({ data: { deliveryId: beforeRetry.id }, attemptsMade: 1, opts: { attempts: 5 } } as never, failingProvider);
+    expect(limitedSends).toBe(1); expect(await database.emailDelivery.findUniqueOrThrow({ where: { id: beforeRetry.id } })).toMatchObject({ status: 'FAILED', attempts: 5 });
+    const beforeConcurrent = await database.communicationEvent.count({ where: { tenantId, eventType: 'MONITORING_ALERT' } });
+    await Promise.all(['monitor-concurrent-1', 'monitor-concurrent-2'].map(id => processMonitoringCheck({ id, timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, runner)));
+    expect(await database.communicationEvent.count({ where: { tenantId, eventType: 'MONITORING_ALERT' } })).toBe(beforeConcurrent + 1);
+    const beforeFence = await database.communicationEvent.count({ where: { tenantId, eventType: 'MONITORING_ALERT' } });
+    await expect(processMonitoringCheck({ id: 'monitor-policy-fence', timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, async () => { await database.monitoringPolicy.update({ where: { websiteId: site.id }, data: { enabled: false } }); return healthy(); })).rejects.toThrow('MONITORING_BINDING_CHANGED');
+    expect(await database.communicationEvent.count({ where: { tenantId, eventType: 'MONITORING_ALERT' } })).toBe(beforeFence);
+    const pendingMail = await database.communicationEvent.findFirstOrThrow({ where: { tenantId, eventType: 'MONITORING_ALERT', processedAt: null, payload: { path: ['monitoring', 'state'], equals: 'DOWN' } }, orderBy: { createdAt: 'desc' } });
+    await processCommunicationEvent(pendingMail.id, { async add() { return {}; } } as unknown as Queue);
+    const pendingDelivery = await database.emailDelivery.findUniqueOrThrow({ where: { eventId: pendingMail.id } });
+    await database.notificationPreference.upsert({ where: { tenantId_userId_eventType: { tenantId, userId: identity.user.id, eventType: 'MONITORING_ALERT' } }, create: { tenantId, userId: identity.user.id, eventType: 'MONITORING_ALERT', emailEnabled: false }, update: { emailEnabled: false } });
+    const noSend: EmailProvider = { async send() { throw new Error('UNAUTHORIZED_MAIL_MUST_NOT_SEND'); } };
+    await processEmailDelivery({ data: { deliveryId: pendingDelivery.id }, attemptsMade: 0, opts: { attempts: 5 } } as never, noSend);
+    expect(await database.emailDelivery.findUniqueOrThrow({ where: { id: pendingDelivery.id } })).toMatchObject({ status: 'SUPPRESSED', attempts: 0 });
+    await database.notificationPreference.update({ where: { tenantId_userId_eventType: { tenantId, userId: identity.user.id, eventType: 'MONITORING_ALERT' } }, data: { emailEnabled: true } });
+    await database.emailDelivery.update({ where: { id: pendingDelivery.id }, data: { status: 'QUEUED' } });
+    await database.user.update({ where: { id: identity.user.id }, data: { emailVerifiedAt: null } });
+    await processEmailDelivery({ data: { deliveryId: pendingDelivery.id }, attemptsMade: 0, opts: { attempts: 5 } } as never, noSend);
+    expect(await database.emailDelivery.findUniqueOrThrow({ where: { id: pendingDelivery.id } })).toMatchObject({ status: 'SUPPRESSED', attempts: 0 });
     const specialistRole = await database.role.findFirstOrThrow({ where: { name: 'Cybersecurity Specialist', tenantId: null } }); const specialistTenant = await database.tenant.create({ data: { name: 'Isolated specialist', slug: `isolated-specialist-${crypto.randomUUID()}` } }); const specialistUser = await database.user.create({ data: { email: 'isolated-alert-specialist@example.test', passwordHash: await hashPassword(password), status: 'APPROVED', emailVerifiedAt: new Date() } }); await database.tenantMembership.create({ data: { tenantId: specialistTenant.id, userId: specialistUser.id, status: 'ACTIVE' } }); await database.userRole.create({ data: { tenantId: specialistTenant.id, userId: specialistUser.id, roleId: specialistRole.id } }); const specialistCookie = cookieFrom((await login('specialist', specialistUser.email)).headers['set-cookie']); const foreignAlert = await database.securityAlert.findFirstOrThrow({ where: { tenantId, websiteId: site.id } }); expect((await app.inject({ method: 'PATCH', url: `/v1/operations/alerts/${foreignAlert.id}`, headers: { cookie: specialistCookie }, payload: { status: 'RESOLVED' } })).statusCode).toBe(404);
     const mode = await app.inject({ method: 'PUT', url: '/v1/developer-mode', headers: { cookie }, payload: { enabled: true, durationMinutes: 10 } }); expect(mode.statusCode).toBe(200); const diagnostics = await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/diagnostics`, headers: { cookie } }); expect(diagnostics.statusCode).toBe(200); expect(JSON.stringify(diagnostics.json())).not.toMatch(/secret|ciphertext|restoreReference/iu); expect(await database.auditLog.count({ where: { action: { startsWith: 'developer_mode.' } } })).toBe(2);
   });

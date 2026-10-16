@@ -1,0 +1,15 @@
+[Unit]
+Description=CodeBandage authenticated encrypted PostgreSQL backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/codebandage/source
+UMask=0077
+ExecStart=/usr/bin/python3 /opt/codebandage/source/scripts/deploy/backup.py /opt/codebandage/releases/current.env
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# Docker socket access is root-equivalent. This is an administrative unit.

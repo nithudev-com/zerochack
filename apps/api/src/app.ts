@@ -1,3 +1,5 @@
+import type { VerificationAdapter } from './modules/care/verification-runner.js';
+import type { BrowserAdapter } from './modules/care/static-browser.js';
 import Fastify, { LogController } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
@@ -12,10 +14,15 @@ import { foundationRoutes } from './modules/foundation/routes.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { mfaRoutes } from './modules/auth/mfa-routes.js';
 import { authorizationRoutes } from './modules/authorization/routes.js';
-import { SmtpEmailProvider, type EmailProvider } from '@zerochack/email';
+import type { EmailProvider } from '@zerochack/email';
+import { PlatformSmtp } from './modules/communications/smtp-settings.js';
+import { smtpRoutes } from './modules/owner/smtp-routes.js';
 import Redis from 'ioredis';
 import { Queue } from 'bullmq';
+import type { ObservationAdapters } from './modules/care/external-observations.js';
+import { careRoutes } from './modules/care/routes.js';
 import { customerRoutes } from './modules/customer/routes.js';
+import { connectorRoutes } from './modules/connectors/routes.js';
 import { aiRoutes } from './modules/ai/routes.js';
 import { AiService } from './modules/ai/service.js';
 import type { AiProviderAdapter } from '@zerochack/ai-gateway';
@@ -29,9 +36,9 @@ import { ownerRoutes } from './modules/owner/routes.js';
 import { communicationRoutes } from './modules/communications/routes.js';
 import { authenticateMetricsToken, observeRequest, renderMetrics } from './metrics.js';
 
-export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[] }) {
+export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters; careVerification?: VerificationAdapter; careBrowser?: BrowserAdapter }) {
   const logger = createLogger('api', environment.LOG_LEVEL);
-  const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
+  const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY ? (_address, hop) => hop === 0 : false, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
   const rateLimitRedis = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
   const queueConnection = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: null });
   const customerQueues = queueConnection ? {
@@ -48,8 +55,8 @@ export async function buildApp(environment: Environment, dependencies?: { email?
   await app.register(cors, { origin: environment.corsOrigins, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
   await app.register(rateLimit, { max: environment.NODE_ENV === 'test' ? 10_000 : 100, timeWindow: '1 minute', keyGenerator: (request) => request.ip, ...(rateLimitRedis ? { redis: rateLimitRedis } : {}) });
   await app.register(cookie);
-  await app.register(swagger, { openapi: { info: { title: 'ZeroRoot API', version: '1.0.0', description: 'Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API.' }, servers: [{ url: '/v1' }] } });
-  await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
+  await app.register(swagger, { openapi: { info: { title: 'CodeBandage API', version: '1.0.0', description: 'Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API.' }, servers: [{ url: '/v1' }] } });
+  if (environment.NODE_ENV !== 'production') await app.register(swaggerUi, { routePrefix: '/docs', uiConfig: { docExpansion: 'list' } });
 
   app.addHook('onRequest', async (request, reply) => {
     request.startedAt = process.hrtime.bigint();
@@ -75,19 +82,23 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     const possibleStatus = 'statusCode' in error ? error.statusCode : undefined;
     const statusCode = known ? error.statusCode : (typeof possibleStatus === 'number' && possibleStatus < 500 ? possibleStatus : 500);
     const code = known ? error.code : statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_ERROR';
-    request.log.error({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, errorCode: code, err: error }, 'request.failed');
-    void reply.code(statusCode).send({ error: { code, message: statusCode === 500 && environment.NODE_ENV === 'production' ? 'An unexpected error occurred' : error.message, requestId: request.id, ...(known && error.details !== undefined ? { details: error.details } : {}) } });
+    request.log.error({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, errorCode: code }, 'request.failed');
+    void reply.code(statusCode).send({ error: { code, message: statusCode === 500 ? 'An unexpected error occurred' : error.message, requestId: request.id, ...(known && error.details !== undefined ? { details: error.details } : {}) } });
   });
 
   await app.register(async (v1) => {
-    const email = dependencies?.email ?? new SmtpEmailProvider({ host: environment.SMTP_HOST, port: environment.SMTP_PORT, secure: environment.SMTP_SECURE, from: environment.SMTP_FROM, ...(environment.SMTP_USER && environment.SMTP_PASSWORD ? { user: environment.SMTP_USER, password: environment.SMTP_PASSWORD } : {}) });
+    const smtp = new PlatformSmtp(environment);
+    const email = dependencies?.email ?? smtp;
+    await v1.register(smtpRoutes, { environment, smtp });
     await v1.register(healthRoutes, { redisUrl: environment.REDIS_URL });
     await v1.register(foundationRoutes);
     await v1.register(authRoutes, { environment, email, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
     await v1.register(mfaRoutes, { environment });
     await v1.register(authorizationRoutes, { environment, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
     await v1.register(aiRoutes, { environment, ai });
+    await v1.register(careRoutes, { environment, ai, ...(dependencies?.careVerification ? { verificationAdapter: dependencies.careVerification } : {}), ...(dependencies?.careBrowser ? { browserAdapter: dependencies.careBrowser } : {}), ...(dependencies?.careObservations ? { observationAdapters: dependencies.careObservations } : {}) });
     await v1.register(customerRoutes, { environment, ai, ...(customerQueues ? { queues: customerQueues } : {}) });
+    await v1.register(connectorRoutes, { environment });
     await v1.register(specialistRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, scans: customerQueues.scans, notifications:customerQueues.notifications,reports:customerQueues.reports } } : {}) });
     await v1.register(commercialRoutes, { environment, ...(dependencies?.paymentProviders ? { providers: dependencies.paymentProviders } : {}),...(customerQueues?{notificationsQueue:customerQueues.notifications}:{}) });
     await v1.register(operationsRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, monitoring: customerQueues.monitoring } } : {}) });

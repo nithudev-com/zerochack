@@ -1,13 +1,16 @@
+import type { RouteHandlerMethod } from 'fastify';
+import { looksSensitive } from '@zerochack/care';
+import { brokerSecret, captureAccess, trackedChat, finishChat } from '../care/service.js';
 import { EventEmitter } from 'node:events';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { resolveTxt } from 'node:dns/promises';
 import type { FastifyInstance } from 'fastify';
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { z } from 'zod';
 import { database } from '@zerochack/database';
-import { decryptSecret, encryptSecret, generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
-import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, type EngineFinding } from '@zerochack/scanner';
+import { generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
+import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, validatePublicHttpTarget, type EngineFinding } from '@zerochack/scanner';
 import type { Environment } from '@zerochack/config';
 import { ApiError } from '../../errors.js';
 import { authenticate, requirePermission } from '../auth/security.js';
@@ -17,6 +20,9 @@ import { AiGatewayError } from '@zerochack/ai-gateway';
 import { verifyReport, reportTypes, type ReportDocument } from '@zerochack/reports';
 import { publishTenantEvent } from '../communications/service.js';
 import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
+import { connectionSummary } from './connection-summary.js';
+import { verifySshHost } from './ssh-host-trust.js';
+import { navigationActivity, navigationClickAction, navigationClickInput } from './overview-activity.js';
 
 const websiteInput = z.object({ name: z.string().trim().min(2).max(120), url: z.string().url().max(2048) });
 const websiteUpdate = websiteInput.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
@@ -30,12 +36,16 @@ const accessInput = z.object({
   port: z.number().int().min(1).max(65_535).default(22),
   username: z.string().trim().min(1).max(120),
   authMethod: z.enum(['PASSWORD', 'SSH_KEY']),
+  hostKeyFingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}=?$/).optional(),
+  firstConnectionTrustConfirmed: z.boolean().default(false),
+  idempotencyKey: z.string().uuid().optional(),
   secret: z.string().min(1).max(50_000),
   authorizationConfirmed: z.literal(true)
 });
 const chatEvents = new EventEmitter();
 chatEvents.setMaxListeners(500);
-const credentialLike = (value: string) => /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:password|passwd|private[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*\S+/iu.test(value);
+const legacyCredentialLike = (value: string) => /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:password|passwd|private[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*\S+/iu.test(value);
+const credentialLike = (value: string) => looksSensitive(value) || legacyCredentialLike(value);
 type PriceFinding={title:string;description?:string|null;severity:string;affectedResource:string;recommendation:string;cwe?:string|null;owaspCategory?:string|null};
 function securityFixPriceMatches(price:{scope:string;severity:string|null;owaspCategory:string|null;cwe:string|null;matchTerms:string[]},finding:PriceFinding):boolean{if(price.scope==='PROJECT')return true;if(price.severity&&price.severity!==finding.severity)return false;if(price.owaspCategory&&price.owaspCategory.toLowerCase()!==(finding.owaspCategory??'').toLowerCase())return false;if(price.cwe&&price.cwe.toLowerCase()!==(finding.cwe??'').toLowerCase())return false;const text=[finding.title,finding.description,finding.affectedResource,finding.recommendation,finding.cwe,finding.owaspCategory].filter(Boolean).join(' ').toLowerCase();if(price.matchTerms.length&&!price.matchTerms.some((term)=>text.includes(term.toLowerCase())))return false;return Boolean(price.severity||price.owaspCategory||price.cwe||price.matchTerms.length);}
 
@@ -107,29 +117,42 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return conversation;
   };
 
-  const checkWebsiteAccess = async (input: { tenantId: string; websiteId: string; actorUserId: string; requestId: string; ipAddress: string; announce?: boolean }) => {
+  type CheckInput = { tenantId: string; websiteId: string; actorUserId: string; requestId: string; ipAddress: string; announce?: boolean };
+  const activeSshChecks = new Set<string>();
+  const checkWebsiteAccess = async (input: CheckInput) => {
+    const key = `${input.tenantId}:${input.websiteId}`;
+    if (activeSshChecks.has(key)) throw new ApiError(409, 'SSH_CHECK_IN_PROGRESS', 'An SSH check is already running for this website.');
+    if (activeSshChecks.size >= 4) throw new ApiError(429, 'SSH_CHECK_LIMIT', 'SSH checks are busy. Retry shortly.');
+    activeSshChecks.add(key);
+    try { return await performWebsiteAccessCheck(input); } finally { activeSshChecks.delete(key); }
+  };
+  const performWebsiteAccessCheck = async (input: CheckInput) => {
     await websiteForTenant(input.tenantId, input.websiteId);
     const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_CONFIGURED', 'Add your scoped server access in the encrypted Secure Access form before checking it.');
+    const unchanged = { id: access.id, tenantId: input.tenantId, websiteId: input.websiteId, host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, encryptedSecret: access.encryptedSecret, vaultCredentialId: access.vaultCredentialId, hostKeyFingerprint: access.hostKeyFingerprint, updatedAt: access.updatedAt };
     try {
-      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: decryptSecret(access.encryptedSecret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY), hostKeyFingerprint: access.hostKeyFingerprint });
+      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint }, verifySshHost(access, input.actorUserId, input.requestId));
       connection.client.end();
-      const [updated] = await database.$transaction([
-        database.websiteAccessCredential.update({ where: { websiteId: input.websiteId }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } }),
-        database.website.update({ where: { id: input.websiteId }, data: { connectionStatus: 'VERIFIED', connectedAt: new Date(), connectionErrorCode: null } })
-      ]);
+      const updated = await database.$transaction(async tx => {
+        const changed = await tx.websiteAccessCredential.updateMany({ where: { ...unchanged, website: { is: { tenantId: input.tenantId, lifecycle: 'ACTIVE' } }, ...(access.vaultCredentialId ? { vaultCredential: { is: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'STORED', authorizationExpiresAt: { gt: new Date() } } } } : {}) }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null } });
+        if (changed.count !== 1) throw new ApiError(409, 'SSH_ACCESS_CHANGED', 'SSH access changed or expired during this check. Check the current saved account.');
+        await tx.website.update({ where: { id: input.websiteId }, data: { connectionStatus: 'VERIFIED', connectedAt: new Date(), connectionErrorCode: null } });
+        return tx.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: input.websiteId }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, vaultCredential: { select: { authorizationExpiresAt: true } } } });
+      });
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: 'Your SSH details are correct and the server identity has been pinned. I am ready to run the bounded read-only security assessment. I will never place your password or private key in this chat or in an AI prompt.' } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: 'SSH authentication succeeded. The server identity is saved and later changes will be blocked. No assessment, cleanup or changes started. Your password or private key was not added to chat or sent to AI.' } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       await writeAudit({ tenantId: input.tenantId, actorUserId: input.actorUserId, requestId: input.requestId, action: 'website.ssh_access_checked', resourceType: 'website', resourceId: input.websiteId, ipAddress: input.ipAddress, metadata: { hostKeyPinned: true } });
-      return { ...updated, secretStored: true, guidance: 'SSH authentication succeeded. The server key is pinned and secure access is ready.' };
+      const { vaultCredential, ...metadata } = updated;
+      return { ...metadata, secretStored: true, authorizationExpiresAt: vaultCredential?.authorizationExpiresAt ?? null, guidance: 'SSH authentication succeeded. No assessment or changes started.' };
     } catch (error) {
       const code = error instanceof TargetSecurityError ? error.code : sshErrorCode(error);
-      await database.websiteAccessCredential.update({ where: { websiteId: input.websiteId }, data: { status: 'NEEDS_ATTENTION', lastCheckedAt: new Date(), lastErrorCode: code } });
-      const guidance = code === 'SSH_AUTH_FAILED' ? 'I could reach the SSH server, but authentication failed. Recheck the SSH username and use a current password or private key from your hosting dashboard. If you do not know where to find it, tell me your hosting company in chat or choose live support.' : code === 'SSH_HOST_KEY_CHANGED' ? 'The server identity changed since the last successful connection. For safety I stopped. Confirm the change with your hosting provider before rotating the saved access.' : 'I could not reach the SSH service. Confirm the SSH host and port in your hosting dashboard and check whether remote SSH access is enabled.';
+      await database.websiteAccessCredential.updateMany({ where: unchanged, data: { status: 'NEEDS_ATTENTION', lastCheckedAt: new Date(), lastErrorCode: code } });
+      const guidance = code === 'AUTHORIZATION_REQUIRED' ? 'Stored SSH authorization expired or was revoked. Re-enter access in the secure form and approve a new connection check.' : code === 'SSH_ACCESS_CHANGED' ? 'The saved account changed or expired during this check. Check the current saved account; the old result was not applied.' : code === 'SSH_AUTH_FAILED' ? 'The SSH server rejected authentication. Check the username and current key or password in your hosting dashboard.' : code === 'SSH_HOST_KEY_CHANGED' ? 'The server identity did not match your trusted fingerprint. Confirm the identity through your hosting provider before changing the saved fingerprint.' : 'SSH was not verified. Check the SSH host and port from your provider, DNS, firewall and account details. A website domain may point to a CDN rather than its SSH server.';
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: guidance } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: guidance } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       throw new ApiError(409, code, guidance);
@@ -150,7 +173,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     };
     try {
       await reportProgress(10, 'Assessment started: opening the pinned SSH server identity. No server changes are permitted.');
-      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: decryptSecret(access.encryptedSecret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY), hostKeyFingerprint: access.hostKeyFingerprint });
+      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint });
       let server; try { server = await inspectServerReadOnly(connection.client); } finally { connection.client.end(); }
       await reportProgress(70, `SSH file inspection finished: ${server.roots.length} web root(s), ${server.scannedFiles} PHP/JavaScript file(s), malware mode ${server.malwareScanner}. Running public web checks now.`);
       const web = await runSecurityScan(website.url, { timeoutMs: options.environment.SCANNER_TIMEOUT_MS, maxRedirects: options.environment.SCANNER_MAX_REDIRECTS, maxBytes: options.environment.SCANNER_MAX_RESPONSE_BYTES });
@@ -223,10 +246,36 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.get('/websites', async (request) => {
     requirePermission(request, 'websites.read');
-    return database.website.findMany({
+    const websites = await database.website.findMany({
       where: { tenantId: request.tenantId!, lifecycle: 'ACTIVE' }, orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { findings: { where: { status: 'OPEN' } } } } }
+      include: {
+        _count: { select: { findings: { where: { status: 'OPEN' } } } },
+        accessCredential: { where: { tenantId: request.tenantId! }, select: { status: true, lastCheckedAt: true, lastErrorCode: true, vaultCredentialId: true, vaultCredential: { select: { status: true, authorizationExpiresAt: true } } } },
+        connectors: { where: { tenantId: request.tenantId! }, select: { provider: true, websiteUrl: true, status: true, authorizationExpiresAt: true, lastCheckedAt: true, lastErrorCode: true }, orderBy: { provider: 'asc' } }
+      }
     });
+    return websites.map(({ accessCredential, connectors, ...site }) => ({ ...site, connectionSummary: connectionSummary({ ...site, accessCredential, connectors }) }));
+  });
+
+  app.get('/websites/:websiteId/navigation-activity', { schema: { tags: ['websites'], summary: 'My latest website option clicks; not work results' } }, async (request) => {
+    requirePermission(request, 'websites.read');
+    const { websiteId } = parse(idParams, request.params);
+    await websiteForTenant(request.tenantId!, websiteId);
+    const rows = await database.auditLog.findMany({
+      where: { tenantId: request.tenantId!, actorUserId: request.userId!, action: navigationClickAction, resourceType: 'website', resourceId: websiteId },
+      select: { id: true, createdAt: true, metadata: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50
+    });
+    return rows.flatMap(row => { const entry = navigationActivity(row); return entry ? [entry] : []; });
+  });
+
+  app.post('/websites/:websiteId/navigation-activity', { schema: { tags: ['websites'], summary: 'Record a personal option click without starting work', response: { 204: { type: 'null', description: 'Click recorded; no work started' } } }, bodyLimit: 512, config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10000 : 60, timeWindow: '1 minute' } } }, async (request, reply) => {
+    requirePermission(request, 'websites.read');
+    const { websiteId } = parse(idParams, request.params);
+    const click = parse(navigationClickInput, request.body);
+    await websiteForTenant(request.tenantId!, websiteId);
+    await writeAudit({ tenantId: request.tenantId!, actorUserId: request.userId!, requestId: request.id, action: navigationClickAction, resourceType: 'website', resourceId: websiteId, metadata: click });
+    // A click receipt is not a job, approval, provider result or proof of work.
+    return reply.code(204).send();
   });
 
   app.post('/websites', async (request, reply) => {
@@ -273,8 +322,11 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     requirePermission(request, 'websites.read');
     const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
     await websiteForTenant(tenantId, websiteId);
-    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
-    return access ? { ...access, secretStored: true } : null;
+    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, encryptedSecret: true, vaultCredentialId: true, vaultCredential: { select: { status: true, authorizationExpiresAt: true } } } });
+    if (!access) return null;
+    const { encryptedSecret, vaultCredentialId, vaultCredential, ...metadata } = access;
+    const authorized = !vaultCredentialId || Boolean(options.environment.CARE_ENABLED && vaultCredential?.status === 'STORED' && vaultCredential.authorizationExpiresAt > new Date());
+    return { ...metadata, ...(!authorized ? { status: 'NEEDS_ATTENTION', lastErrorCode: 'AUTHORIZATION_REQUIRED' } : {}), secretStored: vaultCredentialId ? vaultCredential?.status === 'STORED' : Boolean(encryptedSecret), authorizationExpiresAt: vaultCredential?.authorizationExpiresAt ?? null };
   });
 
   app.put('/websites/:websiteId/access', async (request) => {
@@ -283,13 +335,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     await websiteForTenant(tenantId, websiteId);
     const host = input.host.toLowerCase();
     try { validateHostname(host); } catch (error) { if (error instanceof TargetSecurityError) throw new ApiError(400, error.code, error.message); throw error; }
-    const encryptedSecret = encryptSecret(input.secret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY);
-    const access = await database.websiteAccessCredential.upsert({
-      where: { websiteId },
-      create: { tenantId, websiteId, host, port: input.port, username: input.username, authMethod: input.authMethod, encryptedSecret },
-      update: { host, port: input.port, username: input.username, authMethod: input.authMethod, encryptedSecret, hostKeyFingerprint: null, status: 'CONFIGURED', lastCheckedAt: null, lastErrorCode: null },
-      select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true }
-    });
+    await captureAccess(request, websiteId, { content: JSON.stringify({ kind: 'SSH', host, port: input.port, username: input.username, authMethod: input.authMethod, secret: input.secret, firstConnectionTrustConfirmed: input.firstConnectionTrustConfirmed, ...(input.hostKeyFingerprint ? { hostKeyFingerprint: input.hostKeyFingerprint } : {}) }), environment: 'PRODUCTION', authorizationConfirmed: input.authorizationConfirmed, idempotencyKey: input.idempotencyKey ?? randomUUID() }, options.environment);
+    const access = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
     await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'website.access_saved', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { host, port: input.port, authMethod: input.authMethod, secretStored: true } });
     return { ...access, secretStored: true };
   });
@@ -302,7 +349,16 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.delete('/websites/:websiteId/access', async (request, reply) => {
     requirePermission(request, 'websites.manage'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
-    await websiteForTenant(tenantId, websiteId); await database.websiteAccessCredential.deleteMany({ where: { tenantId, websiteId } });
+    await websiteForTenant(tenantId, websiteId);
+    await database.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
+      const previous = await tx.websiteAccessCredential.findUnique({ where: { websiteId } });
+      if (previous?.vaultCredentialId) {
+        await tx.careCredential.updateMany({ where: { id: previous.vaultCredentialId, tenantId, websiteId }, data: { status: 'REVOKED', encryptedEnvelope: '' } });
+        await tx.careAccessRequest.updateMany({ where: { credentialId: previous.vaultCredentialId }, data: { status: 'REVOKED' } });
+      }
+      await tx.websiteAccessCredential.deleteMany({ where: { tenantId, websiteId } });
+    });
     await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'website.access_revoked', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip });
     return reply.code(204).send();
   });
@@ -369,15 +425,34 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(201).send(result);
   });
 
-  app.patch('/websites/:websiteId/monitoring', async (request) => {
+  app.patch('/websites/:websiteId/monitoring', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async request => {
     requirePermission(request, 'monitoring.manage'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
-    const { enabled } = parse(z.object({ enabled: z.boolean() }), request.body); await websiteForTenant(tenantId, websiteId); const intervalMinutes = (await database.monitoringPolicy.findUnique({ where: { websiteId } }))?.intervalMinutes ?? 60;
-    await database.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled, intervalMinutes }, update: { enabled } });
-    const website = await database.website.update({ where: { id: websiteId }, data: { monitoringStatus: enabled ? 'PENDING' : 'PAUSED' } });
-    try { if (!options.queues?.monitoring) throw new Error('queue unavailable'); if (enabled) { await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60_000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts: { removeOnComplete: 1000, removeOnFail: 5000 } }); await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { jobId: `monitor-${websiteId}-${crypto.randomUUID()}`, removeOnComplete: 1000, removeOnFail: 5000 }); } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`); }
-    catch { await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]); throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. Retry shortly.'); }
-    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip });
-    return website;
+    const input = parse(z.object({ enabled: z.boolean(), intervalMinutes: z.number().int().refine(value => [5, 15, 60].includes(value)).optional(), emailAlerts: z.boolean().optional() }).strict(), request.body);
+    if (input.emailAlerts !== undefined) requirePermission(request, 'notifications.manage');
+    const target = await websiteForTenant(tenantId, websiteId);
+    if (input.enabled) {
+      try { validatePublicHttpTarget(target.url, target.normalizedHost); }
+      catch { throw new ApiError(400, 'MONITORING_TARGET_INVALID', 'Monitoring requires a public HTTP or HTTPS website URL on port 80 or 443. No SSH connection is needed.'); }
+    }
+    const existing = await database.monitoringPolicy.findUnique({ where: { websiteId } }); const intervalMinutes = input.intervalMinutes ?? existing?.intervalMinutes ?? 5;
+    await database.$transaction(async tx => {
+      await tx.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled: input.enabled, intervalMinutes }, update: { enabled: input.enabled, intervalMinutes } });
+      await tx.website.update({ where: { id: websiteId }, data: { monitoringStatus: input.enabled ? 'PENDING' : 'PAUSED' } });
+      if (input.emailAlerts !== undefined) await tx.notificationPreference.upsert({ where: { tenantId_userId_eventType: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT' } }, create: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT', emailEnabled: input.emailAlerts }, update: { emailEnabled: input.emailAlerts } });
+    });
+    try {
+      if (!options.queues?.monitoring) throw new Error('queue unavailable');
+      if (input.enabled) {
+        const opts = { attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 };
+        await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts });
+        await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { ...opts, jobId: `monitor-${websiteId}-${crypto.randomUUID()}` });
+      } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`);
+    } catch {
+      await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]);
+      throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. It remains disabled; retry shortly.');
+    }
+    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: input.enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { intervalMinutes } });
+    return database.website.findUniqueOrThrow({ where: { id: websiteId } });
   });
 
   app.post('/websites/:websiteId/backups', async (request, reply) => {
@@ -409,6 +484,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
   app.post('/websites/:websiteId/tickets', async (request, reply) => {
     requirePermission(request, 'tickets.create'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; const input = parse(ticketInput, request.body);
     await websiteForTenant(tenantId, websiteId);
+    if (looksSensitive(`${input.title}\n${input.description ?? ''}`)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Remove credentials from the support request and use secure access capture instead.');
     if (input.findingId && !(await database.securityFinding.findFirst({ where: { id: input.findingId, tenantId, websiteId } }))) throw new ApiError(400, 'INVALID_FINDING_REFERENCE', 'Finding does not belong to this website');
     const ticket = await database.ticket.create({ data: { tenantId, websiteId, title: input.title, ...(input.description ? { description: input.description } : {}), ...(input.findingId ? { findingId: input.findingId } : {}) } });
     await publishTenantEvent({ tenantId, recipientId: request.userId!, eventType: 'TICKET_CREATED', deduplicationKey: `ticket-created:${ticket.id}`, title: 'Support ticket created', message: `Your ticket “${ticket.title}” was created.`, actionUrl: `/customer/websites/${websiteId}/tickets`, data: { websiteId, ticketId: ticket.id } }, options.queues?.notifications);
@@ -439,7 +515,12 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.get('/websites/:websiteId/chat', async (request) => {
     requirePermission(request, 'chat.read'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; await websiteForTenant(tenantId, websiteId);
-    return database.chatMessage.findMany({ where: { tenantId, websiteId }, orderBy: { createdAt: 'asc' }, take: 200, include: { author: { select: { displayName: true } } } });
+    const { environment, before } = parse(z.object({ environment: z.enum(['PRODUCTION','STAGING']).default('PRODUCTION'), before: z.string().uuid().optional() }), request.query);
+    const anchor = before ? await database.chatMessage.findFirst({ where: { id: before, tenantId, websiteId, environment }, select: { id: true, createdAt: true } }) : null;
+    if (before && !anchor) throw new ApiError(404, 'HISTORY_CURSOR_INVALID', 'The history cursor is outside this conversation.');
+    // Let the database compare its full timestamp precision; JS Date truncates microseconds.
+    const messages = await database.chatMessage.findMany({ where: { tenantId, websiteId, environment }, ...(anchor ? { cursor: { id: anchor.id }, skip: 1 } : {}), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200, include: { author: { select: { displayName: true } } } });
+    return messages.reverse();
   });
 
   app.patch('/websites/:websiteId/findings/:findingId/status', async (request) => {
@@ -464,7 +545,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(201).send(message);
   });
 
-  app.post('/websites/:websiteId/chat/ai', async (request, reply) => {
+  const aiChatHandler: RouteHandlerMethod = async (request, reply) => {
     requirePermission(request, 'ai.use'); requirePermission(request, 'ai.security_context');
     const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; const input = parse(aiMessageInput, request.body);
     const website = await websiteForTenant(tenantId, websiteId);
@@ -480,7 +561,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
       database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { status: true, lastErrorCode: true, lastCheckedAt: true } }),
       database.securityFixPrice.findMany({where:{active:true,archivedAt:null},orderBy:[{priority:'desc'},{createdAt:'asc'}]}),
       database.securityFixOrder.findFirst({ where: { tenantId,websiteId,status:{in:['PAID','QUEUED','IN_PROGRESS','COMPLETED']} }, select: { id: true } }),
-      database.chatMessage.findMany({ where: { tenantId, websiteId }, orderBy: { createdAt: 'desc' }, take: 12, select: { type: true, content: true, createdAt: true } }),
+      database.chatMessage.findMany({ where: { tenantId, websiteId, environment: 'PRODUCTION' }, orderBy: { createdAt: 'desc' }, take: 12, select: { type: true, content: true, createdAt: true } }),
       database.scan.findFirst({ where: { tenantId, websiteId }, orderBy: { requestedAt: 'desc' }, select: { id: true, status: true, progress: true, engineCount: true, completedEngines: true, requestedAt: true, completedAt: true, errorCode: true } })
     ]);
     const latestAssessmentAudit = latestScan ? await database.auditLog.findFirst({ where: { tenantId, action: 'website.ai_assessment_completed', resourceType: 'scan', resourceId: latestScan.id }, orderBy: { createdAt: 'desc' }, select: { metadata: true, createdAt: true } }) : null;
@@ -553,7 +634,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
         }
       }
     }];
-    let result; try { result = await options.ai.execute({ tenantId, userId: request.userId!, roles: request.roleNames ?? [], requestId: request.id, idempotencyKey: input.idempotencyKey, prompt: input.content, untrustedContext: context, purpose: 'SECURITY_CHAT', tools }, { ...(input.providerId ? { providerId: input.providerId } : {}), ...(input.modelId ? { modelId: input.modelId } : {}) }); } catch (error) { if (error instanceof AiGatewayError) throw new ApiError(error.statusCode, error.code, error.message); throw error; }
+    const invoke = (signal?: AbortSignal) => options.ai.execute({ tenantId, ...(signal ? { signal } : {}), userId: request.userId!, roles: request.roleNames ?? [], requestId: request.id, idempotencyKey: input.idempotencyKey, prompt: input.content, untrustedContext: context, purpose: 'SECURITY_CHAT', tools }, { ...(input.providerId ? { providerId: input.providerId } : {}), ...(input.modelId ? { modelId: input.modelId } : {}) });
+    let result; try { result = options.environment.CARE_ENABLED ? await trackedChat(request, websiteId, input.idempotencyKey, invoke) : await invoke(); } catch (error) { if (error instanceof AiGatewayError) throw new ApiError(error.statusCode, error.code, error.message); throw error; }
     const existing = await database.aiUsage.findUnique({ where: { id: result.usageId }, include: { responseMessage: { include: { author: { select: { displayName: true } } } } } });
     if (existing?.responseMessage) return reply.code(200).send(existing.responseMessage);
     const [, aiMessage] = await database.$transaction([
@@ -562,8 +644,17 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     ]);
     await database.aiUsage.update({ where: { id: result.usageId }, data: { responseMessageId: aiMessage.id } });
     const eventKey = `${tenantId}:${websiteId}`; if (chatPublisher) await chatPublisher.publish('zerochack:chat', JSON.stringify({ key: eventKey, message: aiMessage })); else chatEvents.emit(eventKey, aiMessage);
+    if (options.environment.CARE_ENABLED) await finishChat(tenantId, websiteId, input.idempotencyKey, aiMessage.id);
     await writeAudit({ tenantId, actorUserId: request.userId, requestId: request.id, action: 'ai.security_chat_completed', resourceType: 'ai_usage', resourceId: result.usageId, ipAddress: request.ip, metadata: { websiteId, findingId: input.findingId } });
     return reply.code(201).send(aiMessage);
+  };
+  app.post('/websites/:websiteId/chat/ai', aiChatHandler);
+  app.post('/websites/:websiteId/chat/ingest', async (request, reply) => {
+    const { websiteId } = parse(idParams, request.params);
+    const capture = z.object({ mode: z.literal('SECURE'), idempotencyKey: z.string().uuid(), content: z.string().min(1).max(100000), environment: z.enum(['PRODUCTION','STAGING']), authorizationConfirmed: z.literal(true) }).safeParse(request.body);
+    if (capture.success) return reply.code(201).send(await captureAccess(request, websiteId, capture.data, options.environment));
+    if ((request.body as { mode?: string })?.mode !== 'MESSAGE') throw new ApiError(400, 'AUTHORIZATION_REQUIRED', 'Confirm your authority and use secure capture for access details.');
+    return aiChatHandler.call(app, request, reply);
   });
 
   app.post('/websites/:websiteId/findings/:findingId/explain', async (request, reply) => {

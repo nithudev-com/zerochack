@@ -2,7 +2,7 @@
 
 ## Decisions
 
-ZeroRoot is a TypeScript monorepo with deployable applications separated from reusable packages. npm workspaces provide a low-complexity dependency graph. Apps own transport and process lifecycle; packages own shared contracts and infrastructure adapters.
+CodeBandage is a TypeScript monorepo with deployable applications separated from reusable packages. npm workspaces provide a low-complexity dependency graph. Apps own transport and process lifecycle; packages own shared contracts and infrastructure adapters.
 
 The web application is a Next.js server/client application. It consumes reusable accessible primitives from `@zerochack/ui`; data fetching is prepared through TanStack Query, and forms through React Hook Form plus Zod.
 

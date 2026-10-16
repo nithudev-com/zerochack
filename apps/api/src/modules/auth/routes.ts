@@ -40,9 +40,9 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
       await transaction.auditLog.create({ data: { tenantId: tenant.id, actorUserId: user.id, requestId: request.id, action: 'auth.registration', resourceType: 'user', resourceId: user.id, ipAddress: request.ip, metadata: { role: input.role } } });
       return { rawToken, userId: user.id, tenantId: tenant.id };
     });
-    try { await email.send({ to: normalizedEmail, subject: 'Verify your ZeroRoot email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token.rawToken)}\nThis link expires in ${environment.EMAIL_TOKEN_TTL_MINUTES} minutes.` }); }
+    try { await email.send({ to: normalizedEmail, subject: 'Verify your CodeBandage email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token.rawToken)}\nThis link expires in ${environment.EMAIL_TOKEN_TTL_MINUTES} minutes.` }); }
     catch (error) { request.log.error({ err: error, errorCode: 'EMAIL_DELIVERY_FAILED', userId: token.userId }, 'email.verification.failed'); throw new ApiError(503, 'EMAIL_DELIVERY_FAILED', 'Account created, but verification email could not be delivered. Request a new link.'); }
-    await publishTenantEvent({ tenantId: token.tenantId, recipientId: token.userId, eventType: 'REGISTRATION', deduplicationKey: `registration:${token.userId}`, title: 'Registration received', message: 'Your ZeroRoot account was registered. Verify your email to continue.', actionUrl: '/verify-email' }, options.notificationsQueue);
+    await publishTenantEvent({ tenantId: token.tenantId, recipientId: token.userId, eventType: 'REGISTRATION', deduplicationKey: `registration:${token.userId}`, title: 'Registration received', message: 'Your CodeBandage account was registered. Verify your email to continue.', actionUrl: '/verify-email' }, options.notificationsQueue);
     return reply.code(202).send({ status: 'VERIFICATION_REQUIRED' });
   });
 
@@ -51,7 +51,7 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
     if (user && !user.emailVerifiedAt && user.status === 'REGISTERED') {
       await database.authToken.updateMany({ where: { userId: user.id, type: 'EMAIL_VERIFICATION', usedAt: null }, data: { usedAt: new Date() } });
       const token = await issueAuthToken(user.id, 'EMAIL_VERIFICATION', environment.EMAIL_TOKEN_TTL_MINUTES, environment);
-      await email.send({ to: user.email, subject: 'Verify your ZeroRoot email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token)}` });
+      await email.send({ to: user.email, subject: 'Verify your CodeBandage email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token)}` });
     }
     return reply.code(202).send({ status: 'ACCEPTED' });
   });
@@ -104,7 +104,7 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
     if (user?.emailVerifiedAt && !['SUSPENDED', 'DEACTIVATED'].includes(user.status)) {
       await database.authToken.updateMany({ where: { userId: user.id, type: 'PASSWORD_RESET', usedAt: null }, data: { usedAt: new Date() } });
       const token = await issueAuthToken(user.id, 'PASSWORD_RESET', environment.RESET_TOKEN_TTL_MINUTES, environment);
-      await email.send({ to: user.email, subject: 'Reset your ZeroRoot password', text: `Reset your password: ${environment.APP_URL}/reset-password?token=${encodeURIComponent(token)}\nThis link expires in ${environment.RESET_TOKEN_TTL_MINUTES} minutes.` });
+      await email.send({ to: user.email, subject: 'Reset your CodeBandage password', text: `Reset your password: ${environment.APP_URL}/reset-password?token=${encodeURIComponent(token)}\nThis link expires in ${environment.RESET_TOKEN_TTL_MINUTES} minutes.` });
       await writeAudit({ actorUserId: user.id, requestId: request.id, action: 'auth.password_reset_requested', resourceType: 'user', resourceId: user.id, ipAddress: request.ip });
     }
     return reply.code(202).send({ status: 'ACCEPTED' });

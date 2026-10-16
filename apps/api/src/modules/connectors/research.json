@@ -1,0 +1,1684 @@
+{
+  "title": "CodeBandage — 150 platform connection methods",
+  "research_date": "2026-10-09",
+  "scope": "Connection-method research for the 150 previously catalogued CMS, commerce and website-builder offerings. No connection, login, connector deployment or write operation was tested.",
+  "platforms": [
+    {
+      "id": 1,
+      "platform": "WordPress",
+      "category": "General / publishing CMS",
+      "connection_method": "API: username + Application Password. Browser: a separate WordPress user account.",
+      "required_information": "Site URL; username; Application Password; requested capabilities.",
+      "limitations": "Application Passwords cannot log into wp-admin. Core content endpoints do not grant arbitrary theme/server editing. WordPress.com has a separate OAuth flow.",
+      "official_sources": [
+        "https://developer.wordpress.org/advanced-administration/security/application-passwords/",
+        "https://developer.wordpress.com/docs/api/getting-started/"
+      ]
+    },
+    {
+      "id": 2,
+      "platform": "Drupal",
+      "category": "General / publishing CMS",
+      "connection_method": "API: configured JSON:API/REST with session, HTTPS Basic, or an OAuth module. Browser: a role-based Drupal account.",
+      "required_information": "Site URL; version; enabled API/auth modules; user or OAuth app credentials.",
+      "limitations": "JSON:API writes and permissions must be enabled; Simple OAuth is an added module, not a universal built-in key.",
+      "official_sources": [
+        "https://www.drupal.org/docs/8/core/modules/rest/using-other-authentication-protocols",
+        "https://www.drupal.org/docs/core-modules-and-themes/core-modules/jsonapi-module/creating-new-resources-post"
+      ]
+    },
+    {
+      "id": 3,
+      "platform": "Joomla",
+      "category": "General / publishing CMS",
+      "connection_method": "API: Joomla API token (X-Joomla-Token), with required plugins and permissions. Browser: backend user.",
+      "required_information": "Site URL; Joomla version; token; required resources.",
+      "limitations": "Do not grant Super User solely for convenience. Token features depend on installed version and enabled plugins.",
+      "official_sources": [
+        "https://docs.joomla.org/J4.x%3AJoomla_Core_APIs/fr",
+        "https://docs.joomla.org/Help4.x%3ASite_Global_Configuration/en"
+      ]
+    },
+    {
+      "id": 4,
+      "platform": "TYPO3",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: TYPO3 backend account. API: a configured REST extension/custom connector—not a universal core API key.",
+      "required_information": "Site URL; version; extension inventory; backend role or configured API credentials.",
+      "limitations": "Review extension compatibility and permissions; do not label an extension's auth as TYPO3 core functionality.",
+      "official_sources": [
+        "https://docs.typo3.org/p/nng/nnrestapi/main/en-us/"
+      ]
+    },
+    {
+      "id": 5,
+      "platform": "Ghost",
+      "category": "General / publishing CMS",
+      "connection_method": "API: Ghost Admin API integration key → signed JWT. Browser: invited staff account.",
+      "required_information": "Admin API URL; integration key; API version; permitted operation.",
+      "limitations": "Content API keys are read-only; they are not Admin API keys or staff login credentials.",
+      "official_sources": [
+        "https://docs.ghost.org/admin-api/"
+      ]
+    },
+    {
+      "id": 6,
+      "platform": "Craft CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "API: private-schema GraphQL bearer token, with configured mutations. Browser: Craft control-panel account.",
+      "required_information": "Site GraphQL endpoint; version/edition; scoped token; schema permissions.",
+      "limitations": "Check edition, version and mutation support. A content token is not arbitrary filesystem access.",
+      "official_sources": [
+        "https://craftcms.com/docs/5.x/development/graphql"
+      ]
+    },
+    {
+      "id": 7,
+      "platform": "Statamic",
+      "category": "General / publishing CMS",
+      "connection_method": "API: read-only REST token, when enabled. Writes: Statamic control-panel user, Git, or a reviewed custom API.",
+      "required_information": "Site URL; version; token if enabled; content/Git access for writes.",
+      "limitations": "The documented REST delivery API is read-only; do not advertise it as a repair/write connector.",
+      "official_sources": [
+        "https://statamic.dev/frontend/rest-api"
+      ]
+    },
+    {
+      "id": 8,
+      "platform": "ProcessWire",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: ProcessWire user with roles. Remote automation: custom REST/module; PHP API is not remote authentication.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://processwire.com/api/ref/users/",
+        "https://processwire.com/api/ref/"
+      ]
+    },
+    {
+      "id": 9,
+      "platform": "MODX Revolution",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: MODX Manager user with ACLs. Remote management API: custom integration; verify the installed setup.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.modx.com/current/en/building-sites/client-proofing/security/users"
+      ]
+    },
+    {
+      "id": 10,
+      "platform": "ExpressionEngine",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: ExpressionEngine control-panel member with permissions. Remote automation: reviewed add-on/custom API.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.expressionengine.com/latest/control-panel/member-manager.html"
+      ]
+    },
+    {
+      "id": 11,
+      "platform": "Concrete CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "API: configured Concrete CMS REST integration using OAuth/JWT and scopes. Browser: Dashboard account.",
+      "required_information": "Site URL; CMS version; enabled REST API; integration credentials and scopes.",
+      "limitations": "Verify the installed version and enabled API; do not assume all older installations expose the same endpoints.",
+      "official_sources": [
+        "https://documentation.concretecms.org/9-x/developers/rest-api/introduction",
+        "https://documentation.concretecms.org/developers/rest-api/concrete-cms-rest-api-scopes"
+      ]
+    },
+    {
+      "id": 12,
+      "platform": "October CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: October CMS backend user. API: installed plugin or custom REST authentication.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://octobercms.com/docs/api/backend/controllers/users"
+      ]
+    },
+    {
+      "id": 13,
+      "platform": "Winter CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Winter CMS backend user. API: reviewed plugin/custom connector.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://wintercms.com/docs/develop/docs/backend/users"
+      ]
+    },
+    {
+      "id": 14,
+      "platform": "Grav",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Grav Admin-plugin user. Files/code: separately approved Git/SFTP access; custom API if needed.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://learn.getgrav.org/17/admin-panel/accounts/users"
+      ]
+    },
+    {
+      "id": 15,
+      "platform": "Kirby",
+      "category": "General / publishing CMS",
+      "connection_method": "API: Kirby session authentication, or HTTPS Basic when enabled. Browser: Panel user.",
+      "required_information": "Site API URL; user; installed version; enabled authentication method.",
+      "limitations": "User permissions still apply. Do not enable broad Basic access without reviewing HTTPS and intended use.",
+      "official_sources": [
+        "https://getkirby.com/docs/guide/api/authentication"
+      ]
+    },
+    {
+      "id": 16,
+      "platform": "Silverstripe CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Silverstripe CMS user. API: configured GraphQL authentication; module/version dependent.",
+      "required_information": "Site URL; framework/module versions; enabled endpoint and auth configuration.",
+      "limitations": "The cited GraphQL guidance is version-specific. Verify the deployed API; no universal CMS API key is assumed.",
+      "official_sources": [
+        "https://docs.silverstripe.org/en/4/developer_guides/graphql/security_and_best_practices/authentication/"
+      ]
+    },
+    {
+      "id": 17,
+      "platform": "Contao",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Contao backend user/group. Remote API access requires a reviewed extension/custom connector.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.contao.org/5.x/manual/en/user-management/users/"
+      ]
+    },
+    {
+      "id": 18,
+      "platform": "CMS Made Simple",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: owner-authorized CMS Made Simple administration. Native remote write API/authentication: not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Project source was located, but current remote-auth and delegation details were not verified. Do not treat this as an API-ready connector.",
+      "official_sources": [
+        "https://github.com/cmsmadesimple/cmsmadesimple/"
+      ]
+    },
+    {
+      "id": 19,
+      "platform": "Textpattern",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Textpattern user with Designer/Editor or other appropriate privileges. Remote API: custom connector.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.textpattern.com/administration/user-roles-and-privileges"
+      ]
+    },
+    {
+      "id": 20,
+      "platform": "Backdrop CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Backdrop user/role. API: reviewed Services/headless module or custom endpoint, where installed.",
+      "required_information": "Site URL; Backdrop version; installed module/version; role and configured credentials.",
+      "limitations": "Review module release maturity and write support; a headless read endpoint is not a general repair API.",
+      "official_sources": [
+        "https://backdropcms.org/project/services",
+        "https://docs.backdropcms.org/"
+      ]
+    },
+    {
+      "id": 21,
+      "platform": "Wagtail",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Wagtail admin user. API v2 is read-only; v3 preview supports scoped user bearer tokens.",
+      "required_information": "Site URL; Wagtail version; API version; user token where supported.",
+      "limitations": "v3 documentation marks this as preview. Verify production suitability; do not promise v3 on an older site.",
+      "official_sources": [
+        "https://docs.wagtail.org/en/stable/advanced_topics/api/v3/index.html",
+        "https://docs.wagtail.org/en/latest/advanced_topics/api/v3/authentication.html"
+      ]
+    },
+    {
+      "id": 22,
+      "platform": "django CMS",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: django CMS/Django user and page permissions. API: custom Django REST/GraphQL authentication.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.django-cms.org/en/stable/explanation/permissions.html"
+      ]
+    },
+    {
+      "id": 23,
+      "platform": "Plone",
+      "category": "General / publishing CMS",
+      "connection_method": "API: plone.restapi JWT/login or HTTPS Basic. Browser: Plone/Volto user with roles.",
+      "required_information": "Site URL; API availability; user/token; required roles.",
+      "limitations": "Token permissions follow the user. Content API access does not automatically grant deployment privileges.",
+      "official_sources": [
+        "https://6.docs.plone.org/plone.restapi/docs/source/usage/authentication.html"
+      ]
+    },
+    {
+      "id": 24,
+      "platform": "Orchard Core",
+      "category": "General / publishing CMS",
+      "connection_method": "API: configured Orchard Core OpenID/OAuth client with scopes. Browser: admin user/role.",
+      "required_information": "Site URL; enabled modules; client ID/secret or approved user flow; scopes.",
+      "limitations": "OpenID/API modules must be configured; do not assume every Orchard installation has the same remote API.",
+      "official_sources": [
+        "https://docs.orchardcore.net/en/main/reference/modules/OpenId/"
+      ]
+    },
+    {
+      "id": 25,
+      "platform": "Umbraco",
+      "category": "General / publishing CMS",
+      "connection_method": "API: Umbraco Management API API-user client ID + secret on supported versions. Browser: separate Backoffice user.",
+      "required_information": "CMS URL/version; API-user client credentials; required permissions.",
+      "limitations": "API users arrived in Umbraco 15; verify installed version and API permissions.",
+      "official_sources": [
+        "https://umbraco.com/blog/umbraco-15-release-candidate/"
+      ]
+    },
+    {
+      "id": 26,
+      "platform": "DNN Platform",
+      "category": "General / publishing CMS",
+      "connection_method": "API: configured DNN JWT authentication handler. Browser: portal user with authorized roles.",
+      "required_information": "Portal URL/version; enabled authentication handler; permitted user/token.",
+      "limitations": "Handler configuration and installed API endpoints determine available operations.",
+      "official_sources": [
+        "https://docs.dnncommunity.org/content/features/security-privacy/security/jwt/index.html"
+      ]
+    },
+    {
+      "id": 27,
+      "platform": "OpenCms",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: OpenCms Workplace account or configured SSO. Remote management: custom/version-specific integration.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://documentation.opencms.org/opencms-documentation/the-opencms-workplace/login"
+      ]
+    },
+    {
+      "id": 28,
+      "platform": "Sulu",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Sulu admin user. API: the deployment's configured Symfony security/authentication.",
+      "required_information": "Site URL; version; security firewall configuration; assigned permissions.",
+      "limitations": "Confirm the actual endpoint, authentication and content-write permissions before implementing a connector.",
+      "official_sources": [
+        "https://docs.sulu.io/3.x/bundles/security/index.html"
+      ]
+    },
+    {
+      "id": 29,
+      "platform": "Neos",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Neos backend account with roles. Remote management: reviewed custom REST/GraphQL connector.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.neos.io/guide/advanced/backend-permissions"
+      ]
+    },
+    {
+      "id": 30,
+      "platform": "REDAXO",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: REDAXO backend user/role. API: separately reviewed add-on/custom integration.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://redaxo.org/doku/5.x/benutzerverwaltung"
+      ]
+    },
+    {
+      "id": 31,
+      "platform": "Bludit",
+      "category": "General / publishing CMS",
+      "connection_method": "API: Bludit API-plugin token; writes additionally require a user authentication token. Browser: dashboard user.",
+      "required_information": "Site URL; API-plugin setting; API token; user authentication token for writes.",
+      "limitations": "An API token alone does not authorize every write. Verify plugin/version and user privileges.",
+      "official_sources": [
+        "https://docs.bludit.com/en/api/authentication"
+      ]
+    },
+    {
+      "id": 32,
+      "platform": "Publii",
+      "category": "General / publishing CMS",
+      "connection_method": "Desktop: Publii project access. Publishing: SFTP/FTPS, Git, or supported storage credentials—not a browser CMS login.",
+      "required_information": "Project files; publishing method; host/repository/bucket; scoped deploy credential.",
+      "limitations": "Directly editing generated files can be overwritten by the next publish. Publii does not provide a conventional browser CMS account.",
+      "official_sources": [
+        "https://getpublii.com/docs/server-configuration.html"
+      ]
+    },
+    {
+      "id": 33,
+      "platform": "Typemill",
+      "category": "General / publishing CMS",
+      "connection_method": "API: per-user enabled HTTPS Basic access. Browser: Typemill editor; verify write endpoints separately.",
+      "required_information": "Site URL; user; API-enabled setting; endpoint requirements.",
+      "limitations": "API documentation is content/read focused; do not assume unrestricted management or write coverage.",
+      "official_sources": [
+        "https://docs.typemill.net/api/introduction"
+      ]
+    },
+    {
+      "id": 34,
+      "platform": "Automad",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: Automad Dashboard user. Files/code: approved repository/hosting access; remote management API unverified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://automad.org/user-guide",
+        "https://automad.org/system"
+      ]
+    },
+    {
+      "id": 35,
+      "platform": "ClassicPress",
+      "category": "General / publishing CMS",
+      "connection_method": "API: version-supported ClassicPress Application Password + username. Browser: a separate CMS account.",
+      "required_information": "Site URL; ClassicPress version; username; Application Password.",
+      "limitations": "Verify the installed version. Application Passwords are API credentials, not interactive login passwords.",
+      "official_sources": [
+        "https://docs.classicpress.net/reference/classes/wp_application_passwords/"
+      ]
+    },
+    {
+      "id": 36,
+      "platform": "SPIP",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: SPIP private-area author/editor account. Remote API: reviewed plugin/custom connector.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://www.spip.net/en_article2420.html",
+        "https://www.spip.net/en_article4916.html"
+      ]
+    },
+    {
+      "id": 37,
+      "platform": "Movable Type",
+      "category": "General / publishing CMS",
+      "connection_method": "API: Movable Type Data API username + web-services password + client ID → access token. Browser: normal user.",
+      "required_information": "Data API URL/version; username; web-services password; client ID.",
+      "limitations": "The web-services password is distinct from ordinary browser credentials; permissions and API version still matter.",
+      "official_sources": [
+        "https://movabletype.github.io/mt-docs-data-api-reference/v7.html"
+      ]
+    },
+    {
+      "id": 38,
+      "platform": "a-blog cms",
+      "category": "General / publishing CMS",
+      "connection_method": "API: a-blog cms module JSON API key (X-API-KEY), read-oriented. Writes: authorized CMS editor.",
+      "required_information": "Site URL; module/API settings; API key; browser role for editing.",
+      "limitations": "The documented module-data API is not evidence of a universal remote-write API.",
+      "official_sources": [
+        "https://developer.a-blogcms.jp/document/api_function/"
+      ]
+    },
+    {
+      "id": 39,
+      "platform": "WonderCMS",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: owner-assisted WonderCMS administrator login. No verified native remote-write API or separate collaborator role.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Avoid sharing the primary owner's password. Use owner-assisted changes or a separately authorized file workflow; native remote-write authentication was not verified.",
+      "official_sources": [
+        "https://www.wondercms.com/docs/"
+      ]
+    },
+    {
+      "id": 40,
+      "platform": "HTMLy",
+      "category": "General / publishing CMS",
+      "connection_method": "Browser: HTMLy admin/editor/author account. Source changes: approved file/repository access; remote-write API unverified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://docs.htmly.com/basic/configurations",
+        "https://www.htmly.com/post/htmly-296-user-management-improvements"
+      ]
+    },
+    {
+      "id": 41,
+      "platform": "Strapi",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: scoped Strapi API token for REST/GraphQL. Browser: invited admin user; admin credentials are separate.",
+      "required_information": "Instance URL; token; content-type permissions; version.",
+      "limitations": "A content token is not blanket admin or source-code access.",
+      "official_sources": [
+        "https://docs.strapi.io/cms/features/api-tokens"
+      ]
+    },
+    {
+      "id": 42,
+      "platform": "Directus",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Directus static user token or JWT/refresh token. Browser: Data Studio user with policies.",
+      "required_information": "Instance URL; user/service token; roles/policies.",
+      "limitations": "Do not use an unrestricted administrator token as the default connector.",
+      "official_sources": [
+        "https://docs.directus.io/reference/authentication"
+      ]
+    },
+    {
+      "id": 43,
+      "platform": "Payload",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Payload collection API key or JWT, with configured access rules. Browser: auth-collection admin account.",
+      "required_information": "Instance URL; auth-collection slug; API key/JWT; access configuration.",
+      "limitations": "API-key authentication must be enabled; permissions are code-defined.",
+      "official_sources": [
+        "https://payloadcms.com/docs/authentication/api-keys"
+      ]
+    },
+    {
+      "id": 44,
+      "platform": "Contentful",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Contentful Management API personal token or OAuth. Browser: space/organization invitation.",
+      "required_information": "Space ID; environment ID; CMA token/OAuth grant; role.",
+      "limitations": "Delivery/Preview tokens do not grant management writes. Review environment and role restrictions.",
+      "official_sources": [
+        "https://www.contentful.com/developers/docs/references/authentication/"
+      ]
+    },
+    {
+      "id": 45,
+      "platform": "Sanity",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Sanity project/robot token with write role. Browser: project member using Studio.",
+      "required_information": "Project ID; dataset; token; API version; role.",
+      "limitations": "Public/read tokens are not write credentials; source changes to Studio require repository access.",
+      "official_sources": [
+        "https://www.sanity.io/docs/content-lake/http-auth"
+      ]
+    },
+    {
+      "id": 46,
+      "platform": "Storyblok",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Storyblok Management personal token or OAuth. Browser: invited space user.",
+      "required_information": "Space ID; region; management token/OAuth grant.",
+      "limitations": "Delivery access tokens cannot substitute for Management API authorization.",
+      "official_sources": [
+        "https://www.storyblok.com/docs/api/management"
+      ]
+    },
+    {
+      "id": 47,
+      "platform": "Prismic",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Prismic Migration API write token for supported imports/updates. Browser: repository editor.",
+      "required_information": "Repository name; Migration API token; target documents/release.",
+      "limitations": "Read API tokens are not write tokens. Migration endpoints are not a universal theme/code editor.",
+      "official_sources": [
+        "https://prismic.io/blog/prismic-chronicles-january-2024"
+      ]
+    },
+    {
+      "id": 48,
+      "platform": "Contentstack",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Contentstack stack API key + scoped Management token. Browser: stack user/role.",
+      "required_information": "Stack API key; Management token; region; target environment.",
+      "limitations": "Delivery tokens are read-only and separate from Management tokens.",
+      "official_sources": [
+        "https://www.contentstack.com/docs/headless-cms/about-management-tokens"
+      ]
+    },
+    {
+      "id": 49,
+      "platform": "Hygraph",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Hygraph permanent auth token with environment/write permissions. Browser: project member.",
+      "required_information": "Project endpoint; environment; token; permissions.",
+      "limitations": "Public/read permissions do not authorize mutations or schema management automatically.",
+      "official_sources": [
+        "https://hygraph.com/docs/api-reference/basics/authorization"
+      ]
+    },
+    {
+      "id": 50,
+      "platform": "DatoCMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: DatoCMS scoped Content Management API token. Browser: project member.",
+      "required_information": "Project/environment; token; role; target records.",
+      "limitations": "Delivery API credentials/permissions do not imply management or deployment authority.",
+      "official_sources": [
+        "https://www.datocms.com/docs/content-management-api/authentication"
+      ]
+    },
+    {
+      "id": 51,
+      "platform": "Kontent.ai",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Kontent.ai environment Management API key, sent as bearer token. Browser: project/environment user.",
+      "required_information": "Environment ID; Management API key; permitted content actions.",
+      "limitations": "Delivery, Preview and Management credentials serve different purposes.",
+      "official_sources": [
+        "https://kontent.ai/learn/docs/apis/management-api-v2/authentication",
+        "https://kontent.ai/learn/docs/apis/api-keys"
+      ]
+    },
+    {
+      "id": 52,
+      "platform": "ButterCMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: ButterCMS Write API token; write access is an add-on. Browser: team account.",
+      "required_information": "Write API token; account entitlement; target content.",
+      "limitations": "Read token cannot write. Verify Write API add-on and endpoint coverage before promising automation.",
+      "official_sources": [
+        "https://buttercms.com/docs/api/concepts/authentication-api-tokens"
+      ]
+    },
+    {
+      "id": 53,
+      "platform": "Cosmic",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Cosmic bucket slug + write key. Browser: bucket/project team member.",
+      "required_information": "Bucket slug; write key; permissions.",
+      "limitations": "Protect the write key server-side; read keys do not permit content modifications.",
+      "official_sources": [
+        "https://www.cosmicjs.com/docs/api/authentication"
+      ]
+    },
+    {
+      "id": 54,
+      "platform": "Agility CMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Agility CMS Management OAuth access/refresh tokens. Browser: instance user; verify beta-token eligibility.",
+      "required_information": "Instance GUID; region; OAuth app credentials/grant; permitted operations.",
+      "limitations": "Personal access tokens are documented as public beta; do not assume production availability or suitability.",
+      "official_sources": [
+        "https://agilitycms.com/docs/javascript/management-sdk/getting-started",
+        "https://agilitycms.com/docs/developers/personal-access-tokens-public-beta"
+      ]
+    },
+    {
+      "id": 55,
+      "platform": "Squidex",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Squidex app client ID + secret → OAuth bearer token. Browser: app collaborator.",
+      "required_information": "App name; client ID; client secret; role.",
+      "limitations": "Client permissions and content workflow constrain writes and publication.",
+      "official_sources": [
+        "https://docs.squidex.io/id-02-documentation/developer-guides/api-overview/authentication"
+      ]
+    },
+    {
+      "id": 56,
+      "platform": "ApostropheCMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: configured ApostropheCMS API key/bearer authentication. Browser: editor account.",
+      "required_information": "Instance URL; configured API credential; role; API version.",
+      "limitations": "Review custom project code and API configuration; do not assume every site exposes identical operations.",
+      "official_sources": [
+        "https://apostrophecms.com/docs/reference/api/authentication.html"
+      ]
+    },
+    {
+      "id": 57,
+      "platform": "Keystone",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Keystone's configured GraphQL authentication/session. Browser: Admin UI account.",
+      "required_information": "GraphQL endpoint; auth-list configuration; account/session or custom service credential.",
+      "limitations": "There is no universal preconfigured Keystone API key. Access is defined by application code.",
+      "official_sources": [
+        "https://keystonejs.com/docs/config/auth/"
+      ]
+    },
+    {
+      "id": 58,
+      "platform": "TinaCMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "Read API: TinaCMS client ID + branch + content token. Editing: authorized Tina editor/Git access.",
+      "required_information": "Client ID; branch; content token for reads; editor/repository authorization for writes.",
+      "limitations": "A read-only content token must not be treated as a write token or general repository credential.",
+      "official_sources": [
+        "https://tina.io/docs/reference/content-api/content-delivery"
+      ]
+    },
+    {
+      "id": 59,
+      "platform": "Decap CMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "Editing: Decap CMS Git-provider OAuth/backend authorization. Content changes become repository commits.",
+      "required_information": "Backend/provider; repository; branch; OAuth application/approved grant.",
+      "limitations": "Use narrow repository permissions. Decap authorization does not grant hosting-server access.",
+      "official_sources": [
+        "https://decapcms.org/docs/github-backend/"
+      ]
+    },
+    {
+      "id": 60,
+      "platform": "CloudCannon",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: CloudCannon API key for supported platform actions. Content/code: authorized editor and connected Git repository.",
+      "required_information": "Organization/site IDs; API key; repository permissions where required.",
+      "limitations": "Confirm endpoint write support; platform API access and source-file editing are different capabilities.",
+      "official_sources": [
+        "https://cloudcannon.com/documentation/developer-reference/api/sites/"
+      ]
+    },
+    {
+      "id": 61,
+      "platform": "Builder.io Publish",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Builder.io private Write API key or scoped token. Browser: space/team member.",
+      "required_information": "Space; private credential; models; role/scopes.",
+      "limitations": "Public content API keys are not write authorization; distinguish Publish from other Builder products.",
+      "official_sources": [
+        "https://www.builder.io/c/docs/api-authentication"
+      ]
+    },
+    {
+      "id": 62,
+      "platform": "Webiny",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Webiny scoped Headless CMS API key. Browser: authorized Webiny identity-provider user.",
+      "required_information": "Deployment endpoint; environment; tenant/locale; API key/permissions.",
+      "limitations": "The self-hosted deployment's configuration controls identity, scope and publishing rights.",
+      "official_sources": [
+        "https://www.webiny.com/learn/course/developing-with-webiny/webiny-sdk-overview"
+      ]
+    },
+    {
+      "id": 63,
+      "platform": "Cockpit",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Cockpit API key with assigned permissions. Browser: named dashboard user.",
+      "required_information": "Cockpit URL/version; API key; resource permissions.",
+      "limitations": "Use the installed version's auth convention; do not expose a broad admin key.",
+      "official_sources": [
+        "https://getcockpit.com/documentation/core/api/authentication"
+      ]
+    },
+    {
+      "id": 64,
+      "platform": "CrafterCMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API/CLI: Crafter Studio Management API token. Browser: Studio user with site permissions.",
+      "required_information": "Studio URL; site ID; access token; role.",
+      "limitations": "Engine/delivery access is not Studio management access; repository and deployment permissions remain separate.",
+      "official_sources": [
+        "https://craftercms.com/docs/current/reference/modules/crafter-cli.html"
+      ]
+    },
+    {
+      "id": 65,
+      "platform": "Enonic",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: configured Enonic management service credentials/JWT. Browser: Content Studio user.",
+      "required_information": "XP URL/version; management API configuration; service identity; scopes.",
+      "limitations": "Management endpoints are not a universal content CRUD token; application content APIs may be custom.",
+      "official_sources": [
+        "https://developer.enonic.com/docs/platform/xp7/runtime/management"
+      ]
+    },
+    {
+      "id": 66,
+      "platform": "Flotiq",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Flotiq X-AUTH-TOKEN with read/write permissions. Browser: project user.",
+      "required_information": "API token; target content types; permissions.",
+      "limitations": "Read-only credentials cannot perform writes; inspect the actual account's permissions.",
+      "official_sources": [
+        "https://flotiq.com/docs/API/"
+      ]
+    },
+    {
+      "id": 67,
+      "platform": "Prepr",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Prepr Mutation API bearer token. Browser: authorized environment editor.",
+      "required_information": "Environment endpoint; mutation token; required permissions.",
+      "limitations": "GraphQL delivery access is separate from mutation/write authorization.",
+      "official_sources": [
+        "https://docs.prepr.io/mutation-api/authorization"
+      ]
+    },
+    {
+      "id": 68,
+      "platform": "Caisy",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: Caisy personal access token for its internal/write API. Browser: project member.",
+      "required_information": "Project/environment; PAT; permissions.",
+      "limitations": "External content-delivery access is not write access. Review PAT breadth.",
+      "official_sources": [
+        "https://caisy.io/developer/docs/authentication/pat"
+      ]
+    },
+    {
+      "id": 69,
+      "platform": "BCMS",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "API: BCMS API key ID + secret with instance permissions. Browser: instance/team user.",
+      "required_information": "Instance ID; key ID; key secret; access permissions.",
+      "limitations": "Enable only necessary read/write permissions and confirm SDK/API version.",
+      "official_sources": [
+        "https://thebcms.com/docs/inside-bcms/api-keys"
+      ]
+    },
+    {
+      "id": 70,
+      "platform": "Keystatic",
+      "category": "Headless / Git-based / hybrid CMS",
+      "connection_method": "Editing: Keystatic GitHub App/OAuth repository access; local mode uses authorized filesystem access.",
+      "required_information": "GitHub app installation; repository; branch; approved editor permissions.",
+      "limitations": "No universal hosted-CMS API key; protect branches and separate deployment authorization.",
+      "official_sources": [
+        "https://keystatic.com/docs/github-mode"
+      ]
+    },
+    {
+      "id": 71,
+      "platform": "Adobe Experience Manager Sites",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "AEM Cloud API: Adobe OAuth server-to-server credentials + product profiles. Browser: authorized Adobe author account.",
+      "required_information": "Organization; project/client ID; client secret; scopes; AEM endpoint.",
+      "limitations": "AEM 6.5/self-managed deployments differ. Do not use retired service-account JWT instructions for new Cloud integrations.",
+      "official_sources": [
+        "https://experienceleague.adobe.com/en/docs/experience-manager-learn/cloud-service/aem-apis/openapis/invoke-api-using-oauth-s2s"
+      ]
+    },
+    {
+      "id": 72,
+      "platform": "Sitecore",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "Sitecore XM Cloud: automation client credentials → token. Browser: Portal/author account; XP/XM setup differs.",
+      "required_information": "Exact product; environment/site; client credentials; scopes/roles.",
+      "limitations": "Sitecore is a product family. Verify XP/XM/XM Cloud and the exact authoring API rather than assuming one universal key.",
+      "official_sources": [
+        "https://api-docs.sitecore.com/",
+        "https://api-docs.sitecore.com/xm-cloud-content"
+      ]
+    },
+    {
+      "id": 73,
+      "platform": "Optimizely CMS",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "Optimizely CMS SaaS: OAuth API client ID + secret. Browser: CMS user; CMS 12 authentication is deployment-specific.",
+      "required_information": "Edition/version; endpoint; OAuth client; scopes.",
+      "limitations": "Verify SaaS versus CMS 12/PaaS APIs; delivery access is not unrestricted authoring access.",
+      "official_sources": [
+        "https://docs.developers.optimizely.com/content-management-system/v1.0.0-CMS-SaaS/reference/authentication-and-authorization",
+        "https://docs.optimizely.com/cms-12/api/api-authentication"
+      ]
+    },
+    {
+      "id": 74,
+      "platform": "Xperience by Kentico",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "Browser: Xperience by Kentico admin user. Custom production integration; Management MCP is development-scoped.",
+      "required_information": "Version; site; roles; reviewed integration or repository access.",
+      "limitations": "Do not expose the local Management MCP development server as a production management service.",
+      "official_sources": [
+        "https://docs.kentico.com/documentation/developers-and-admins/api/management-api/configure-management-mcp-server"
+      ]
+    },
+    {
+      "id": 75,
+      "platform": "Progress Sitefinity",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Sitefinity OAuth2; access keys where the authentication protocol supports them. Browser: backend user.",
+      "required_information": "Version; authentication protocol; endpoint; OAuth/access-key configuration.",
+      "limitations": "OpenID and Default authentication do not expose identical credential options.",
+      "official_sources": [
+        "https://www.progress.com/documentation/sitefinity-cms/153/authentication-and-web-services"
+      ]
+    },
+    {
+      "id": 76,
+      "platform": "Magnolia",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Magnolia configured HTTPS Basic/service user or other enabled authentication. Browser: authoring user.",
+      "required_information": "Version; author endpoint; enabled REST/login handlers; technical user; ACLs.",
+      "limitations": "Check service definitions and ACLs. Development MCP tools are not automatically production-approved APIs.",
+      "official_sources": [
+        "https://docs.magnolia-cms.com/product-docs/6.2/administration/architecture/request-processing-and-filters/login-handlers/"
+      ]
+    },
+    {
+      "id": 77,
+      "platform": "Bloomreach Content",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Bloomreach Content Management API token (x-auth-token). Browser: authorized content user.",
+      "required_information": "Environment; management endpoint; token; role.",
+      "limitations": "Content-delivery credentials cannot substitute for management access.",
+      "official_sources": [
+        "https://documentation.bloomreach.com/content/reference/api-authorization"
+      ]
+    },
+    {
+      "id": 78,
+      "platform": "CoreMedia",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: provisioned CoreMedia Cloud Ingest JWT for supported imports. Browser: Studio user/SSO.",
+      "required_information": "Edition/service; endpoint; provisioned JWT; permitted ingestion scope.",
+      "limitations": "Ingest authorization is not complete Studio management or deployment access. Other APIs require separate review.",
+      "official_sources": [
+        "https://documentation.coremedia.com/features/ingest-service/ingest-service-api/"
+      ]
+    },
+    {
+      "id": 79,
+      "platform": "Jahia",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Jahia Personal API Token module with scopes. Browser: Jahia user/role.",
+      "required_information": "Jahia version; token module; token/scopes; target site.",
+      "limitations": "Module availability and configured permissions determine API access.",
+      "official_sources": [
+        "https://academy.jahia.com/documentation/jahia-cms/jahia-8.2/developer/working-with-our-apis/using-personal-api-tokens"
+      ]
+    },
+    {
+      "id": 80,
+      "platform": "Liferay DXP",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Liferay OAuth2 application with scoped bearer token. Browser: portal/content user.",
+      "required_information": "Portal URL; OAuth app credentials/grant; scopes.",
+      "limitations": "API scopes and user/application roles both matter.",
+      "official_sources": [
+        "https://learn.liferay.com/w/dxp/integration/headless-apis/using-liferay-as-a-headless-platform/using-oauth2/creating-oauth2-applications"
+      ]
+    },
+    {
+      "id": 81,
+      "platform": "dotCMS",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: dotCMS user/API JWT with role and expiry restrictions. Browser: backend user.",
+      "required_information": "Instance URL; API token; user role; expiry.",
+      "limitations": "Token authorization follows user permissions; avoid global admin defaults.",
+      "official_sources": [
+        "https://dev.dotcms.com/docs/build/apis/api-basics/rest-api-authentication"
+      ]
+    },
+    {
+      "id": 82,
+      "platform": "Squiz DXP / CMS",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Squiz Matrix Asset Management API bearer token, when enabled. Browser: Matrix editor.",
+      "required_information": "Matrix version; feature availability; endpoint; token; asset permissions.",
+      "limitations": "Read-only content APIs are not Asset Management API writes; confirm feature licensing/configuration.",
+      "official_sources": [
+        "https://docs.squiz.net/matrix/version/latest/api/asset-management-api/overview.html"
+      ]
+    },
+    {
+      "id": 83,
+      "platform": "Brightspot",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Brightspot REST Management client ID + client secret. Browser: CMS editorial account.",
+      "required_information": "Instance URL; API client ID; client secret; scopes/permissions.",
+      "limitations": "Verify installed modules/endpoints and client permissions.",
+      "official_sources": [
+        "https://docs.brightspot.com/docs/developer/rest-management-api"
+      ]
+    },
+    {
+      "id": 84,
+      "platform": "Terminalfour",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Terminalfour user web-services API token on supported versions. Browser: named editor.",
+      "required_information": "Server URL; version; API token; user permissions.",
+      "limitations": "Verify version and enabled services; API-token support is version-specific.",
+      "official_sources": [
+        "https://docs.terminalfour.com/documentation/developer-resources/up-and-running-with-the-web-services-api/up-and-running-with-terminalfour-web-services-api-part-1/"
+      ]
+    },
+    {
+      "id": 85,
+      "platform": "Cascade CMS",
+      "category": "Enterprise CMS / DXP",
+      "connection_method": "API: Cascade CMS user API key for REST/SOAP. Browser: Cascade account with site permissions.",
+      "required_information": "Instance URL; API key; user/site permissions.",
+      "limitations": "Key inherits user authorization; it is not a browser session or server credential.",
+      "official_sources": [
+        "https://www.hannonhill.com/cascadecms/latest/cascade-basics/account-settings.html"
+      ]
+    },
+    {
+      "id": 86,
+      "platform": "Shopify",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: merchant-approved Shopify OAuth → Admin API token; API key alone is insufficient. Browser: collaborator/staff invitation.",
+      "required_information": "Shop's myshopify.com domain; installed app/client ID; secret handled server-side; approved OAuth grant/scopes.",
+      "limitations": "An API key/client ID is not an Admin API token. Storefront tokens are not Admin tokens. Theme/app/checkout access has distinct restrictions.",
+      "official_sources": [
+        "https://shopify.dev/docs/apps/build/authentication-authorization",
+        "https://help.shopify.com/en/partners/manage-clients-stores/working-on-client-stores"
+      ]
+    },
+    {
+      "id": 87,
+      "platform": "WooCommerce",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: WooCommerce Consumer Key + Consumer Secret with scoped user permissions. Browser: WordPress Shop Manager/custom role.",
+      "required_information": "Site URL; consumer key; consumer secret; read/write scope.",
+      "limitations": "Commerce API permissions do not grant full WordPress theme/plugin/server editing.",
+      "official_sources": [
+        "https://woocommerce.com/document/woocommerce-rest-api/"
+      ]
+    },
+    {
+      "id": 88,
+      "platform": "Adobe Commerce / Magento Open Source",
+      "category": "E-commerce / store platforms",
+      "connection_method": "Magento/Open Source/PaaS: integration OAuth credentials. Adobe Commerce SaaS: Adobe IMS OAuth. Browser: scoped admin.",
+      "required_information": "Exact edition/version; endpoint; OAuth integration or IMS application; permissions.",
+      "limitations": "Standalone integration bearer-token use may be disabled by default. Do not use shopper credentials for admin operations.",
+      "official_sources": [
+        "https://developer.adobe.com/commerce/webapi/get-started/authentication/"
+      ]
+    },
+    {
+      "id": 89,
+      "platform": "BigCommerce",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: BigCommerce installed-app OAuth or store API account access token + store hash. Browser: store user.",
+      "required_information": "Store hash; access token/OAuth grant; approved scopes.",
+      "limitations": "A storefront token is not an Admin management credential.",
+      "official_sources": [
+        "https://docs.bigcommerce.com/developer/docs/overview/api-fundamentals/api-accounts"
+      ]
+    },
+    {
+      "id": 90,
+      "platform": "PrestaShop",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: PrestaShop Webservice key with resource/method permissions. Browser: employee profile; newer Admin API differs.",
+      "required_information": "Shop URL; version; webservice key; allowed resources/methods.",
+      "limitations": "Do not assume all API versions share a credential flow. Theme/source access is separate.",
+      "official_sources": [
+        "https://devdocs.prestashop-project.org/9/webservice/tutorials/creating-access/"
+      ]
+    },
+    {
+      "id": 91,
+      "platform": "OpenCart",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: OpenCart API user/key + allowed caller IP → token. Browser: admin user with permissions.",
+      "required_information": "Store URL/version; API key/user; allowed egress IP.",
+      "limitations": "Built-in API scope is limited and version-specific; it is not a universal admin/page-builder API.",
+      "official_sources": [
+        "https://docs.opencart.com/en-gb/system/users/api/"
+      ]
+    },
+    {
+      "id": 92,
+      "platform": "Shopware",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Shopware Admin API integration access-key ID + secret → OAuth token. Browser: administration user.",
+      "required_information": "Shop URL; integration access-key ID; secret; privileges.",
+      "limitations": "Store API access keys are not Admin API credentials.",
+      "official_sources": [
+        "https://developer.shopware.com/docs/guides/development/integrations-api/"
+      ]
+    },
+    {
+      "id": 93,
+      "platform": "Ecwid",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Ecwid store ID + secret app token, or merchant OAuth for multi-store apps. Browser: eligible staff access.",
+      "required_information": "Store ID; installed app/token or OAuth grant; scopes.",
+      "limitations": "Verify plan and app eligibility; a public storefront token does not grant privileged writes.",
+      "official_sources": [
+        "https://docs.ecwid.com/get-started/make-your-first-api-request"
+      ]
+    },
+    {
+      "id": 94,
+      "platform": "Shift4Shop",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Shift4Shop SecureURL + app PrivateKey + merchant Token. Browser: staff account.",
+      "required_information": "Store SecureURL; app private key; merchant token; API version.",
+      "limitations": "API credentials are not the owner's browser password. Confirm the current partner/install flow.",
+      "official_sources": [
+        "https://apirest.3dcart.com/v2/getting-started/index.html"
+      ]
+    },
+    {
+      "id": 95,
+      "platform": "CS-Cart",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: CS-Cart administrator email + API key over HTTPS Basic. Browser: permission-limited administrator.",
+      "required_information": "Store URL; admin email; API key; permitted operations.",
+      "limitations": "Use only the intended store/vendor scope; do not use broad administrator privileges unnecessarily.",
+      "official_sources": [
+        "https://docs.cs-cart.com/latest/developer_guide/api/index.html"
+      ]
+    },
+    {
+      "id": 96,
+      "platform": "X-Cart",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: X-Cart 5.5/5.6 Admin API X-AUTH-TOKEN with appropriate read/write rights. Browser: admin account.",
+      "required_information": "Store URL; exact version; Admin API token; read/write permissions.",
+      "limitations": "Earlier X-Cart editions differ; verify API version rather than applying this universally.",
+      "official_sources": [
+        "https://developer.x-cart.com/api/5.6.0/admin"
+      ]
+    },
+    {
+      "id": 97,
+      "platform": "nopCommerce",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: nopCommerce Web API plugin Backend authentication → JWT. Browser: ACL-limited administrator.",
+      "required_information": "Shop URL/version; installed API plugin/license; dedicated account and token.",
+      "limitations": "Plugin installation/licensing is required; Storefront tokens and JWT signing keys are not admin-client credentials.",
+      "official_sources": [
+        "https://docs.nopcommerce.com/en/developer/web-api/index.html"
+      ]
+    },
+    {
+      "id": 98,
+      "platform": "Sylius",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Sylius configured Admin API authentication; verify the version's token flow. Browser: administrator.",
+      "required_information": "Shop URL; version; enabled Admin API; account/auth settings.",
+      "limitations": "Authentication details need deployment-specific confirmation; do not substitute Shop API credentials.",
+      "official_sources": [
+        "https://docs.sylius.com/the-book/api"
+      ]
+    },
+    {
+      "id": 99,
+      "platform": "Bagisto",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Bagisto installed API package's Admin integration token. Browser: admin user; older API packages differ.",
+      "required_information": "Version; installed API package; endpoint; Admin integration token.",
+      "limitations": "Storefront/public API keys are not Admin tokens. Confirm package/version before implementation.",
+      "official_sources": [
+        "https://devdocs.bagisto.com/api/introduction.html",
+        "https://devdocs.bagisto.com/api/rest-api.html"
+      ]
+    },
+    {
+      "id": 100,
+      "platform": "Spree Commerce",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: current Spree Admin secret API key; older versions may use OAuth. Browser: staff account.",
+      "required_information": "Spree version; endpoint; secret API key; permissions.",
+      "limitations": "Publishable Store API keys are not Admin secret keys.",
+      "official_sources": [
+        "https://spreecommerce.org/docs/api-reference/admin-api/configuration/create-an-api-key"
+      ]
+    },
+    {
+      "id": 101,
+      "platform": "Solidus",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Solidus user API key; bearer authentication for its GraphQL extension. Browser: backend user.",
+      "required_information": "Solidus/API extension version; endpoint; user API key; role.",
+      "limitations": "Confirm installed REST/GraphQL API and permission checks; do not assume one header across all versions.",
+      "official_sources": [
+        "https://guides.solidus.io/4.4/cookbook/using-the-graphql-api/"
+      ]
+    },
+    {
+      "id": 102,
+      "platform": "Saleor",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Saleor installed-app token with permissions. Browser: Dashboard staff invitation.",
+      "required_information": "GraphQL endpoint; installed app token; permissions/channel scope.",
+      "limitations": "Shopper tokens do not grant staff/app management rights.",
+      "official_sources": [
+        "https://docs.saleor.io/api-usage/authentication"
+      ]
+    },
+    {
+      "id": 103,
+      "platform": "Medusa",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Medusa secret API key via HTTP Basic, or Admin JWT. Browser: Admin user.",
+      "required_information": "Backend URL; secret API key or admin authentication; version.",
+      "limitations": "Publishable API keys are for Store API access, not unrestricted administration.",
+      "official_sources": [
+        "https://docs.medusajs.com/api/admin/authentication",
+        "https://docs.medusajs.com/resources/commerce-modules/api-key/concepts"
+      ]
+    },
+    {
+      "id": 104,
+      "platform": "Vendure",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Vendure Admin GraphQL login → bearer token/session. Browser: Dashboard administrator.",
+      "required_information": "Admin API URL; approved identity; auth strategy; channel if applicable.",
+      "limitations": "A channel token identifies context; it is not administrator authentication.",
+      "official_sources": [
+        "https://docs.vendure.io/current/core/core-concepts/auth"
+      ]
+    },
+    {
+      "id": 105,
+      "platform": "Odoo eCommerce",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Odoo 19 JSON-2 user API key/bearer; older versions use RPC. Browser: internal user with permissions.",
+      "required_information": "Database/instance; version; API key; user rights; plan eligibility.",
+      "limitations": "Odoo Online external API access requires an eligible Custom plan. APIs do not bypass model record rules.",
+      "official_sources": [
+        "https://www.odoo.com/documentation/19.0/developer/reference/external_api.html"
+      ]
+    },
+    {
+      "id": 106,
+      "platform": "Salesforce Agentforce Commerce",
+      "category": "E-commerce / store platforms",
+      "connection_method": "B2C Commerce API: Account Manager OAuth client + Admin scopes. Browser: Business Manager user; other editions differ.",
+      "required_information": "Product edition; organization/instance; client ID/secret; Admin scopes.",
+      "limitations": "Shopper SLAS tokens do not provide Admin rights. B2B/other Commerce offerings require separate mapping.",
+      "official_sources": [
+        "https://developer.salesforce.com/docs/commerce/commerce-api/guide/authorization-for-admin-apis.html"
+      ]
+    },
+    {
+      "id": 107,
+      "platform": "SAP Commerce Cloud",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: SAP Commerce inbound Integration API OAuth/service identity. Browser: Backoffice user.",
+      "required_information": "Environment; client credentials; integration user/object permissions.",
+      "limitations": "OCC shopper authentication is not Backoffice/inbound administration access.",
+      "official_sources": [
+        "https://help.sap.com/docs/SAP_COMMERCE_CLOUD_PUBLIC_CLOUD/bad9b0b66bac476f8a4a5c4a08e4ab6b/6d49e5d0b7b4412f932daeb846d11d94.html"
+      ]
+    },
+    {
+      "id": 108,
+      "platform": "commercetools",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: commercetools project key + OAuth client ID/secret and scopes. Browser: Merchant Center team user.",
+      "required_information": "Region; project key; client ID; client secret; scopes.",
+      "limitations": "Create a narrow service client; avoid manage_project when smaller scopes suffice.",
+      "official_sources": [
+        "https://docs.commercetools.com/api/authorization"
+      ]
+    },
+    {
+      "id": 109,
+      "platform": "Spryker",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: configured Spryker Backend/Glue authentication. Browser: Backoffice user; verify enabled OAuth integration.",
+      "required_information": "Deployment/version; enabled backend APIs; auth configuration; service identity.",
+      "limitations": "Authentication is solution-specific. Storefront access is not backend administration.",
+      "official_sources": [
+        "https://docs.spryker.com/docs/dg/dev/backend-development/composable-ui/composable-ui.html"
+      ]
+    },
+    {
+      "id": 110,
+      "platform": "VTEX",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: VTEX AppKey + AppToken with License Manager roles. Browser: invited VTEX account user.",
+      "required_information": "Account name; workspace where relevant; AppKey; AppToken; roles.",
+      "limitations": "Keys are API credentials, not ordinary browser logins; separate IO/deployment permissions as needed.",
+      "official_sources": [
+        "https://developers.vtex.com/docs/guides/api-authentication-using-api-keys"
+      ]
+    },
+    {
+      "id": 111,
+      "platform": "Shoplazza",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Shoplazza merchant-installed app OAuth access token. Browser: authorized staff/Partner account.",
+      "required_information": "Store domain/ID; app OAuth client; approved token; scopes.",
+      "limitations": "Use the supported app type and current API version. Source/theme CLI access requires its own approved flow.",
+      "official_sources": [
+        "https://www.shoplazza.dev/docs/app/building-blocks/authentication/oauth-flow"
+      ]
+    },
+    {
+      "id": 112,
+      "platform": "SHOPLINE",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: SHOPLINE app OAuth or eligible private-app Admin token. Browser: staff account.",
+      "required_information": "Exact SHOPLINE product/region; store domain; app credentials/grant; scopes.",
+      "limitations": "Storefront tokens are not Admin authorization; regional product/API differences require verification.",
+      "official_sources": [
+        "https://developer.shopline.com/docs/apps/api-instructions-for-use/app-authorization"
+      ]
+    },
+    {
+      "id": 113,
+      "platform": "ShopBase",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: ShopBase OAuth app, or private-app API key + API password. Browser: authorized staff.",
+      "required_information": "Store domain; app credentials or private-app key/password; scopes.",
+      "limitations": "The API password is not the owner's account password. Verify app type and endpoint permissions.",
+      "official_sources": [
+        "https://developers.shopbase.com/build-an-app/making-your-first-request/authentication/oauth",
+        "https://developers.shopbase.com/test-and-debug-app/test-and-debug-app"
+      ]
+    },
+    {
+      "id": 114,
+      "platform": "Big Cartel",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Big Cartel OAuth2 app authorization. Browser: owner-assisted administration unless delegated access is confirmed.",
+      "required_information": "Store/account context; registered app credentials; OAuth grant/scopes.",
+      "limitations": "Verify app eligibility and API coverage; do not assume a multi-user editor or full template API.",
+      "official_sources": [
+        "https://developers.bigcartel.com/api/v1"
+      ]
+    },
+    {
+      "id": 115,
+      "platform": "Square Online",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Square seller OAuth; personal token only for the account owner's use. Browser: permitted Square team access.",
+      "required_information": "Application ID; seller grant/token; scopes; location IDs as needed.",
+      "limitations": "Catalog/order/payment APIs do not imply unrestricted Square Online layout editing. Personal tokens are not a multi-merchant OAuth substitute.",
+      "official_sources": [
+        "https://developer.squareup.com/docs/auth",
+        "https://developer.squareup.com/reference/square/oauth-api"
+      ]
+    },
+    {
+      "id": 116,
+      "platform": "Salla",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Salla merchant app OAuth access token and scopes. Browser: approved merchant staff access.",
+      "required_information": "App registration; merchant grant; access/refresh tokens; scopes.",
+      "limitations": "Confirm app approval and staff permissions; no direct SaaS server access is granted.",
+      "official_sources": [
+        "https://docs.salla.dev/doc-421118"
+      ]
+    },
+    {
+      "id": 117,
+      "platform": "Zid",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Zid merchant OAuth plus required manager/store credentials. Browser: merchant staff account.",
+      "required_information": "App credentials/grant; store context; authorization and manager tokens as required by the API version.",
+      "limitations": "Do not treat one generic API key as sufficient for all Zid Manager API calls.",
+      "official_sources": [
+        "https://docs.zid.sa/zid-agent-skill"
+      ]
+    },
+    {
+      "id": 118,
+      "platform": "Nuvemshop / Tiendanube",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Nuvemshop/Tiendanube installed-app OAuth token + store ID. Browser: store user.",
+      "required_information": "Store ID; app credentials; merchant grant/token; scopes.",
+      "limitations": "Use the correct regional platform and API header convention; avoid conflating storefront and admin access.",
+      "official_sources": [
+        "https://tiendanube.github.io/devhub-apps/en/docs/applications/authentication/"
+      ]
+    },
+    {
+      "id": 119,
+      "platform": "Tray",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Tray partner application credentials + merchant installation code → store access/refresh tokens. Browser: staff user.",
+      "required_information": "Store/API URL; app consumer key/secret; installation authorization code; tokens.",
+      "limitations": "This is Tray e-commerce, not Tray.ai. Verify app/partner eligibility.",
+      "official_sources": [
+        "https://developers.tray.com.br/"
+      ]
+    },
+    {
+      "id": 120,
+      "platform": "Loja Integrada",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Loja Integrada Personal Token, or approved partner application/store keys. Browser: authorized store account.",
+      "required_information": "Store; eligible plan; Personal Token or partner application/store credentials.",
+      "limitations": "Credential issuance and paid-plan restrictions changed; do not assume legacy self-service application keys remain available.",
+      "official_sources": [
+        "https://ajuda.lojaintegrada.com.br/pt-BR/articles/931152-como-gerar-chaves-de-api-e-o-personal-token-chave-de-aplicacao-da-minha-loja",
+        "https://ajuda.lojaintegrada.com.br/pt-BR/articles/5360466-como-obter-a-chave-de-aplicacao-para-integrar-com-a-loja-integrada"
+      ]
+    },
+    {
+      "id": 121,
+      "platform": "EKM",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: EKM partner application OAuth2 access token. Browser: permitted store user.",
+      "required_information": "Registered app/client credentials; merchant grant/token; endpoint scopes.",
+      "limitations": "Confirm partner access and endpoint coverage; browser permissions are a separate approval.",
+      "official_sources": [
+        "https://api.ekm.net/v1/documentation/index.html"
+      ]
+    },
+    {
+      "id": 122,
+      "platform": "Jumpseller",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Jumpseller Login Key + Auth Token, or partner OAuth. Browser: store user with permissions.",
+      "required_information": "Store context; Login Key; Auth Token or OAuth app grant.",
+      "limitations": "MCP is another tool interface, not a way to bypass merchant permissions.",
+      "official_sources": [
+        "https://jumpseller.com/support/mcp-server/"
+      ]
+    },
+    {
+      "id": 123,
+      "platform": "IdoSell",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: IdoSell Admin API key or OAuth2 with method permissions. Browser: panel user.",
+      "required_information": "Shop/panel domain; Admin key or OAuth credentials; permitted methods.",
+      "limitations": "Keep access limited to the required shop/API methods.",
+      "official_sources": [
+        "https://pomoc.idosell.com/wyglad-i-konfiguracja/api/klucze-dostepowe-do-api-admin"
+      ]
+    },
+    {
+      "id": 124,
+      "platform": "Shoptet",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: Shoptet add-on OAuth → short-lived API token; Premium private API token where eligible. Browser: staff user.",
+      "required_information": "Shop ID; approved add-on/client; grant/token; endpoint groups; Premium eligibility if used.",
+      "limitations": "Private API is not available to every plan; verify access groups and token lifetimes.",
+      "official_sources": [
+        "https://developers.shoptet.com/api/documentation/installing-the-addon/",
+        "https://developers.shoptet.com/home/premium/private-api/"
+      ]
+    },
+    {
+      "id": 125,
+      "platform": "ePages",
+      "category": "E-commerce / store platforms",
+      "connection_method": "API: ePages OAuth2 token + shop ID and scopes. Browser: store administration account.",
+      "required_information": "Provider/edition; API base URL; shop ID; OAuth grant and scopes.",
+      "limitations": "API and app availability depend on the hosted provider/product edition.",
+      "official_sources": [
+        "https://developer.epages.com/apps/api-reference/get-shopid.html"
+      ]
+    },
+    {
+      "id": 126,
+      "platform": "Wix",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Wix third-party app OAuth; account API key only for eligible own-account use. Browser: invited collaborator.",
+      "required_information": "App/client; OAuth grant; site/account ID; scopes. For own-account use: eligible API key.",
+      "limitations": "A developer's account API key is not a substitute for customer-approved app OAuth. APIs do not expose every visual-editor capability.",
+      "official_sources": [
+        "https://dev.wix.com/docs/api-reference/articles/rest-authentication/rest-api-authentication"
+      ]
+    },
+    {
+      "id": 127,
+      "platform": "Squarespace",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Squarespace Commerce API key or OAuth. Browser: invited website contributor for content/design changes.",
+      "required_information": "Website/store context; eligible API key/OAuth grant; commerce scopes.",
+      "limitations": "Commerce access is not a universal page-layout/theme editing API; check plan and contributor permissions.",
+      "official_sources": [
+        "https://developers.squarespace.com/commerce-apis/retrieve-basic-site-info"
+      ]
+    },
+    {
+      "id": 128,
+      "platform": "Webflow",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Webflow site token or OAuth app with scopes. Browser: site/workspace guest or member.",
+      "required_information": "Site ID; OAuth grant or site token; scopes; workspace permissions if needed.",
+      "limitations": "Data API, Designer extensions and custom-code permissions differ; some functionality needs OAuth/app eligibility.",
+      "official_sources": [
+        "https://developers.webflow.com/data/reference/authentication/site-token",
+        "https://developers.webflow.com/reference/authorization"
+      ]
+    },
+    {
+      "id": 129,
+      "platform": "Framer",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Framer project Server API key. Browser: project editor invitation; verify available API operations.",
+      "required_information": "Project/site context; Server API key; eligible features and permissions.",
+      "limitations": "Server API is distinct from browser/editor login; verify current feature availability and publishing permissions.",
+      "official_sources": [
+        "https://www.framer.com/developers/server-api-quick-start",
+        "https://www.framer.com/developers/server-api-reference"
+      ]
+    },
+    {
+      "id": 130,
+      "platform": "Duda",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Duda dedicated API username/password; app token where required. Browser: team/client user.",
+      "required_information": "API username; API password; site name/ID; app token where required; plan entitlement.",
+      "limitations": "These are dedicated API credentials, not the owner's browser password. Verify API-plan and app requirements.",
+      "official_sources": [
+        "https://developer.duda.co/docs/app-tutorials-authentication"
+      ]
+    },
+    {
+      "id": 131,
+      "platform": "HubSpot Content Hub",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: HubSpot app OAuth or scoped private-app token. Browser: CRM/CMS user with content permissions.",
+      "required_information": "Account/hub ID; OAuth grant/private token; content scopes.",
+      "limitations": "Do not use retired legacy hapikey authentication. New/beta credential options require separate review.",
+      "official_sources": [
+        "https://developers.hubspot.com/blog/harnessing-the-power-of-hubspots-public-apis-with-postman"
+      ]
+    },
+    {
+      "id": 132,
+      "platform": "GoDaddy Website Builder",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: GoDaddy delegate/team-member access to Websites + Marketing. Domain/DNS API keys are not website-editor access.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native general Website Builder authoring API authentication was not verified. GoDaddy domain/DNS API access does not edit website content.",
+      "official_sources": [
+        "https://www.godaddy.com/en-uk/help/allow-delegates-to-access-and-work-on-my-websites-marketing-site-42554"
+      ]
+    },
+    {
+      "id": 133,
+      "platform": "Hostinger Website Builder",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Hostinger hPanel Account Sharing for supported sites/services. Builder e-commerce sharing has restrictions.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "The cited sharing guide excludes Builder e-commerce delegation. VPS/API/FTP permissions do not establish access to the hosted Website Builder editor.",
+      "official_sources": [
+        "https://www.hostinger.com/support/1583777-how-to-share-access-to-your-account-at-hostinger/"
+      ]
+    },
+    {
+      "id": 134,
+      "platform": "IONOS MyWebsite",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: IONOS Agency Partner delegation or owner-assisted MyWebsite editor. Confirm product coverage.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Partner access can be broader than site editing. Confirm exact MyWebsite product and use the smallest available grant. DNS/Cloud APIs are not builder authoring APIs.",
+      "official_sources": [
+        "https://www.ionos.com/help/partner-program/working-with-the-ionos-partner-portal/adding-clients/",
+        "https://www.ionos.com/help/websites-stores/first-steps-with-mywebsite-now/opening-the-mywebsite-now-editor/"
+      ]
+    },
+    {
+      "id": 135,
+      "platform": "Jimdo",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: owner-assisted Jimdo editing; confirm Creator versus Website Builder. Native write API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "The vendor's shared-account guidance is not an independent collaborator security boundary. Do not share the owner's primary password; review the exact product.",
+      "official_sources": [
+        "https://help.jimdo.com/hc/en-us/articles/115005536443-How-do-I-manage-a-Jimdo-website-with-others"
+      ]
+    },
+    {
+      "id": 136,
+      "platform": "Webnode",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Webnode project invitation with Editor/Admin permissions. Native management API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://webnode.freshdesk.com/en/support/solutions/articles/101000430741-how-to-invite-collaborators-to-edit-a-website"
+      ]
+    },
+    {
+      "id": 137,
+      "platform": "Strikingly",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Strikingly site Team/teammate invitation. Native remote authoring API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://www.strikingly.com/content/blog/new-team-feature-now-available/"
+      ]
+    },
+    {
+      "id": 138,
+      "platform": "SITE123",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: SITE123 contributor invitation with selected modules/permissions. Native management API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://www.site123.com/updates/take-control-of-contributor-access-with-customized-access-options"
+      ]
+    },
+    {
+      "id": 139,
+      "platform": "Tilda",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Tilda Public Key + Secret Key for export/read operations. Writes: owner-authorized browser editor.",
+      "required_information": "Project/page IDs; Business entitlement; public/secret API keys; browser editor grant for writes.",
+      "limitations": "Export API is not a remote page/block write API. Avoid logging URLs containing secret API parameters.",
+      "official_sources": [
+        "https://help.tilda.cc/api"
+      ]
+    },
+    {
+      "id": 140,
+      "platform": "Carrd",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Carrd site-sharing invitation as Editor/Admin on eligible Pro plans. Native authoring API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Plan restrictions apply. Exported-site hosting does not imply changes sync back into the Carrd editor.",
+      "official_sources": [
+        "https://carrd.com/docs/sites/sharing-access-to-a-site"
+      ]
+    },
+    {
+      "id": 141,
+      "platform": "Yola",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: owner-assisted Yola editing. Official guidance does not provide independent role-based collaborator accounts.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Separate users/role-based collaborator access are not provided by the cited guidance. Native management API authentication was not verified.",
+      "official_sources": [
+        "https://helpcenter.yola.com/hc/en-us/articles/21532021629468-Sharing-access-to-your-Yola-account"
+      ]
+    },
+    {
+      "id": 142,
+      "platform": "Weblium",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Weblium contributor invitation with limited site-editing access. Native management API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Contributor permissions exclude some account/domain/backup operations; verify publishing and custom-code rights separately.",
+      "official_sources": [
+        "https://help.weblium.com/en-us/article/adding-contributors-1pl3wmt/"
+      ]
+    },
+    {
+      "id": 143,
+      "platform": "Ucraft",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Ucraft Team App invitation with Editor/Designer permissions on eligible plans. Native management API unverified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Check paid-plan and product-generation compatibility; Ucraft offerings do not all have identical team/API features.",
+      "official_sources": [
+        "https://support.ucraft.com/hc/ucraft-knowledge-base/articles/1701732716-team-app"
+      ]
+    },
+    {
+      "id": 144,
+      "platform": "Dorik",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Dorik Public API key for documented endpoints, including eligible SEO updates. Browser: Developer/Editor invitation.",
+      "required_information": "Site/collection identifiers; API key; entitlement; selected operation.",
+      "limitations": "Do not infer full page-builder CRUD from limited content/SEO API documentation; verify endpoint and current API maturity.",
+      "official_sources": [
+        "https://help.dorik.com/en/article/updating-seo-fields-using-dorik-api-l7g8dc/",
+        "https://help.dorik.com/en/article/inviting-a-team-member-1qfttzm/"
+      ]
+    },
+    {
+      "id": 145,
+      "platform": "Pixpa",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Pixpa contributor/user-permissions invitation. Native remote authoring API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Native remote management authentication was not verified. Source/code changes need separately authorized repository or hosting access.",
+      "official_sources": [
+        "https://help.pixpa.com/kb/managing-multiple-websites/",
+        "https://www.pixpa.com/apps"
+      ]
+    },
+    {
+      "id": 146,
+      "platform": "SmugMug",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: SmugMug OAuth 1.0a app credentials + user token/secret. Browser: owner-approved editor access.",
+      "required_information": "Registered app consumer key/secret; user OAuth grant/token secret; permissions.",
+      "limitations": "Photo/gallery API access is not blanket site-layout editing. Do not substitute exported browser cookies.",
+      "official_sources": [
+        "https://api.smugmug.com/api/v2/doc/tutorial/authorization.html"
+      ]
+    },
+    {
+      "id": 147,
+      "platform": "Format",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: owner-assisted Format website editing. Native write API and independent developer-role access not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Official support source identifies the account/editor help route, not a verified API authentication or multi-user delegation method.",
+      "official_sources": [
+        "https://help.format.com/hc/en-us/articles/28139365191059-How-to-get-help-at-Format"
+      ]
+    },
+    {
+      "id": 148,
+      "platform": "Zenfolio",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Legacy/Classic Zenfolio API: vendor authentication → session token. Browser: owner-authorized editor; confirm product generation.",
+      "required_information": "Exact Zenfolio product; registered API integration if required; supported authentication/token.",
+      "limitations": "Legacy API documentation is not proof that new Zenfolio accounts support it. Keep account credentials out of models/logs; API is limited to documented operations.",
+      "official_sources": [
+        "https://secure.zenfolio.com/zf/help/api/guide/auth"
+      ]
+    },
+    {
+      "id": 149,
+      "platform": "Simvoly",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "API: Simvoly website API bearer key for supported store/contact/member operations. Browser: authorized site editor.",
+      "required_information": "Website ID/context; API key; permitted endpoints.",
+      "limitations": "Store/contact/member API is not unrestricted visual-canvas editing. Member SSO endpoints are not administrator login.",
+      "official_sources": [
+        "https://simvoly.com/integrations",
+        "https://websitebuilder.app-sources.com/"
+      ]
+    },
+    {
+      "id": 150,
+      "platform": "Zoho Sites",
+      "category": "Hosted builders / website platforms",
+      "connection_method": "Browser: Zoho Sites contributor invitation with Developer/Admin/Author role. General website-management API not verified.",
+      "required_information": "Site URL; installed version; named account/role or owner-assisted session.",
+      "limitations": "Zoho CRM tokens, website-member logins and form integrations are not Zoho Sites editor authorization.",
+      "official_sources": [
+        "https://www.zoho.com/sites/features/restrict-access-website.html"
+      ]
+    }
+  ]
+}
