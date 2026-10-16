@@ -12,7 +12,7 @@ type Provider={id:string;name:string;adapterKey:string;enabled:boolean;healthSta
 
 export function OwnerAiGateway(){
   const cache=useQueryClient();const toast=useToast();const [name,setName]=useState('Anthropic Claude');const [providerId,setProviderId]=useState('');const [label,setLabel]=useState('Production key');const [secret,setSecret]=useState('');const [modelName,setModelName]=useState('Security Assistant');const [providerModel,setProviderModel]=useState('');const [inputPrice,setInputPrice]=useState('');const [outputPrice,setOutputPrice]=useState('');
-  const validPrices=[inputPrice,outputPrice].every(value=>value.trim()!==''&&Number.isFinite(Number(value))&&Number(value)>0&&Number(value)<=2000);
+  const validPrices=[inputPrice,outputPrice].every(value=>value.trim()!==''&&Number.isFinite(Number(value))&&Number(value)>=0.000001&&Number(value)<=2000);
   const query=useQuery<Provider[]>({queryKey:['owner-ai-providers'],queryFn:()=>api('/owner/ai/providers')});const providers=query.data??[];const selected=providerId||providers[0]?.id||'';
   const refresh=()=>void cache.invalidateQueries({queryKey:['owner-ai-providers']});
   const [adapterKey,setAdapterKey]=useState('anthropic-messages');

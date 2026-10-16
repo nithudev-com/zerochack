@@ -10,7 +10,7 @@ async function fixture(page: Page, denied = false) {
     const headers = { 'access-control-allow-origin': new URL(request.headers().origin ?? (process.env.CARE_WEB_PRODUCTION === 'true' ? 'http://127.0.0.1:3510' : 'http://127.0.0.1:3107')).origin, 'access-control-allow-credentials': 'true', 'access-control-allow-headers': 'content-type', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,OPTIONS', 'content-type': 'application/json' };
     const send = (value: unknown, status = 200) => route.fulfill({ status, headers, body: JSON.stringify(value) });
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
-    if (path.endsWith('/auth/me')) return send({ roles: ['Owner'], mfaVerifiedAt: new Date().toISOString() });
+    if (path.endsWith('/auth/me')) return send({ roles: ['Owner'], mfaVerified: true });
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() });
     if (path === '/v1/owner/ai/providers') return send([{ id, name: 'Claude fixture', adapterKey: 'anthropic-messages', enabled: false, healthStatus: 'UNKNOWN', requestsPerMinute: 6, maxConcurrent: 1, credentials: [{ id: 'credential', label: 'Saved key', enabled: true, healthStatus: 'UNKNOWN', keyVersion: 1 }], models: [] }]);
     if (path === '/v1/owner/ai/tenants') return denied ? send({ error: { code: 'MFA_REQUIRED', message: 'Recent Owner MFA required' } }, 403) : send([{ id, name: 'Kavi fixture', aiPolicy: policy }, { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', name: 'Other fixture', aiPolicy: null }]);
