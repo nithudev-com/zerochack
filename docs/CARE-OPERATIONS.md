@@ -8,6 +8,24 @@ The inline SSH form uses encrypted Secure capture and the connection-check endpo
 
 Secure capture is locked when its real deployment capability is unavailable. Missing AI providers remain explicit errors, not fabricated replies. A saved connection check is historical evidence, not proof of a currently open SSH session or completed cleanup. The chat does not enable any Care flags, provider entitlements, runner, assessment, repair or release; these still require their existing independent validation and authorization. Saved job/approval controls remain reachable from the activity link when present. Validate with `security-chat.spec.ts` in development and production-image browser suites; fixture replies are not real-provider evidence.
 
+## Agent and tool availability
+
+The catalogue contains **24 roles and 67 bounded tool contracts**. All 24 roles have an approved-uploaded-text source-review implementation; this does not implement their wider autonomous engineering roles. A02 additionally supports customer chat, and A08 supports the separately gated standalone-HTML candidate workflow.
+
+| Contract category | Count | Actual boundary |
+| --- | ---: | --- |
+| Offline source-review tools | 24 | Approved sanitized text; no customer-code execution or production mutation |
+| Saved-evidence tools | 10 | Scoped retained records/artifacts; missing evidence is not a passing result |
+| Isolated verification profiles | 11 | Explicitly selected offline fixtures in the reviewed isolated runtime |
+| Other dedicated workflow bindings | 22 | Separate source, browser, observation, artifact, approval, release or case actions |
+| Total | 67 | Implementation/binding coverage, not 67 model-callable live tools |
+
+The customer security chat separately exposes six model tools: assessment planning, saved assessment evidence, saved SSH connection checking, bounded read-only assessment, inspecting a saved finding, and requested live-support handoff. **None is a live website-mutation tool.** The direct **Inspect website** button uses the authenticated assessment route without a paid model request.
+
+Read `/owner/care/capabilities` using an authorized Owner session to distinguish implementation from deployment activation; never infer readiness from a catalogue `enabled` field. With only `CARE_ENABLED=true` and the seven advanced flags false (`CARE_REVIEW_ENABLED`, `CARE_REPAIR_ENABLED`, `CARE_VERIFICATION_ENABLED`, `CARE_BROWSER_ENABLED`, `CARE_OBSERVATIONS_ENABLED`, `CARE_ADVISORIES_ENABLED`, `CARE_RELEASE_ENABLED`), the current capability map reports 53 contracts disabled and 14 requiring an authorized request. Those 14 are ten saved-evidence contracts plus pause, human handoff, feedback and monitoring-plan records; they still require suitable scoped records and do not enable live repair. Source-review agents and the A08 repair workflow remain disabled in that configuration. Verify actual deployed flags and prerequisites for each release; this section does not change them.
+
+See [Security agent verification and activation boundaries](SECURITY-AGENT-VERIFICATION.md) for progress semantics, coverage limits and the unwired permission-change primitive. No tool count, animation, successful HTTP check or finding-status update certifies a completed security fix.
+
 ## Rollout
 
 1. Back up the PostgreSQL database and establish a tested restore point. Review the additive `20260923000000_chat_care` and `20260923010000_care_repair` migrations. It creates care records, scope constraints, a nullable legacy access reference, and a production-default environment for existing chat messages.
@@ -126,4 +144,4 @@ Apply the additive `20260928000000_care_observations` migration with both new fl
 
 Neither flag grants an AI agent network access. Each external request requires a separate affirmative customer action in the job. An idempotency retry returns the prior operation; it never repeats its network call. A crashed call projects INTERRUPTED after its deadline and is not replayed. Inspect saved status before creating a new request. Network requests are unauthenticated and bounded to one root HEAD or verified TLS handshake; OSV receives only approved package coordinates. See [CARE-OBSERVATIONS.md](CARE-OBSERVATIONS.md).
 
-Local fixture tests are not a live OSV availability check or proof that a particular hosting environment is reachable. Validate connectivity and policy on a disposable authorized target before rollout. No live customer server, credential or production data is needed for the new CI tests. The 15 wider unavailable tools still require implementation/evaluation.
+Local fixture tests are not a live OSV availability check or proof that a particular hosting environment is reachable. Validate connectivity and policy on a disposable authorized target before rollout. No live customer server, credential or production data is needed for the new CI tests. The catalogue's 67 bounded implementations/bindings do not implement their wider proposed purposes or prove deployment readiness; use the availability breakdown above and each contract's explicit boundary and deployment state.

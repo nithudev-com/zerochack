@@ -1,5 +1,5 @@
 import { isIP } from 'node:net';
-import { resolve4, resolve6 } from 'node:dns/promises';
+import { Resolver } from 'node:dns/promises';
 import { Agent, fetch, type Dispatcher } from 'undici';
 
 export class TargetSecurityError extends Error {
@@ -7,7 +7,7 @@ export class TargetSecurityError extends Error {
 }
 
 export type ResolvedAddress = { address: string; family: 4 | 6 };
-export type DnsResolver = (hostname: string) => Promise<ResolvedAddress[]>;
+export type DnsResolver = (hostname: string, signal?: AbortSignal) => Promise<ResolvedAddress[]>;
 export type SafeResponse = { url: string; status: number; headers: Record<string, string>; body: Uint8Array; resolvedAddress: string; redirects: string[] };
 const blockedNames = ['localhost', 'localhost.localdomain', 'metadata.google.internal'];
 const blockedSuffixes = ['.localhost', '.local', '.internal', '.home', '.lan', '.corp', '.test', '.invalid', '.example'];
@@ -66,25 +66,54 @@ export function validatePublicHttpTarget(input: string, allowedHostname: string)
   if (url.hostname !== allowedHostname) throw new TargetSecurityError('TARGET_SCOPE_BLOCKED', 'Target does not match the saved website hostname');
 }
 
-export const systemResolver: DnsResolver = async (hostname) => {
+function abortError(signal: AbortSignal): TargetSecurityError {
+  return signal.reason instanceof TargetSecurityError ? signal.reason : new TargetSecurityError('REQUEST_ABORTED', 'The website request was cancelled');
+}
+function assertNotAborted(signal?: AbortSignal): void { if (signal?.aborted) throw abortError(signal); }
+
+/** The abort listener is installed before starting work and removed on every outcome. */
+function abortable<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work();
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(abortError(signal)); return; }
+    const aborted = () => { signal.removeEventListener('abort', aborted); reject(abortError(signal)); };
+    signal.addEventListener('abort', aborted, { once: true });
+    try { void work().then(value => { signal.removeEventListener('abort', aborted); resolve(value); }, error => { signal.removeEventListener('abort', aborted); reject(error); }); }
+    catch (error) { signal.removeEventListener('abort', aborted); reject(error); }
+  });
+}
+
+export const systemResolver: DnsResolver = async (hostname, signal) => {
+  assertNotAborted(signal);
   hostname = unbracket(hostname);
   if (isIP(hostname)) return [{ address: hostname, family: isIP(hostname) as 4 | 6 }];
-  const [v4, v6] = await Promise.all([resolve4(hostname).catch(() => []), resolve6(hostname).catch(() => [])]);
-  return [...v4.map((address) => ({ address, family: 4 as const })), ...v6.map((address) => ({ address, family: 6 as const }))];
+  // One resolver per operation lets cancellation stop its real DNS queries without
+  // cancelling unrelated application lookups. An outer HTTP deadline also covers it.
+  const resolver = new Resolver({ timeout: 5000, tries: 1 });
+  const cancelled = () => resolver.cancel();
+  signal?.addEventListener('abort', cancelled, { once: true });
+  try {
+    const [v4, v6] = await abortable(() => Promise.all([resolver.resolve4(hostname).catch(() => []), resolver.resolve6(hostname).catch(() => [])]), signal);
+    assertNotAborted(signal);
+    return [...v4.map((address) => ({ address, family: 4 as const })), ...v6.map((address) => ({ address, family: 6 as const }))];
+  } finally { signal?.removeEventListener('abort', cancelled); }
 };
 
-export async function resolvePublicTarget(url: URL, resolver: DnsResolver = systemResolver): Promise<ResolvedAddress[]> {
-  validateHostname(url.hostname); const addresses = await resolver(url.hostname);
+export async function resolvePublicTarget(url: URL, resolver: DnsResolver = systemResolver, signal?: AbortSignal): Promise<ResolvedAddress[]> {
+  assertNotAborted(signal);
+  validateHostname(url.hostname); const addresses = await abortable(() => resolver(url.hostname, signal), signal);
+  assertNotAborted(signal);
   if (addresses.length === 0) throw new TargetSecurityError('DNS_UNRESOLVED', 'Website hostname did not resolve');
   if (addresses.some(({ address }) => !isPublicAddress(address))) throw new TargetSecurityError('DNS_UNSAFE', 'Hostname resolves to a non-public address');
   return addresses;
 }
 
-export async function validateRedirectDestination(location: string, current: URL, resolver: DnsResolver = systemResolver, allowedHostname = current.hostname): Promise<URL> {
+export async function validateRedirectDestination(location: string, current: URL, resolver: DnsResolver = systemResolver, allowedHostname = current.hostname, signal?: AbortSignal): Promise<URL> {
+  assertNotAborted(signal);
   const destination = new URL(normalizeWebsiteUrl(new URL(location, current).toString()));
   if (destination.hostname !== allowedHostname) throw new TargetSecurityError('REDIRECT_SCOPE_BLOCKED', 'Redirect leaves the verified website hostname');
   if (current.protocol === 'https:' && destination.protocol !== 'https:') throw new TargetSecurityError('REDIRECT_DOWNGRADE_BLOCKED', 'Redirect cannot downgrade a verified HTTPS destination');
-  await resolvePublicTarget(destination, resolver); return destination;
+  await resolvePublicTarget(destination, resolver, signal); return destination;
 }
 
 async function readLimited(response: Awaited<ReturnType<typeof fetch>>, limit: number): Promise<Uint8Array> {
@@ -95,31 +124,54 @@ async function readLimited(response: Awaited<ReturnType<typeof fetch>>, limit: n
   const body = new Uint8Array(size); let offset = 0; for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; } return body;
 }
 
-export async function safeHttpRequest(input: string, options: { resolver?: DnsResolver; timeoutMs?: number; maxRedirects?: number; maxBytes?: number; method?: 'GET' | 'HEAD'; allowedHostname?: string } = {}): Promise<SafeResponse> {
+export async function safeHttpRequest(input: string, options: { resolver?: DnsResolver; timeoutMs?: number; maxRedirects?: number; maxBytes?: number; method?: 'GET' | 'HEAD'; allowedHostname?: string; signal?: AbortSignal } = {}): Promise<SafeResponse> {
   const resolver = options.resolver ?? systemResolver; const timeoutMs = options.timeoutMs ?? 10_000; const maxRedirects = options.maxRedirects ?? 5; const maxBytes = options.maxBytes ?? 1_048_576;
   let current = new URL(normalizeWebsiteUrl(input)); const redirects: string[] = []; const allowedHostname = options.allowedHostname ?? current.hostname;
   if (current.hostname !== allowedHostname) throw new TargetSecurityError('TARGET_SCOPE_BLOCKED', 'Target is outside the verified website hostname');
-  for (let index = 0; index <= maxRedirects; index += 1) {
-    const addresses = await resolvePublicTarget(current, resolver); const selected = addresses[0]!;
+  const controller = new AbortController();
+  const cancelled = () => controller.abort(new TargetSecurityError('REQUEST_ABORTED', 'The website request was cancelled'));
+  options.signal?.addEventListener('abort', cancelled, { once: true });
+  if (options.signal?.aborted) cancelled();
+  // A single deadline covers DNS, every redirect, response reading and cleanup.
+  const timeout = setTimeout(() => controller.abort(new TargetSecurityError('CONNECTION_TIMEOUT', 'Website connection timed out')), timeoutMs);
+  try { for (let index = 0; index <= maxRedirects; index += 1) {
+    assertNotAborted(controller.signal);
+    const addresses = await resolvePublicTarget(current, resolver, controller.signal); const selected = addresses[0]!;
     const dispatcher: Dispatcher = new Agent({ connect: { lookup: (_hostname, lookupOptions, callback) => {
       if (lookupOptions.all) (callback as unknown as (error: NodeJS.ErrnoException | null, addresses: ResolvedAddress[]) => void)(null, [selected]);
       else callback(null, selected.address, selected.family);
     } } });
-    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let destruction: Promise<void> | undefined;
+    const destroy = () => { destruction ??= dispatcher.destroy().catch(() => undefined); return destruction; };
+    const abortDispatcher = () => { void destroy(); };
+    controller.signal.addEventListener('abort', abortDispatcher, { once: true });
     try {
-      const response = await fetch(current, { dispatcher, redirect: 'manual', signal: controller.signal, method: options.method ?? 'GET', headers: { 'user-agent': 'ZeroRoot-ReadOnly-Scanner/1.0', accept: 'text/html,application/xhtml+xml,*/*;q=0.1' } });
+      const response = await abortable(() => fetch(current, { dispatcher, redirect: 'manual', signal: controller.signal, method: options.method ?? 'GET', headers: { 'user-agent': 'ZeroRoot-ReadOnly-Scanner/1.0', accept: 'text/html,application/xhtml+xml,*/*;q=0.1' } }), controller.signal);
       if ([301, 302, 303, 307, 308].includes(response.status)) {
+        // Never leave a redirect body streaming while gracefully closing a pool.
+        await abortable(() => response.body?.cancel() ?? Promise.resolve(), controller.signal);
         const location = response.headers.get('location'); if (!location) throw new TargetSecurityError('REDIRECT_INVALID', 'Redirect did not provide a destination');
         if (index === maxRedirects) throw new TargetSecurityError('REDIRECT_LIMIT', 'Website exceeded the redirect limit');
-        current = await validateRedirectDestination(location, current, resolver, allowedHostname); redirects.push(current.toString()); continue;
+        current = await validateRedirectDestination(location, current, resolver, allowedHostname, controller.signal); redirects.push(current.toString()); continue;
       }
-      const headers = Object.fromEntries(response.headers.entries()); const body = options.method === 'HEAD' ? new Uint8Array() : await readLimited(response, maxBytes);
+      const headers = Object.fromEntries(response.headers.entries()); const body = options.method === 'HEAD' ? new Uint8Array() : await abortable(() => readLimited(response, maxBytes), controller.signal);
+      if (options.method === 'HEAD') await abortable(() => response.body?.cancel() ?? Promise.resolve(), controller.signal);
+      assertNotAborted(controller.signal);
       return { url: current.toString(), status: response.status, headers, body, resolvedAddress: selected.address, redirects };
-    } catch (error) {
-      if (error instanceof TargetSecurityError) throw error;
-      if (controller.signal.aborted) throw new TargetSecurityError('CONNECTION_TIMEOUT', 'Website connection timed out');
-      throw new TargetSecurityError('CONNECTION_FAILED', 'Website connection failed safely', error);
-    } finally { clearTimeout(timeout); await dispatcher.close(); }
+    } finally {
+      // Each Agent is private to one hop. Destroy aborts remaining work; unlike
+      // close it does not wait for an unconsumed body to complete. The same
+      // operation deadline bounds even a stuck cleanup callback.
+      const destroyed = destroy();
+      await abortable(() => destroyed, controller.signal).catch(() => undefined);
+      controller.signal.removeEventListener('abort', abortDispatcher);
+      assertNotAborted(controller.signal);
+    }
   }
   throw new TargetSecurityError('REDIRECT_LIMIT', 'Website exceeded the redirect limit');
+  } catch (error) {
+    if (controller.signal.aborted) throw abortError(controller.signal);
+    if (error instanceof TargetSecurityError) throw error;
+    throw new TargetSecurityError('CONNECTION_FAILED', 'Website connection failed safely');
+  } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', cancelled); }
 }
