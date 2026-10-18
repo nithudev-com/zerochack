@@ -144,7 +144,7 @@ test('failed cancellation does not pretend work stopped or retry automatically',
     await page.goto(workspace); await page.getByRole('button', { name: 'Cancel inspection', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Cancelling inspection…', exact: true })).toBeDisabled();
     fixture.releaseCancel();
-    await expect(page.getByRole('alert')).toContainText('Cancellation could not be confirmed. The saved inspection is still running.');
+    await expect(page.getByRole('region', { name: 'Security recovery conversation', exact: true }).getByRole('alert')).toContainText('Cancellation could not be confirmed. The saved inspection is still running.');
     await expect(page.getByRole('region', { name: 'Agent activity', exact: true })).toHaveAttribute('data-agent-state', 'inspecting_ssh');
     await expect(page.getByRole('button', { name: 'Cancel inspection', exact: true })).toBeEnabled();
     expect(fixture.writes).toEqual([`/v1/websites/${websiteId}/assessment/${inspectionId}/cancel`]);
