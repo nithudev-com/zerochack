@@ -14,6 +14,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { MotionConfig, motion } from 'motion/react';
 import { api, apiUrl, ApiClientError } from '../lib/api';
+import { canRetainQueryData, pollingInterval, queryRetry, retryDelayRemaining } from '../lib/query-policy';
 import type { WebsiteService } from '../lib/website-services';
 import styles from './care-workbench.module.css';
 
@@ -40,27 +41,63 @@ export function CareChat({ website, service }: { website: Website; service?: Web
   const [summary, setSummary] = useState(''); const [expected, setExpected] = useState('');
   const [feedbackJob, setFeedbackJob] = useState<string | null>(null); const [feedback, setFeedback] = useState('');
   const viewport = useRef<HTMLDivElement>(null); const nearBottom = useRef(true); const controller = useRef<AbortController | null>(null); const alive = useRef(true);
-  const care = useInfiniteQuery({ queryKey: ['care', website.id, environment], queryFn: ({ pageParam }) => api<CareState>(`${base}/care?environment=${environment}${pageParam ? `&before=${pageParam}` : ''}`), initialPageParam: null as string | null, getNextPageParam: (page) => page.nextCursor ?? undefined, refetchInterval: 10000, retry: false });
-  const chat = useInfiniteQuery({ queryKey: ['chat', website.id, environment], queryFn: ({ pageParam }) => api<Message[]>(`${base}/chat?environment=${environment}${pageParam ? `&before=${pageParam}` : ''}`), initialPageParam: null as string | null, getNextPageParam: (page) => page.length === 200 ? page[0]!.id : undefined, refetchInterval: connected ? 15000 : 5000 });
-  const careState = care.data?.pages[0];
-  const messages = [...new Map((chat.data?.pages.slice().reverse().flat() ?? []).map((message) => [message.id, message])).values()];
+  // Keep live heads separate from manually loaded history. Infinite-query polling
+  // otherwise refetches every retained page each time an activity event arrives.
+  const care = useQuery({ queryKey: ['care', website.id, environment, 'latest'], queryFn: ({ signal }) => api<CareState>(`${base}/care?environment=${environment}`, { signal }), refetchInterval: query => pollingInterval(query, connected ? 60000 : query.state.data?.jobs.some(job => active.includes(job.state)) ? 10000 : 30000), retry: queryRetry });
+  const chat = useQuery({ queryKey: ['chat', website.id, environment, 'latest'], queryFn: ({ signal }) => api<Message[]>(`${base}/chat?environment=${environment}`, { signal }), refetchInterval: query => pollingInterval(query, connected ? 60000 : busy ? 10000 : 30000), retry: queryRetry });
+  const careState = canRetainQueryData(care.error) ? care.data : undefined;
+  const careHistory = useInfiniteQuery({ queryKey: ['care-history', website.id, environment], queryFn: ({ pageParam, signal }) => { const cursor = pageParam ?? careState?.nextCursor; if (!cursor) throw new Error('No earlier job cursor is available.'); return api<CareState>(`${base}/care?environment=${environment}&before=${cursor}`, { signal }); }, initialPageParam: null as string | null, getNextPageParam: page => page.nextCursor ?? undefined, enabled: false, retry: queryRetry });
+  const chatHistory = useInfiniteQuery({ queryKey: ['chat-history', website.id, environment], queryFn: ({ pageParam, signal }) => { const cursor = pageParam ?? chat.data?.[0]?.id; if (!cursor) throw new Error('No earlier conversation cursor is available.'); return api<Message[]>(`${base}/chat?environment=${environment}&before=${cursor}`, { signal }); }, initialPageParam: null as string | null, getNextPageParam: page => page.length === 200 ? page[0]!.id : undefined, enabled: false, retry: queryRetry });
+  const olderJobsAvailable = careHistory.data ? careHistory.hasNextPage : Boolean(careState?.nextCursor);
+  const olderMessagesAvailable = chatHistory.data ? chatHistory.hasNextPage : chat.data?.length === 200;
+  const messages = canRetainQueryData(chat.error) ? [...new Map([...(canRetainQueryData(chatHistory.error) ? chatHistory.data?.pages.slice().reverse().flat() ?? [] : []), ...(chat.data ?? [])].map(message => [message.id, message])).values()] : [];
   const careAvailable = Boolean(careState);
-  const recovery = useQuery({ queryKey: ['care-recovery', website.id, environment], enabled: recoveryOpen && careAvailable, queryFn: () => api<{ state: string; observedAt: string; checks: Array<{ name: string; state: string; detail: string }>; limitation: string }>(`${base}/care/recovery?environment=${environment}`), refetchInterval: recoveryOpen ? 30000 : false, retry: false });
+  const recovery = useQuery({ queryKey: ['care-recovery', website.id, environment], enabled: recoveryOpen && careAvailable, queryFn: ({ signal }) => api<{ state: string; observedAt: string; checks: Array<{ name: string; state: string; detail: string }>; limitation: string }>(`${base}/care/recovery?environment=${environment}`, { signal }), refetchInterval: query => recoveryOpen ? pollingInterval(query, 60000) : false, retry: queryRetry });
   const refresh = async () => { await Promise.all([client.invalidateQueries({ queryKey: ['care', website.id] }), client.invalidateQueries({ queryKey: ['chat', website.id] }), client.invalidateQueries({ queryKey: ['website', website.id] })]); };
   useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort(); }; }, []);
   useEffect(() => {
     if (!careAvailable) return;
+    const keys = [['care', website.id, environment, 'latest'], ['chat', website.id, environment, 'latest']];
+    let closed = false; let dirty = false; let flushing = false; let timer: ReturnType<typeof setTimeout> | undefined;
+    const refreshable = () => keys.filter(queryKey => { const query = client.getQueryCache().find({ queryKey, exact: true }); return !query || pollingInterval(query, 5000) !== false; });
+    const cooldownFor = (queryKeys: string[][]) => Math.max(0, ...queryKeys.map(queryKey => {
+      const query = client.getQueryCache().find({ queryKey, exact: true });
+      if (!query?.state.error) return 0;
+      if (query.state.error instanceof ApiClientError && query.state.error.status === 429) return retryDelayRemaining(query.state.error);
+      const interval = pollingInterval(query, 5000);
+      return interval === false ? 0 : Math.max(0, query.state.errorUpdatedAt + interval - Date.now());
+    }));
+    const schedule = (delay = 5000) => { if (!closed && !timer && !flushing) timer = setTimeout(() => { timer = undefined; void flush(); }, delay); };
+    const flush = async () => {
+      if (closed || !dirty) return;
+      const currentKeys = refreshable();
+      if (!currentKeys.length) { dirty = false; return; }
+      const cooldown = cooldownFor(currentKeys);
+      if (cooldown > 0) { schedule(cooldown + 100); return; }
+      dirty = false; flushing = true;
+      try {
+        // Do not cancel/restart an in-flight head fetch, and never refetch loaded
+        // history per event. A dirty tail is reconciled in the next bounded batch.
+        await Promise.all(currentKeys.map(queryKey => client.invalidateQueries({ queryKey, exact: true }, { cancelRefetch: false })));
+      } finally {
+        flushing = false;
+        const remaining = cooldownFor(refreshable());
+        if (remaining > 0) { dirty = true; schedule(remaining + 100); }
+        else if (dirty) schedule();
+      }
+    };
+    const onActivity = () => { dirty = true; schedule(); };
     const stream = new EventSource(`${apiUrl}${base}/activity/stream?environment=${environment}`, { withCredentials: true });
-    stream.onopen = () => setConnected(true); stream.onerror = () => setConnected(false);
-    stream.addEventListener('activity', () => { void client.invalidateQueries({ queryKey: ['care', website.id] }); void client.invalidateQueries({ queryKey: ['chat', website.id] }); });
-    return () => { stream.close(); setConnected(false); };
+    stream.onopen = () => { if (!closed) setConnected(true); }; stream.onerror = () => { if (!closed) setConnected(false); };
+    stream.addEventListener('activity', onActivity);
+    return () => { closed = true; if (timer) clearTimeout(timer); stream.removeEventListener('activity', onActivity); stream.close(); setConnected(false); };
   // The connection follows scope and availability, not each snapshot refresh.
   }, [base, client, website.id, environment, careAvailable]);
   useEffect(() => {
     if (!messages.length) return;
     if (nearBottom.current) viewport.current?.scrollTo({ top: viewport.current.scrollHeight, behavior: 'instant' }); else setNewActivity(true);
   }, [messages.length, careState?.jobs]);
-  const jobs = [...new Map((care.data?.pages.flatMap((page) => page.jobs) ?? []).filter((job) => job.environment === environment).map((job) => [job.id, job])).values()];
+  const jobs = careState ? [...new Map([...(canRetainQueryData(careHistory.error) ? careHistory.data?.pages.flatMap(page => page.jobs) ?? [] : []), ...careState.jobs].filter(job => job.environment === environment).map(job => [job.id, job])).values()].sort((before, after) => Date.parse(after.createdAt) - Date.parse(before.createdAt)) : [];
   const allAgents = jobs.flatMap((job) => job.agents.map((agent) => ({ ...agent, jobId: job.id })));
   const agents = allAgents.slice(0, teamLimit);
   const credentials = careState?.credentials.filter((credential) => credential.environment === environment) ?? [];
@@ -102,9 +139,10 @@ export function CareChat({ website, service }: { website: Website; service?: Web
     {accessOpen && <section className="care-panel" aria-label="Stored access"><h3>Access to {environment.toLowerCase()}</h3><p>Storage and connection checks are separate. AI never receives these credential values.</p>{credentials.length ? credentials.map((credential) => <article className="care-access-row" key={credential.id}><div><strong>{credential.kind} · {credential.host}</strong><small>Secret hidden · {humanState(credential.status)} · inspection permission until {time(credential.authorizationExpiresAt)}</small></div><button onClick={() => void action(`${base}/credentials/${credential.id}`, undefined, 'DELETE')}>Revoke access</button></article>) : <p>No accounts stored in this environment.</p>}<Link href={`/customer/websites/${website.id}/access`}>Choose a connection method</Link><button disabled={!careAvailable} onClick={() => { setSecure(true); setConfirmed(false); setAccessOpen(false); }}>Add or replace access in chat</button>{environment === 'PRODUCTION' && credentials.some((credential) => credential.kind === 'SSH') && <button onClick={() => void action(`${base}/access/check`)}>Check saved SSH connection</button>}<p className="care-small">Revocation stops future platform access. Rotate any password a specialist has already copied.</p></section>}
     {issueOpen && careAvailable && <form className="care-panel care-issue-form" onSubmit={(event) => { event.preventDefault(); void action(`${base}/jobs`, { requestKey: crypto.randomUUID(), environment, summary, expectedBehavior: expected }).then((saved) => { if (saved) { setIssueOpen(false); setSummary(''); setExpected(''); } }); }}><h3>What needs fixing?</h3><label>What happens now?<textarea minLength={10} maxLength={1000} required value={summary} onChange={(event) => setSummary(event.target.value)}/></label><label>What should happen?<textarea minLength={10} maxLength={4000} required value={expected} onChange={(event) => setExpected(event.target.value)}/></label><p>We’ll record the issue and show which repair capabilities are available. This does not approve a production change.</p><button type="submit">Record issue</button></form>}
     <div className="care-conversation" ref={viewport} onScroll={() => { const element = viewport.current; if (element) nearBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 90; }} tabIndex={0} aria-label="Conversation history">
-      {chat.hasNextPage && <button disabled={chat.isFetchingNextPage} onClick={() => { nearBottom.current = false; void chat.fetchNextPage(); }}>Load older messages</button>}
+      {olderMessagesAvailable && <button disabled={chatHistory.isFetchingNextPage || retryDelayRemaining(chatHistory.error) > 0} onClick={() => { nearBottom.current = false; void chatHistory.fetchNextPage(); }}>Load older messages</button>}
+      {chatHistory.isError && <p role="alert">Earlier messages are temporarily unavailable. {chatHistory.error.message}</p>}
       {chat.isLoading && <p role="status">Loading conversation…</p>}
-      {chat.isError && <div role="alert">Conversation unavailable. <button onClick={() => void chat.refetch()}>Try again</button></div>}
+      {chat.isError && <div role="alert">Conversation unavailable. <button disabled={retryDelayRemaining(chat.error) > 0} onClick={() => void chat.refetch({ cancelRefetch: false })}>Try again</button></div>}
       {!chat.isLoading && !messages.length && <div className={`care-welcome ${styles.welcome}`}><h3>What’s your next idea?</h3><p>Build a feature, improve a design, troubleshoot a bug or plan your next release. Describe the outcome you want. Advice and saved requests do not start execution.</p><div><button onClick={() => { setSecure(false); setConfirmed(false); setDraft('Help me scope a new website feature. Ask about the user flow, frontend, backend and acceptance checks before proposing a plan.'); }}>Plan a feature</button><button onClick={() => { setSecure(false); setConfirmed(false); setDraft('Help me improve a page design. Ask about the page, brand, mobile layout and accessibility goals. Do not claim to have reviewed or changed my site.'); }}>Improve a design</button><button onClick={() => { setSecure(false); setConfirmed(false); setDraft('Help me troubleshoot a website issue. Ask for the steps to reproduce, expected behaviour and non-secret error details. Do not run an assessment or make changes without explicit authorization.'); }}>Troubleshoot a bug</button><Link href={`/customer/websites/${website.id}/access`}>Choose a connection</Link></div></div>}
       {messages.map((message) => <article className={`care-message care-message-${message.type.toLowerCase()}`} id={`message-${message.id}`} key={message.id}><div className="care-message-label"><strong className="cb-agent-brand">{message.type === 'AI' && <BrandLogo variant="mark" decorative />}{message.type === 'CUSTOMER' ? 'You' : message.type === 'AI' ? 'CodeBandage · AI assistant' : message.type === 'SPECIALIST' ? `${message.author?.displayName ?? 'Assigned specialist'} · Human` : 'CodeBandage · System'}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: () => <span>[Image omitted — use a protected attachment]</span>, a: ({ href, children }) => href && /^(https?:\/\/|\/[^/]|#)/i.test(href) ? <a href={href} rel="noopener noreferrer" target={href.startsWith('http') ? '_blank' : undefined}>{children}</a> : <span>{children}</span>, pre: ({ children }) => <div className="care-code"><pre>{children}</pre><button onClick={(event) => { const text = event.currentTarget.parentElement?.querySelector('pre')?.textContent ?? ''; void navigator.clipboard.writeText(text).then(() => setNotice('Code copied.')).catch(() => setError('Clipboard access was unavailable.')); }}>Copy code</button></div> }}>{message.content}</ReactMarkdown></article>)}
       {grants.map((grant) => <article className="care-approval" key={grant.id} aria-label="Specialist access request"><span className="care-eyebrow">HUMAN SPECIALIST · {grant.status}</span><h3>{grant.specialistName} requested {grant.credential.kind} access</h3><p>{grant.reason}</p><dl><dt>Account</dt><dd>{grant.credential.host} · {grant.credential.environment.toLowerCase()}</dd><dt>Expires</dt><dd>{time(grant.expiresAt)}</dd></dl><p>Approval allows this specialist to see and copy the actual credential. Expiry cannot erase a copy; rotation may be needed afterward.</p><div className="care-inline-actions">{grant.status === 'PENDING' ? <><button onClick={() => void action(`/access-requests/${grant.id}/approve`)}>Approve this access</button><button onClick={() => void action(`/access-requests/${grant.id}/deny`)}>Deny</button></> : <button onClick={() => void action(`/access-requests/${grant.id}/revoke`)}>Revoke grant</button>}</div></article>)}
@@ -112,11 +150,12 @@ export function CareChat({ website, service }: { website: Website; service?: Web
       {jobs.filter((job) => job.kind === 'REVIEW').map((job) => <article className="care-repair-card" key={job.id}><span className="care-eyebrow">SOURCE REVIEW · {humanState(job.state)}</span><h3>{job.summary}</h3><CareReview key={`${job.id}-${environment}`} jobId={job.id} websiteId={website.id} roles={careState?.roles ?? []} environment={environment}/><CareTools key={`tools-${job.id}-${environment}`} jobId={job.id} websiteId={website.id} environment={environment} review/></article>)}
       {jobs.filter((job) => job.kind === 'WORKSPACE').map((job) => <article className="care-repair-card" key={job.id}><h3>{job.summary}</h3><CareWorkspace jobId={job.id} websiteId={website.id}/><CareBrowserTools key={`browser-${job.id}`} jobId={job.id} websiteId={website.id}/></article>)}
       {jobs.filter((job) => job.kind === 'MONITOR_PLAN').map((job) => <article className="care-repair-card" key={job.id}><h3>{job.summary}</h3><p>{humanState(job.state)} · No monitoring was activated by this proposal.</p><details><summary>Saved proposal</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{job.expectedBehavior}</pre></details>{job.state !== 'CANCELLED' && <button onClick={() => void action(`/jobs/${job.id}/cancel`)}>Cancel proposal</button>}</article>)}
-      {care.hasNextPage && <button disabled={care.isFetchingNextPage} onClick={() => void care.fetchNextPage()}>Load older jobs</button>}
+      {olderJobsAvailable && <button disabled={careHistory.isFetchingNextPage || retryDelayRemaining(careHistory.error) > 0} onClick={() => void careHistory.fetchNextPage()}>Load older jobs</button>}
+      {careHistory.isError && <p role="alert">Earlier jobs are temporarily unavailable. {careHistory.error.message}</p>}
       {busy && <p role="status" className="care-pending">{secure ? 'Saving access securely…' : 'Waiting for the assistant response. This is not token streaming.'}</p>}
     </div>
     {newActivity && <button className="care-new-activity" onClick={() => { nearBottom.current = true; viewport.current?.scrollTo({ top: viewport.current.scrollHeight, behavior: 'instant' }); setNewActivity(false); }}>New activity ↓</button>}
-    {care.isError && <p className="care-alert" role="alert">{care.error instanceof ApiClientError && care.error.code === 'CAPABILITY_DISABLED' ? 'Execution workflows are not enabled. You can still prepare a request for human review; chat requires an available AI provider.' : care.error.message} <button onClick={() => void care.refetch()}>Retry workspace</button> <Link href={`/customer/websites/${website.id}/access`}>Open connection methods</Link></p>}
+    {care.isError && <p className="care-alert" role="alert">{care.error instanceof ApiClientError && care.error.code === 'CAPABILITY_DISABLED' ? 'Execution workflows are not enabled. You can still prepare a request for human review; chat requires an available AI provider.' : care.error.message} <button disabled={retryDelayRemaining(care.error) > 0} onClick={() => void care.refetch({ cancelRefetch: false })}>Retry workspace</button> <Link href={`/customer/websites/${website.id}/access`}>Open connection methods</Link></p>}
     {error && <p className="care-alert" role="alert">{error}</p>}{notice && <p className="care-notice" role="status">{notice}</p>}
     <form className={`care-composer ${secure ? 'care-composer-secure' : ''}`} onSubmit={(event) => { event.preventDefault(); void submit(); }}>
       <div className="care-composer-mode"><button type="button" aria-pressed={secure} disabled={busy} onClick={() => { setSecure(!secure); setConfirmed(false); }}> {secure ? '🔒 Secure capture' : '✦ Message assistant'}</button><span>{secure ? 'Goes directly to the vault · excluded from AI and history' : 'Use Secure capture for any access information'}</span></div>

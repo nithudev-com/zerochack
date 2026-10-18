@@ -72,7 +72,7 @@ test('unsupported service and inaccessible website cannot open a preview or exec
   const { writes } = await fixture(page); await page.goto(`${base}?service=production-release`);
   await expect(page.getByText('Choose a supported service', { exact: true })).toBeVisible(); expect(writes).toEqual([]);
   await page.unroute('**/v1/**'); await fixture(page, { missingSite: true }); await page.goto(`${base}?service=seo`);
-  await expect(page.getByRole('alert').filter({ hasText: 'Workspace unavailable' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'This website workspace is unavailable for your account.' })).toBeVisible();
   await expect(page.getByText('Under construction', { exact: true })).toHaveCount(0);
 });
 

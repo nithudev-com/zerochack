@@ -6,6 +6,7 @@ import type { Environment } from '@zerochack/config';
 import { generateOpaqueToken, hashOpaqueToken, hashPassword, normalizeEmail, publicRoleNames, verifyPassword } from '@zerochack/auth';
 import { forgotPasswordSchema, loginSchema, registrationSchema, resetPasswordSchema, tokenSchema } from '@zerochack/validation';
 import { ApiError } from '../../errors.js';
+import { authMeRateLimit } from '../../http-rate-policy.js';
 import { authenticate, clearSessionCookie, setSessionCookie } from './security.js';
 import { consumeAuthToken, createSession, expiresFromNow, issueAuthToken, writeAudit } from './service.js';
 import type { Queue } from 'bullmq';
@@ -137,7 +138,9 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
     await writeAudit({ tenantId: request.tenantId, actorUserId: request.userId, requestId: request.id, action: 'auth.sessions_revoked_all', resourceType: 'user', resourceId: request.userId, ipAddress: request.ip }); return reply.code(204).send();
   });
 
-  app.get('/auth/me', { preHandler: (request) => authenticate(request, environment) }, async (request) => {
+  // Caddy forward_auth checks each protected request. Bound this separately so
+  // checking a session does not spend the same application-request budget twice.
+  app.get('/auth/me', { config: { rateLimit: authMeRateLimit(environment.NODE_ENV) }, preHandler: (request) => authenticate(request, environment) }, async (request) => {
     const [user, tenant] = await Promise.all([
       database.user.findUniqueOrThrow({ where: { id: request.userId! }, select: { id: true, email: true, displayName: true, emailVerifiedAt: true, createdAt: true } }),
       database.tenant.findUniqueOrThrow({ where: { id: request.tenantId! }, select: { id: true, name: true, slug: true } })

@@ -96,6 +96,14 @@ export type AssessmentRunners = { connect: typeof connectSsh; inspect: typeof in
 
 export async function customerRoutes(app: FastifyInstance, options: { environment: Environment; queues?: QueueSet; ai: AiService; assessmentRunners?: AssessmentRunners }): Promise<void> {
   const runners = options.assessmentRunners ?? { connect: connectSsh, inspect: inspectServerReadOnly, web: runSecurityScan };
+  const backgroundAssessments = new Set<Promise<void>>();
+  const assessmentStops = new Set<() => void>();
+  let closing = false;
+  app.addHook('preClose', async () => {
+    closing = true;
+    for (const stop of assessmentStops) stop();
+    await Promise.allSettled([...backgroundAssessments]);
+  });
   const chatPublisher = options.environment.NODE_ENV === 'test' ? undefined : new Redis(options.environment.REDIS_URL, { maxRetriesPerRequest: 1 });
   const chatSubscriber = chatPublisher?.duplicate();
   if (chatSubscriber && chatPublisher) {
@@ -165,7 +173,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     }
   };
 
-  const assessWebsite = async (input: { tenantId: string; websiteId: string; actorUserId: string; sessionId: string; roles: string[]; requestId: string; ipAddress: string; announce?: boolean; summarizeWithAi?: boolean }) => {
+  const assessWebsite = async (input: { tenantId: string; websiteId: string; actorUserId: string; sessionId: string; roles: string[]; requestId: string; ipAddress: string; announce?: boolean; summarizeWithAi?: boolean; onAdmitted?: (value: { scanId: string; status: 'RUNNING'; repairApplied: false }) => void }) => {
+    if (closing) throw new ApiError(503, 'ASSESSMENT_UNAVAILABLE', 'The inspection service is restarting. Retry shortly.');
     const website = await websiteForTenant(input.tenantId, input.websiteId);
     const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'READY_FOR_SECURE_SESSION' }, include: { vaultCredential: { select: { version: true } } } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_READY', 'First add and verify the SSH details in Secure Access, or ask for live support.');
@@ -189,6 +198,11 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     const assessmentController = new AbortController();
     const guard = async () => { if (stopped) throw stopped; await assertActiveAssessment(database, binding); if (stopped) throw stopped; };
     const stop = (error: unknown) => { stopped ??= error; assessmentController.abort(); client?.end(); };
+    const shutdown = () => stop(new ApiError(409, 'ASSESSMENT_INTERRUPTED', 'The service restarted during inspection. No repair was applied.'));
+    assessmentStops.add(shutdown);
+    // Admission can await the database while preClose begins. A newly registered
+    // run must observe that shutdown too, before it can acknowledge or connect.
+    if (closing) shutdown();
     const poll = setInterval(() => {
       if (checking || stopped) return;
       checking = true;
@@ -211,13 +225,20 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     };
     try {
       await reportProgress(10, 'CONNECTING', 'Opening the saved SSH identity for a bounded inspection. No repair is running.');
+      // Explicit browser inspections return acceptance after durable admission,
+      // rather than depending on an open HTTP request through the proxy timeout.
+      input.onAdmitted?.({ scanId: scan.id, status: 'RUNNING', repairApplied: false });
       const secret = await brokerSecret(access, options.environment);
       await guard();
       const connection = await runners.connect({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret, hostKeyFingerprint: access.hostKeyFingerprint });
       client = connection.client;
       await reportProgress(20, 'INSPECTING_SSH', 'SSH authenticated. Inspecting bounded server evidence; no file changes are permitted.');
       let server: ServerInspection;
-      try { server = await runners.inspect(client); } finally { client.end(); client = undefined; }
+      try { server = await runners.inspect(client, { onProgress: async ({ stage, scannedFiles }) => {
+        const phases = { DISCOVERING_ROOTS: [25, 'Locating accessible website folders.'], INSPECTING_FILES: [35, 'Checking a bounded sample of website files and permissions.'], ANTIVIRUS: [50, 'Checking available antivirus within the remaining inspection budget.'], CHECKING_PERSISTENCE: [60, 'Checking bounded account persistence indicators.'] } as const;
+        const [progress, message] = phases[stage];
+        await reportProgress(progress, 'INSPECTING_SSH', `${message} ${scannedFiles} code files analyzed. No file changes are permitted.`);
+      } }); } finally { client.end(); client = undefined; }
       await reportProgress(70, 'CHECKING_PUBLIC_SITE', 'Server inspection returned. Checking the public website; coverage limitations will be retained.');
       const web = await runners.web(website.url, { timeoutMs: options.environment.SCANNER_TIMEOUT_MS, maxRedirects: options.environment.SCANNER_MAX_REDIRECTS, maxBytes: options.environment.SCANNER_MAX_RESPONSE_BYTES, signal: assessmentController.signal });
       await reportProgress(85, 'SAVING_EVIDENCE', 'Public checks returned. Validating current authorization before saving evidence.');
@@ -262,7 +283,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
         if (changed.count) await tx.auditLog.create({ data: { ...event(assessmentAudit.failed, 'FAILED'), resourceId: scan.id } });
       });
       throw new ApiError(effective instanceof ApiError ? effective.statusCode : 409, code, guidance);
-    } finally { clearInterval(poll); clearTimeout(deadline); client?.end(); }
+    } finally { clearInterval(poll); clearTimeout(deadline); assessmentStops.delete(shutdown); client?.end(); }
   };
   app.get('/customer/overview', async (request) => {
     requirePermission(request, 'websites.read');
@@ -460,10 +481,24 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(202).send(scan);
   });
 
-  app.post('/websites/:websiteId/assessment', async (request, reply) => {
+  app.post('/websites/:websiteId/assessment', { config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10_000 : 6, timeWindow: '1 minute' } } }, async (request, reply) => {
     requirePermission(request, 'scans.run'); requirePermission(request, 'ai.security_context');
     const { websiteId } = parse(idParams, request.params);
-    const result = await assessWebsite({ tenantId: request.tenantId!, websiteId, actorUserId: request.userId!, sessionId: request.sessionId!, roles: request.roleNames ?? [], requestId: request.id, ipAddress: request.ip });
+    const input = { tenantId: request.tenantId!, websiteId, actorUserId: request.userId!, sessionId: request.sessionId!, roles: request.roleNames ?? [], requestId: request.id, ipAddress: request.ip };
+    if (request.headers.prefer === 'respond-async') {
+      if (backgroundAssessments.size >= 2) throw new ApiError(429, 'ASSESSMENT_CAPACITY', 'Inspection capacity is busy. Retry shortly.');
+      let accept!: (value: { scanId: string; status: 'RUNNING'; repairApplied: false }) => void;
+      let refuse!: (reason: unknown) => void;
+      const admitted = new Promise<{ scanId: string; status: 'RUNNING'; repairApplied: false }>((resolve, reject) => { accept = resolve; refuse = reject; });
+      const running = assessWebsite({ ...input, onAdmitted: accept }).then(() => undefined, error => {
+        refuse(error);
+        app.log.warn({ requestId: request.id, errorCode: sshErrorCode(error) }, 'assessment.background_stopped');
+      }).finally(() => backgroundAssessments.delete(running));
+      backgroundAssessments.add(running);
+      return reply.code(202).header('preference-applied', 'respond-async').send(await admitted);
+    }
+    // Retained for existing internal tool callers; browser uses respond-async.
+    const result = await assessWebsite(input);
     return reply.code(201).send(result);
   });
 
@@ -475,7 +510,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return assessmentView(request.tenantId!, websiteId);
   });
 
-  app.post('/websites/:websiteId/assessment/:scanId/cancel', async (request, reply) => {
+  app.post('/websites/:websiteId/assessment/:scanId/cancel', { config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10_000 : 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     requirePermission(request, 'scans.run');
     const { websiteId, scanId } = parse(z.object({ websiteId: z.string().uuid(), scanId: z.string().uuid() }), request.params);
     const tenantId = request.tenantId!;

@@ -28,11 +28,11 @@ const current = () => { const account = accounts[0]; if (!account) throw new Err
 const other = () => { const account = accounts[1]; if (!account) throw new Error('Assessment isolation fixture not initialized'); return account; };
 function request(method: 'GET' | 'POST', suffix = '', cookie = current().cookie, websiteId = current().websiteId) { return app.inject({ method, url: `/v1/websites/${websiteId}/assessment${suffix}`, headers: { cookie } }); }
 function boundedInspection(): ServerInspection { return { platform: 'Linux synthetic', roots: ['/srv/www/fixture'], scannedFiles: 3, scanLimitReached: false, malwareScanner: 'CLAMAV', malwareScannerStatus: 'COMPLETED', coverageState: 'BOUNDED', coverageLimitations: ['Only the bounded synthetic fixture was inspected.'], observations: [] }; }
-function delayInspection() {
+function delayInspection(respondAsync = false) {
   let entered!: () => void; let release!: () => void;
   const started = new Promise<void>((resolve) => { entered = resolve; }); const released = new Promise<void>((resolve) => { release = resolve; });
   pausedInspection = { entered, release, released };
-  const pending = request('POST').then((response) => response);
+  const pending = (respondAsync ? app.inject({ method: 'POST', url: `/v1/websites/${current().websiteId}/assessment`, headers: { cookie: current().cookie, prefer: 'respond-async' } }) : request('POST')).then((response) => response);
   return { started, release, pending };
 }
 async function runningScan() { return database.scan.findFirstOrThrow({ where: { tenantId: current().tenantId, websiteId: current().websiteId, status: 'RUNNING' } }); }
@@ -84,6 +84,30 @@ afterAll(async () => {
 });
 
 describe.sequential('authoritative security assessment lifecycle', () => {
+  it('accepts a background browser inspection before the blocked runner completes and persists its later result', async () => {
+    const gate = delayInspection(true);
+    try {
+      const accepted = await gate.pending;
+      expect(accepted.statusCode, accepted.body).toBe(202);
+      expect(accepted.headers['preference-applied']).toBe('respond-async');
+      expect(accepted.json()).toMatchObject({ status: 'RUNNING', repairApplied: false });
+      await gate.started;
+      expect((await request('GET')).json().scan).toMatchObject({ id: accepted.json().scanId, status: 'RUNNING', stage: 'INSPECTING_SSH' });
+      expect((await request('POST')).statusCode).toBe(409);
+      gate.release(); pausedInspection = undefined;
+      await vi.waitFor(async () => expect((await request('GET')).json().scan).toMatchObject({ id: accepted.json().scanId, status: 'SUCCEEDED', repairApplied: false }));
+      expect(web).toHaveBeenCalledTimes(1);
+    } finally { gate.release(); pausedInspection = undefined; }
+  });
+
+  it('does not acknowledge an expired authorization as an accepted background inspection', async () => {
+    await database.session.update({ where: { id: current().sessionId }, data: { revokedAt: new Date() } });
+    const response = await app.inject({ method: 'POST', url: `/v1/websites/${current().websiteId}/assessment`, headers: { cookie: current().cookie, prefer: 'respond-async' } });
+    expect(response.statusCode).toBe(401);
+    expect(connect).not.toHaveBeenCalled();
+    expect(await database.scan.count({ where: { tenantId: current().tenantId } })).toBe(0);
+  });
+
   it('returns no invented scan before execution and requires authentication', async () => {
     const empty = await request('GET'); expect(empty.statusCode, empty.body).toBe(200); expect(empty.json().scan).toBeNull(); expect(empty.headers['cache-control']).toContain('no-store');
     expect((await app.inject({ method: 'GET', url: `/v1/websites/${current().websiteId}/assessment` })).statusCode).toBe(401);

@@ -9,6 +9,7 @@ import { api, ApiClientError } from '../lib/api';
 import { BrandLogo } from './brand-logo';
 import { SecurityAgentActivity } from './security-agent-activity';
 import { securityActivity, type AssessmentActivity } from '../lib/security-activity';
+import { canRetainQueryData, pollingInterval, queryRetry } from '../lib/query-policy';
 import styles from './security-chat.module.css';
 
 type Website = { id: string; name: string; url: string };
@@ -17,6 +18,12 @@ type Access = { status: string; secretStored: boolean; lastCheckedAt: string | n
 type Care = { capabilities: { secureCapture?: boolean }; jobs: unknown[]; accessRequests: Array<{ status: string }> };
 // Keep credential-like text out of MESSAGE requests, including authenticated URLs.
 const sensitive = (text: string) => /-----BEGIN .*PRIVATE KEY-----|\b(?:password|passwd|pwd|secret|token|api[_ -]?key|private[_ -]?key)\s*[:=]\s*\S+|\bBearer\s+\S+|\bsk-[\w-]{12,}|\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/@:]{1,1024}:[^\s/@]{1,4096}@/iu.test(text);
+const updateError = (error: unknown) => error instanceof ApiClientError && error.status === 429
+  ? `Updates are taking a short pause.${error.retryAt ? ` We’ll check again after ${new Date(error.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.` : ' We’ll check again shortly.'} Your conversation and draft are still here.`
+  : 'We couldn’t refresh the conversation. Your saved messages and draft are still here.';
+const actionError = (error: unknown, fallback: string) => error instanceof ApiClientError && error.status === 429
+  ? `This action needs a short pause.${error.retryAt ? ` Please try again after ${new Date(error.retryAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}.` : ' Please try again shortly.'} It will not be sent automatically. Review saved messages and activity before retrying.`
+  : error instanceof ApiClientError ? error.message : fallback;
 
 export function SecurityChat({ website }: { website: Website }) {
   const base = `/websites/${website.id}`; const client = useQueryClient();
@@ -25,16 +32,20 @@ export function SecurityChat({ website }: { website: Website }) {
   const [error, setError] = useState(''); const [connectionOpen, setConnectionOpen] = useState(false);
   const [checkFailed, setCheckFailed] = useState(false);
   const [cancelling, setCancelling] = useState(false); const cancellingRequest = useRef(false);
+  const [showLatest, setShowLatest] = useState(false);
   const sending = useRef(false); const controller = useRef<AbortController | null>(null);
   const alive = useRef(true); const bottom = useRef<HTMLDivElement>(null); const input = useRef<HTMLTextAreaElement>(null);
+  const history = useRef<HTMLDivElement>(null);
   const followLatest = useRef(true);
   const previousScan = useRef<string | null>(null); const cancelRequested = useRef(false);
-  const access = useQuery({ queryKey: ['website-access', website.id], queryFn: () => api<Access | null>(`${base}/access`), retry: false, refetchInterval: 10000 });
-  const care = useQuery({ queryKey: ['security-capture', website.id], queryFn: () => api<Care>(`${base}/care?environment=PRODUCTION`), retry: false, refetchInterval: 10000 });
-  const chat = useInfiniteQuery({ queryKey: ['chat', website.id, 'PRODUCTION'], queryFn: ({ pageParam }) => api<Message[]>(`${base}/chat?environment=PRODUCTION${pageParam ? `&before=${pageParam}` : ''}`), initialPageParam: null as string | null, getNextPageParam: page => page.length === 200 ? page[0]!.id : undefined, refetchInterval: 5000, retry: false });
-  const assessment = useQuery({ queryKey: ['security-assessment', website.id], queryFn: async () => { const result = await api<AssessmentActivity>(`${base}/assessment`); if (!result || !Object.hasOwn(result, 'scan')) throw new Error('Inspection activity is unavailable.'); return result; }, retry: false, refetchInterval: query => inspecting || query.state.data?.scan?.status === 'RUNNING' ? 1500 : 10000 });
+  const access = useQuery({ queryKey: ['website-access', website.id], queryFn: ({ signal }) => api<Access | null>(`${base}/access`, { signal }), retry: queryRetry, refetchInterval: query => pollingInterval(query, 30000) });
+  const care = useQuery({ queryKey: ['security-capture', website.id], queryFn: ({ signal }) => api<Care>(`${base}/care?environment=PRODUCTION`, { signal }), retry: queryRetry, refetchInterval: query => pollingInterval(query, 30000) });
+  const chat = useInfiniteQuery({ queryKey: ['chat', website.id, 'PRODUCTION'], queryFn: ({ pageParam, signal }) => api<Message[]>(`${base}/chat?environment=PRODUCTION${pageParam ? `&before=${pageParam}` : ''}`, { signal }), initialPageParam: null as string | null, getNextPageParam: page => page.length === 200 ? page[0]!.id : undefined, refetchInterval: query => (query.state.data?.pages.length ?? 0) > 1 ? false : pollingInterval(query, busy ? 5000 : 10000), retry: queryRetry });
+  const chatTail = useQuery({ queryKey: ['chat-tail', website.id, 'PRODUCTION'], queryFn: ({ signal }) => api<Message[]>(`${base}/chat?environment=PRODUCTION`, { signal }), enabled: (chat.data?.pages.length ?? 0) > 1, refetchInterval: query => pollingInterval(query, busy ? 5000 : 10000), retry: queryRetry });
+  const assessment = useQuery({ queryKey: ['security-assessment', website.id], queryFn: async ({ signal }) => { const result = await api<AssessmentActivity>(`${base}/assessment`, { signal }); if (!result || !Object.hasOwn(result, 'scan')) throw new Error('Inspection activity is unavailable.'); return result; }, retry: queryRetry, refetchInterval: query => pollingInterval(query, inspecting || query.state.data?.scan?.status === 'RUNNING' ? 3000 : 15000) });
   const activity = securityActivity(assessment.data, assessment.isError, busy, inspecting, previousScan.current);
-  const messages = [...new Map((chat.data?.pages.slice().reverse().flat() ?? []).map(message => [message.id, message])).values()];
+  const canRetainChat = canRetainQueryData(chat.error) && canRetainQueryData(chatTail.error);
+  const messages = canRetainChat ? [...new Map([...(chat.data?.pages.slice().reverse().flat() ?? []), ...(chatTail.data ?? [])].map(message => [message.id, message])).values()] : [];
   const latestMessageId = messages.at(-1)?.id;
   const hasConversation = messages.some(message => message.type !== 'SYSTEM');
   const authorized = !access.data?.authorizationExpiresAt || Date.parse(access.data.authorizationExpiresAt) > Date.now();
@@ -51,10 +62,10 @@ export function SecurityChat({ website }: { website: Website }) {
     try {
       // A deliberate customer action invokes the actual bounded assessment,
       // not a model-generated claim or a hidden production-change approval.
-      await api(`${base}/assessment`, { method: 'POST', signal: controller.current.signal });
+      await api(`${base}/assessment`, { method: 'POST', headers: { prefer: 'respond-async' }, signal: controller.current.signal });
       if (alive.current) await refresh();
     } catch (caught) {
-      if (alive.current) { if (!cancelRequested.current) setError(caught instanceof ApiClientError ? caught.message : 'The inspection connection ended. Review saved progress before starting another inspection.'); await refresh(); }
+      if (alive.current) { if (!cancelRequested.current) setError(actionError(caught, 'The inspection connection ended. Review saved progress before starting another inspection.')); await refresh(); }
     } finally { sending.current = false; if (alive.current) { setBusy(false); setInspecting(false); } }
   }
   async function cancelInspection() {
@@ -62,7 +73,7 @@ export function SecurityChat({ website }: { website: Website }) {
     if (!scan || scan.status !== 'RUNNING' || cancellingRequest.current) return;
     cancellingRequest.current = true; setCancelling(true); setError('');
     try { await api(`${base}/assessment/${scan.id}/cancel`, { method: 'POST' }); cancelRequested.current = true; if (inspecting) controller.current?.abort(); await refresh(); }
-    catch (caught) { if (alive.current) setError(caught instanceof ApiClientError ? caught.message : 'Cancellation could not be confirmed. Review saved activity.'); }
+    catch (caught) { if (alive.current) setError(actionError(caught, 'Cancellation could not be confirmed. Review saved activity.')); }
     finally { cancellingRequest.current = false; if (alive.current) setCancelling(false); }
   }
   async function send() {
@@ -79,28 +90,31 @@ export function SecurityChat({ website }: { website: Website }) {
       await chat.refetch(); bottom.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' });
     } catch (caught) {
       if (!alive.current) return;
-      setError(caught instanceof ApiClientError ? caught.message : 'The response connection ended. Check saved messages before retrying.');
-      await chat.refetch();
+      setError(actionError(caught, 'The response connection ended. Check saved messages before retrying.'));
+      const saved = await chat.refetch();
+      // A provider rejection may occur after the customer's message was saved.
+      // Restore only a confirmed unsaved rate-limited draft, never auto-resend.
+      if (alive.current && caught instanceof ApiClientError && caught.status === 429 && saved.isSuccess && !saved.data.pages.flat().some(message => message.type === 'CUSTOMER' && message.content === content)) setDraft(content);
     } finally { sending.current = false; if (alive.current) { setBusy(false); setPendingMessage(''); } }
   }
   return <section className={styles.chat} aria-label="Security recovery conversation">
     <header className={styles.header}>
       <Link href={`/customer/websites/${website.id}/services?service=security`} aria-label="Back to website services">←</Link>
       <div><h1>Fix hacks &amp; security</h1><p>{new URL(website.url).hostname}</p></div>
-      <span className={styles.badge}>{ready ? 'SSH checked' : 'SSH needed'}</span>
+      <span className={styles.badge}>{access.isError ? 'SSH unverified' : access.isLoading ? 'Checking SSH' : ready ? 'SSH checked' : 'SSH needed'}</span>
     </header>
-    <div className={styles.history} aria-label="Conversation history" tabIndex={0} onScroll={event => { const element = event.currentTarget; followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 100; }}>
+    <div ref={history} className={styles.history} aria-label="Conversation history" tabIndex={0} onScroll={event => { const element = event.currentTarget; const nearLatest = element.scrollHeight - element.scrollTop - element.clientHeight < 100; followLatest.current = nearLatest; setShowLatest(!nearLatest); }}>
       {!hasConversation && <div className={styles.intro}><BrandLogo variant="mark" decorative /><h2>Let’s help secure your website.</h2><p>Describe the issue. Inspect the evidence. Review the next step.</p></div>}
       {chat.hasNextPage && <button className={styles.secondary} disabled={chat.isFetchingNextPage} onClick={() => void chat.fetchNextPage()}>Load older messages</button>}
       {chat.isLoading && <p role="status">Loading saved conversation…</p>}
-      {chat.isError && <p role="alert">Saved conversation is unavailable. <button className={styles.secondary} onClick={() => void chat.refetch()}>Retry conversation</button></p>}
+      {(chat.isError || chatTail.isError) && (chat.data && canRetainChat ? <p role="status" className={styles.updateNotice}>{updateError(chatTail.error ?? chat.error)}</p> : <p role="alert" className={styles.updateNotice}>The saved conversation could not load yet. <button className={styles.secondary} disabled={chat.isFetching || (chat.error instanceof ApiClientError && Boolean(chat.error.retryAt && chat.error.retryAt > Date.now()))} onClick={() => void chat.refetch()}>Retry conversation</button></p>)}
       {messages.map(message => message.type === 'SYSTEM' ? <details className={styles.systemMessage} key={message.id}><summary>System update <time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></summary><p>{message.content}</p></details> : <article className={`${styles.message} ${message.type === 'CUSTOMER' ? styles.customer : styles.assistant}`} key={message.id}>
         <div className={styles.author}><strong>{message.type === 'CUSTOMER' ? 'You' : message.type === 'AI' ? 'CodeBandage · AI' : message.type === 'SPECIALIST' ? `${message.author?.displayName ?? 'Specialist'} · Human` : 'CodeBandage · System'}</strong><time dateTime={message.createdAt}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</time></div>
-        <ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: () => <span>[Use a protected attachment for images]</span>, a: ({ href, children }) => href && /^(https?:\/\/|\/[^/]|#)/iu.test(href) ? <a href={href} rel="noopener noreferrer" target={href.startsWith('http') ? '_blank' : undefined}>{children}</a> : <span>{children}</span> }}>{message.content}</ReactMarkdown>
+        <div className={styles.prose}><ReactMarkdown remarkPlugins={[remarkGfm]} skipHtml components={{ img: () => <span>[Use a protected attachment for images]</span>, pre: ({ children }) => <pre tabIndex={0}>{children}</pre>, table: ({ children }) => <div className={styles.tableScroll} role="region" aria-label="Message table" tabIndex={0}><table>{children}</table></div>, a: ({ href, children }) => href && /^(https?:\/\/|\/[^/]|#)/iu.test(href) ? <a href={href} rel="noopener noreferrer" target={href.startsWith('http') ? '_blank' : undefined}>{children}</a> : <span>{children}</span> }}>{message.content}</ReactMarkdown></div>
       </article>)}
       {(!ready || !hasConversation) && <article className={`${styles.message} ${styles.assistant}`} aria-label="Security intake guidance">
         <div className={styles.author}><strong>CodeBandage · Getting started</strong></div>
-        {ready ? <><h2>What suspicious changes have you noticed?</h2><p>For example: redirects, unexpected pop-ups, changed pages or a malware warning. Describe it in one sentence, or choose Inspect website below.</p></> : <><h2>First, connect your SSH access securely.</h2><p>Use a dedicated server account for a website you own or administer. Never put a password or private key in this chat.</p><button className={styles.primary} aria-expanded={connectionOpen} aria-controls={`security-ssh-${website.id}`} disabled={busy} onClick={() => { setConnectionOpen(!connectionOpen); setError(''); }}>{connectionOpen ? 'Close secure SSH form' : 'Connect SSH securely'}</button><p className={styles.note}>You can describe the problem now. Connection checks and website changes are separate.</p></>}
+        {ready ? <><h2>What suspicious changes have you noticed?</h2><p>For example: redirects, unexpected pop-ups, changed pages or a malware warning. Describe it in one sentence, or choose Inspect website below.</p></> : access.isError ? <><h2>Your connection status needs a fresh check.</h2><p>Stored access has not been removed. Wait for the status check to recover before inspecting. You can keep describing the issue here.</p></> : <><h2>First, connect your SSH access securely.</h2><p>Use a dedicated server account for a website you own or administer. Never put a password or private key in this chat.</p><button className={styles.primary} aria-expanded={connectionOpen} aria-controls={`security-ssh-${website.id}`} disabled={busy} onClick={() => { setConnectionOpen(!connectionOpen); setError(''); }}>{connectionOpen ? 'Close secure SSH form' : 'Connect SSH securely'}</button><p className={styles.note}>You can describe the problem now. Connection checks and website changes are separate.</p></>}
       </article>}
       {ready && !connectionOpen && <button className={styles.secondary} aria-expanded={false} aria-controls={`security-ssh-${website.id}`} disabled={busy} onClick={() => setConnectionOpen(true)}>Manage SSH access</button>}
       {connectionOpen && <SecureSsh key={website.id} id={website.id} available={canCapture} loading={care.isLoading} access={access.isError ? null : access.data ?? null} onChanged={refresh} onChecked={() => { setCheckFailed(false); setConnectionOpen(false); }} onCheckFailed={() => setCheckFailed(true)} close={() => setConnectionOpen(false)} />}
@@ -110,8 +124,9 @@ export function SecurityChat({ website }: { website: Website }) {
       {!assessment.isError && assessment.data?.scan?.status === 'RUNNING' && <button className={styles.secondary} disabled={cancelling} aria-busy={cancelling} onClick={() => void cancelInspection()}>{cancelling ? 'Cancelling inspection…' : 'Cancel inspection'}</button>}
       <div ref={bottom} />
     </div>
+    {showLatest && <div className={styles.historyActions}><button type="button" className={styles.secondary} onClick={() => { followLatest.current = true; setShowLatest(false); bottom.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); history.current?.focus({ preventScroll: true }); }}>Jump to latest message ↓</button></div>}
     {error && <p className={styles.error} role="alert">{error}</p>}
-    {ready && <div className={styles.workflow}><div><button className={styles.secondary} disabled={busy || (!assessment.isError && assessment.data?.scan?.status === 'RUNNING')} onClick={() => void inspect()}>{inspecting ? 'Inspecting…' : 'Inspect website'}</button><Link href={`/customer/websites/${website.id}/findings`}>Review findings</Link></div><p>Inspect website authorizes a bounded SSH and public web assessment, not file changes. Live security repairs are not enabled in this deployment; a verified backup, supported repair runner and approval are required.</p></div>}
+    {ready && <div className={styles.workflow}><div><button className={styles.secondary} disabled={busy || (!assessment.isError && assessment.data?.scan?.status === 'RUNNING')} onClick={() => void inspect()}>{inspecting ? 'Inspecting…' : 'Inspect website'}</button><Link href={`/customer/websites/${website.id}/findings`}>Review findings</Link><details><summary>Scope &amp; safety</summary><p>Inspect website authorizes a bounded SSH and public web assessment, not file changes. Live security repairs are not enabled in this deployment; a verified backup, supported repair runner and approval are required.</p></details></div><p className={styles.scopeNote}>Inspection only — no automatic repairs.</p></div>}
     <form className={styles.composer} aria-label="Message security assistant" onSubmit={event => { event.preventDefault(); void send(); }}>
       <label className="sr-only" htmlFor={`security-draft-${website.id}`}>Message CodeBandage</label>
       <textarea ref={input} id={`security-draft-${website.id}`} value={draft} disabled={busy} maxLength={4000} autoComplete="off" data-private="true" placeholder={ready ? 'Tell me what changed on your website…' : 'Describe the problem — no passwords or keys…'} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia('(min-width: 768px)').matches) { event.preventDefault(); void send(); } }} />

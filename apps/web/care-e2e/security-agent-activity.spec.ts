@@ -21,7 +21,7 @@ async function pendingResponseFixture(page: Page, options: { scan?: AssessmentAc
   const messages = [{ id: 'question-before', type: 'CUSTOMER', content: 'My homepage has an unexpected redirect.', createdAt: stamp }];
   await page.route('**/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
-    const headers = { 'access-control-allow-origin': new URL(page.url()).origin, 'access-control-allow-credentials': 'true', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
+    const headers = { 'access-control-allow-origin': new URL(page.url()).origin, 'access-control-allow-credentials': 'true', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type,prefer' };
     const send = (body: unknown) => route.fulfill({ headers, json: body });
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (request.method() !== 'GET') writes.push(path);

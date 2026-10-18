@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { inspectServerReadOnly, serverInspectionScript } from './ssh-toolkit.js';
 
 const validOutput = ['PLATFORM\tLinux fixture', 'ROOT\t/synthetic-fixture\t', 'SCANNED_FILES\t1', 'SCAN_LIMIT_REACHED\t0', 'MALWARE_SCANNER\tCLAMAV', 'MALWARE_STATUS\tCOMPLETED', 'INSPECTION_COMPLETE\tssh-inspection-v3'].join('\n');
-type TestStream = EventEmitter & { stderr: EventEmitter; close: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+type TestStream = EventEmitter & { stderr: EventEmitter; close: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn>; signal: ReturnType<typeof vi.fn> };
 function fixture(response: (stream: TestStream) => void) {
-  const stream = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), close: vi.fn(), end: vi.fn() });
+  const stream = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), close: vi.fn(), end: vi.fn(), signal: vi.fn() });
   stream.end.mockImplementation((script: string) => { expect(script).toBe(serverInspectionScript); queueMicrotask(() => response(stream)); });
   const exec = vi.fn((command, callback) => { expect(command).toBe('LC_ALL=C sh -s'); callback(null, stream); });
   return { stream, client: { exec } as unknown as Client };
@@ -45,7 +45,24 @@ describe('bounded SSH inspection transport result honesty', () => {
     vi.useFakeTimers(); const target = fixture(() => undefined);
     const checked = expect(inspectServerReadOnly(target.client)).rejects.toMatchObject({ code: 'SSH_INSPECTION_TIMEOUT' });
     await vi.advanceTimersByTimeAsync(120000); await checked;
-    expect(target.stream.close).toHaveBeenCalledOnce(); expect(vi.getTimerCount()).toBe(0);
+    expect(target.stream.close).toHaveBeenCalledOnce(); expect(target.stream.signal).toHaveBeenCalledWith('TERM'); expect(vi.getTimerCount()).toBe(0);
+  });
+  it('reports only fixed measured progress across fragmented packets and waits for its bounded callback', async () => {
+    let release!: () => void; const waiting = new Promise<void>(resolve => { release = resolve; });
+    const onProgress = vi.fn(async () => { await waiting; });
+    const target = fixture(stream => {
+      stream.emit('data', Buffer.from('INSPECTION_PROG')); stream.emit('data', Buffer.from('RESS\tINSPECTING_FILES\t12\n'));
+      stream.emit('data', Buffer.from(validOutput)); stream.emit('exit', 0); stream.emit('close');
+    });
+    let completed = false; const result = inspectServerReadOnly(target.client, { onProgress }).then(value => { completed = true; return value; });
+    await Promise.resolve(); await Promise.resolve();
+    expect(onProgress).toHaveBeenCalledExactlyOnceWith({ stage: 'INSPECTING_FILES', scannedFiles: 12 }); expect(completed).toBe(false);
+    release(); await expect(result).resolves.toMatchObject({ scannedFiles: 1 });
+  });
+  it('aborts on progress authorization failure without reflecting callback details', async () => {
+    const target = fixture(stream => { stream.emit('data', Buffer.from(`INSPECTION_PROGRESS\tINSPECTING_FILES\t1\n${validOutput}`)); stream.emit('exit', 0); stream.emit('close'); });
+    const result = inspectServerReadOnly(target.client, { onProgress: async () => { throw new Error('synthetic-sensitive-revocation-detail'); } });
+    await expect(result).rejects.toMatchObject({ code: 'SSH_INSPECTION_ABORTED' }); expect(target.stream.signal).toHaveBeenCalledWith('TERM');
   });
 });
 

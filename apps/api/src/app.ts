@@ -52,7 +52,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
   const ai = new AiService(environment, rateLimitRedis, dependencies?.aiAdapters);
 
   await app.register(helmet, { global: true, contentSecurityPolicy: environment.NODE_ENV === 'production' ? { directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"], baseUri: ["'none'"], formAction: ["'none'"] } } : false, strictTransportSecurity: environment.NODE_ENV === 'production' ? { maxAge: 63_072_000, includeSubDomains: true, preload: true } : false });
-  await app.register(cors, { origin: environment.corsOrigins, credentials: true, methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
+  await app.register(cors, { origin: environment.corsOrigins, credentials: true, exposedHeaders: ['retry-after', 'x-request-id'], methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'] });
   await app.register(rateLimit, { max: environment.NODE_ENV === 'test' ? 10_000 : 100, timeWindow: '1 minute', keyGenerator: (request) => request.ip, ...(rateLimitRedis ? { redis: rateLimitRedis } : {}) });
   await app.register(cookie);
   await app.register(swagger, { openapi: { info: { title: 'CodeBandage API', version: '1.0.0', description: 'Secure identity, RBAC, tenant isolation, scanning, chat, and central AI gateway API.' }, servers: [{ url: '/v1' }] } });
@@ -68,7 +68,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
   });
   app.addHook('onResponse', async (request, reply) => {
     const duration = Number(process.hrtime.bigint() - request.startedAt) / 1e6; observeRequest(request.method, request.routeOptions.url ?? 'unmatched', reply.statusCode, duration);
-    request.log.info({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, duration, statusCode: reply.statusCode }, 'request.completed');
+    request.log.info({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, method: request.method, route: request.routeOptions.url ?? 'unmatched', duration, statusCode: reply.statusCode }, 'request.completed');
   });
   if (rateLimitRedis) app.addHook('onClose', async () => { rateLimitRedis.disconnect(); });
   if (queueConnection && customerQueues) app.addHook('onClose', async () => {
@@ -81,7 +81,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     const known = error instanceof ApiError;
     const possibleStatus = 'statusCode' in error ? error.statusCode : undefined;
     const statusCode = known ? error.statusCode : (typeof possibleStatus === 'number' && possibleStatus < 500 ? possibleStatus : 500);
-    const code = known ? error.code : statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_ERROR';
+    const code = known ? error.code : statusCode === 429 ? 'RATE_LIMITED' : statusCode === 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_ERROR';
     request.log.error({ requestId: request.id, userId: request.userId, tenantId: request.tenantId, errorCode: code }, 'request.failed');
     void reply.code(statusCode).send({ error: { code, message: statusCode === 500 ? 'An unexpected error occurred' : error.message, requestId: request.id, ...(known && error.details !== undefined ? { details: error.details } : {}) } });
   });

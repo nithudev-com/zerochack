@@ -7,6 +7,8 @@ import { Alert, Button, Card, EmptyState, ErrorState, Input, LoadingState, Selec
 import { CareChat } from './care-chat';
 import { SecurityChat } from './security-chat';
 import { api, apiUrl } from '../lib/api';
+import { canRetainQueryData, pollingInterval } from '../lib/query-policy';
+import { QueryRecovery } from './query-recovery';
 import { getWebsiteService, websiteWorkspaceHref, websiteServiceUnderConstruction } from '../lib/website-services';
 import { WebsiteServiceComingSoon } from './website-services';
 
@@ -29,25 +31,26 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const search = useSearchParams(); const service = getWebsiteService(search.get('service'));
   const conversation = websiteWorkspaceHref(id, service);
   useEffect(() => { const openChat = () => router.push(conversation); window.addEventListener('zerochack:open-chat', openChat); return () => window.removeEventListener('zerochack:open-chat', openChat); }, [conversation, router]);
-  const query = useQuery({ queryKey: ['website', id], queryFn: () => api<Website>(`/websites/${id}`), refetchInterval: 2_000 });
+  const query = useQuery({ queryKey: ['website', id], queryFn: ({ signal }) => api<Website>(`/websites/${id}`, { signal }), refetchInterval: query => pollingInterval(query, 30_000) });
   if (query.isLoading) return <LoadingState label="Loading website workspace" />;
-  if (query.isError) return <ErrorState title="Workspace unavailable" description={query.error.message} retry={() => void query.refetch()} />;
+  if (query.isError && (!query.data || !canRetainQueryData(query.error))) return <QueryRecovery error={query.error} retry={() => void query.refetch()} />;
+  const updates = query.isError ? <QueryRecovery error={query.error} background retry={() => void query.refetch()} /> : null;
   if (search.has('service') && !service) return <div className="portal-stack"><Alert title="Choose a supported service" tone="warning">This service selection is not supported. No work has started.</Alert><Link href={`${base}/services`}>Choose a website service</Link></div>;
-  if (pathname === `${base}/services`) return <div className="workspace care-workspace">{children}</div>;
+  if (pathname === `${base}/services`) return <div className="workspace care-workspace">{updates}{children}</div>;
   // Guard all scoped routes, including bookmarked resource URLs, before mounting
   // chat/tool components. A coming-soon selection must not create work requests.
   if (service && websiteServiceUnderConstruction(service)) return <WebsiteServiceComingSoon website={query.data!} service={service}/>;
-  if (pathname === base && service?.id === 'security') return <div className="workspace care-workspace"><SecurityChat key={id} website={query.data!}/></div>;
+  if (pathname === base && service?.id === 'security') return <div className="workspace care-workspace">{updates}<SecurityChat key={id} website={query.data!}/></div>;
   return <div className="workspace care-workspace"><header className="care-page-heading" data-options-open={optionsOpen}><Link className="back-link" href="/customer/websites">← Websites</Link><button className="care-options-toggle" aria-expanded={optionsOpen} aria-controls="care-workspace-navigation" onClick={() => setOptionsOpen(!optionsOpen)}>Website options</button><nav id="care-workspace-navigation" aria-label="Website workspace">{tabs.map(([label, suffix]) => <Link key={label} href={websiteWorkspaceHref(id, service, suffix)} onClick={() => setOptionsOpen(false)} aria-current={pathname === `${base}${suffix}` ? 'page' : undefined}>{label}</Link>)}</nav></header>{pathname === base ? <CareChat key={`${id}-${service?.id ?? 'general'}`} website={query.data!} service={service}/> : <div className="care-context-panel"><Link href={conversation}>← Back to conversation</Link>{children}</div>}</div>;
 }
 
 export function WorkspacePage({ section }: { section: 'overview' | 'access' | 'findings' | 'pricing' | 'scans' | 'tickets' | 'monitoring' | 'backups' | 'reports' | 'settings' }) {
   const { websiteId: id } = useParams<{ websiteId: string }>(); const client = useQueryClient(); const toast = useToast(); const router = useRouter(); const [reportType,setReportType]=useState('SECURITY_SCAN');
-  const query = useQuery({ queryKey: ['website', id], queryFn: () => api<Website>(`/websites/${id}`), refetchInterval: 2_000 });
-  const operations = useQuery({ queryKey: ['operations', id], queryFn: () => api<Operations>(`/websites/${id}/operations`), enabled: section === 'monitoring' || section === 'backups', refetchInterval: 5_000 });
+  const query = useQuery({ queryKey: ['website', id], queryFn: ({ signal }) => api<Website>(`/websites/${id}`, { signal }), refetchInterval: query => pollingInterval(query, 30_000) });
+  const operations = useQuery({ queryKey: ['operations', id], queryFn: ({ signal }) => api<Operations>(`/websites/${id}/operations`, { signal }), enabled: section === 'monitoring' || section === 'backups', refetchInterval: query => pollingInterval(query, 15_000) });
   const action = useMutation({ mutationFn: ({ path, method = 'POST', body }: { path: string; method?: string; body?: unknown }) => api(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) }), onSuccess: () => { toast.notify('Request completed', 'success'); void client.invalidateQueries({ queryKey: ['website', id] }); }, onError: (error: Error) => toast.notify(error.message, 'danger') });
   const restore = useMutation({ mutationFn: async (backupId: string) => { const authorization = await api<{ id: string }>(`/websites/${id}/backups/${backupId}/restore-authorizations`, { method: 'POST' }); return api(`/websites/${id}/backups/${backupId}/restores`, { method: 'POST', body: JSON.stringify({ authorizationId: authorization.id }) }); }, onSuccess: () => { toast.notify('Restore queued with one-time authorization', 'success'); void client.invalidateQueries({ queryKey: ['operations', id] }); }, onError: (error: Error) => toast.notify(error.message, 'danger') });
-  if (query.isLoading) return <LoadingState />; if (query.isError) return <ErrorState description={query.error.message} retry={() => void query.refetch()} />; const site = query.data!;
+  if (query.isLoading) return <LoadingState />; if (query.isError && (!query.data || !canRetainQueryData(query.error))) return <QueryRecovery error={query.error} retry={() => void query.refetch()} />; const site = query.data!;
   if (section === 'overview') return <CustomerJourney site={site} websiteId={id}/>;
   if (section === 'access') return <AccessSetup site={site}/>;
   if (section === 'pricing') return <WebsitePricing site={site}/>;
