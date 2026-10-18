@@ -23,6 +23,7 @@ import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerOb
 import { connectionSummary } from './connection-summary.js';
 import { verifySshHost } from './ssh-host-trust.js';
 import { navigationActivity, navigationClickAction, navigationClickInput } from './overview-activity.js';
+import { inspectionNextStep, needsInspectionConfirmation } from './conversation-guidance.js';
 
 const websiteInput = z.object({ name: z.string().trim().min(2).max(120), url: z.string().url().max(2048) });
 const websiteUpdate = websiteInput.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
@@ -164,7 +165,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'READY_FOR_SECURE_SESSION' } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_READY', 'First add and verify the SSH details in Secure Access, or ask for live support.');
     const totalEngines = implementedEngines.length + 1;
-    const scan = await database.scan.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'RUNNING', startedAt: new Date(), progress: 5, engineCount: totalEngines } });
+    const scan = await database.scan.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'RUNNING', startedAt: new Date(), progress: 5, engineCount: totalEngines } }).catch((error: unknown) => { if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') throw new ApiError(409, 'SCAN_ALREADY_ACTIVE', 'An inspection is already queued or running. Review saved progress before starting another.'); throw error; });
     const reportProgress = async (progress: number, content: string) => {
       await database.scan.update({ where: { id: scan.id }, data: { progress } });
       if (input.announce === false) return;
@@ -575,6 +576,9 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
       database.chatMessage.findMany({ where: { tenantId, websiteId, environment: 'PRODUCTION' }, orderBy: { createdAt: 'desc' }, take: 12, select: { type: true, content: true, createdAt: true } }),
       database.scan.findFirst({ where: { tenantId, websiteId }, orderBy: { requestedAt: 'desc' }, select: { id: true, status: true, progress: true, engineCount: true, completedEngines: true, requestedAt: true, completedAt: true, errorCode: true } })
     ]);
+    // Resolve an inspection clarification loop, never a different work request
+    // or a production-change approval. The explicit action remains necessary.
+    if (needsInspectionConfirmation(input.content, recentMessages.find(message => message.type === 'AI')?.content ?? '')) return quickAnswer(inspectionNextStep);
     const latestAssessmentAudit = latestScan ? await database.auditLog.findFirst({ where: { tenantId, action: 'website.ai_assessment_completed', resourceType: 'scan', resourceId: latestScan.id }, orderBy: { createdAt: 'desc' }, select: { metadata: true, createdAt: true } }) : null;
     const applicablePrices=fixPrices.filter((price)=>price.scope==='PROJECT'||Boolean(finding&&securityFixPriceMatches(price,finding)));const context = JSON.stringify({ website: { name: website.name, origin: new URL(website.url).origin, connectionStatus: website.connectionStatus, securityStatus: website.securityStatus }, secureAccess: access, latestScan, latestMeasuredCoverage: latestAssessmentAudit?.metadata, securityFixPaymentConfirmed: Boolean(successfulPayment), securityFixPrices:applicablePrices.map((item)=>({name:item.name,scope:item.scope,priceMinor:item.priceMinor,currency:item.currency,includedWork:item.includedWork})),pricingRule:'Only quote the supplied owner-published security-fix prices. Never estimate or invent an amount. Subscriptions are unrelated.', finding: finding ? { id: finding.id, scanId: finding.scanId, title: finding.title, description: finding.description, authoritativeSeverity: finding.severity, authoritativeStatus: finding.status, recommendation: finding.recommendation, evidence: finding.evidence } : undefined, ticket, recentFindings, recentConversation: recentMessages.reverse().map((message) => ({ role: message.type, content: message.content, at: message.createdAt })) });
     const emptyToolSchema = { type: 'object', properties: {}, additionalProperties: false, required: [] };

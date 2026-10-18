@@ -185,6 +185,7 @@ describe('authentication, RBAC, and tenant isolation', () => {
     await database.websiteAccessCredential.create({ data: { tenantId: created.json().tenantId, websiteId, host: 'example.com', port: 22, username: 'scanner', authMethod: 'SSH_KEY', encryptedSecret: encryptSecret('integration-test-key', environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY), status: 'READY_FOR_SECURE_SESSION', lastCheckedAt: new Date() } });
     expect((await app.inject({ method: 'POST', url: `/v1/websites/${websiteId}/scans`, headers: { cookie: cookieA } })).statusCode).toBe(202);
     expect((await app.inject({ method: 'POST', url: `/v1/websites/${websiteId}/scans`, headers: { cookie: cookieA } })).json().error.code).toBe('SCAN_ALREADY_ACTIVE');
+    expect((await app.inject({ method: 'POST', url: `/v1/websites/${websiteId}/assessment`, headers: { cookie: cookieA } })).json().error.code).toBe('SCAN_ALREADY_ACTIVE');
     const queuedScan = await database.scan.findFirstOrThrow({ where: { tenantId: created.json().tenantId, websiteId, status: 'QUEUED' } });
     await processScan({ data: { scanId: queuedScan.id, websiteId, tenantId: created.json().tenantId }, attemptsMade: 0, opts: { attempts: 3 } } as Job<{ scanId: string; websiteId: string; tenantId: string }>, undefined, async (_target, runnerOptions) => {
       await runnerOptions?.onEngineComplete?.(1, 1);
@@ -238,6 +239,21 @@ describe('authentication, RBAC, and tenant isolation', () => {
       expect(response.statusCode).toBe(404);
     }
     expect((await app.inject({ method: 'GET', url: '/v1/websites', headers: { cookie: cookieB } })).json()).toEqual([]);
+  });
+
+  it('breaks repeated yes/inspection clarification loops without running a model, scan or repair', async () => {
+    const token = await register('Customer', 'guided-chat@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'guided-chat@example.test')).headers['set-cookie']);
+    const site = (await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Guided chat fixture', url: 'https://example.com/' } })).json();
+    await database.chatMessage.create({ data: { tenantId: site.tenantId, websiteId: site.id, type: 'AI', content: 'Do you mean a redirect loop, or should I run a read-only security assessment?' } });
+    for (const content of ['yes', 'yes']) {
+      const reply = await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/chat/ingest`, headers: { cookie }, payload: { mode: 'MESSAGE', content, idempotencyKey: crypto.randomUUID() } });
+      expect(reply.statusCode).toBe(201); expect(reply.json().content).toContain('Inspect website'); expect(reply.json().content).toContain('not file changes'); expect(reply.json().content).not.toContain('?');
+    }
+    expect(aiPrompts).toHaveLength(0); expect(await database.aiUsage.count({ where: { tenantId: site.tenantId } })).toBe(0);
+    expect(await database.scan.count({ where: { websiteId: site.id } })).toBe(0); expect(await database.remediationRun.count({ where: { websiteId: site.id } })).toBe(0);
+    expect((await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/assessment`, headers: { cookie } })).json().error.code).toBe('ACCESS_NOT_READY');
+    expect(await database.scan.count({ where: { websiteId: site.id } })).toBe(0);
   });
 
   it('preserves commercial history and secures checkout, refunds, cancellation, quotes, and webhooks', async () => {

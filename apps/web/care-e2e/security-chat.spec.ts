@@ -4,10 +4,11 @@ import AxeBuilder from '@axe-core/playwright';
 const id = 'c43690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const base = `/customer/websites/${id}`; const url = `${base}?service=security`;
 const stamp = '2026-10-10T06:00:00.000Z';
-async function fixture(page: Page, options: { ready?: boolean; expired?: boolean; disabled?: boolean; checkFailure?: boolean; captureFailure?: boolean; chatFailure?: boolean; statusFailure?: boolean; savedJobs?: boolean } = {}) {
+async function fixture(page: Page, options: { ready?: boolean; expired?: boolean; disabled?: boolean; checkFailure?: boolean; captureFailure?: boolean; chatFailure?: boolean; statusFailure?: boolean; savedJobs?: boolean; rich?: boolean; assessmentFailure?: boolean } = {}) {
   let stored = options.ready ?? false; let checked = options.ready ?? false;
   const writes: Array<{ path: string; body: Record<string, unknown> }> = [];
   const messages = [{ id: 'old-1', type: 'CUSTOMER', content: 'A saved question from yesterday.', createdAt: stamp }];
+  if (options.rich) messages.push(...Array.from({ length: 12 }, (_, index) => ({ id: `notice-${index}`, type: 'SYSTEM', content: 'SSH authentication succeeded. No changes started. Synthetic notice details.', createdAt: stamp })), { id: 'long-reply', type: 'AI', content: '## Redirect inspection\n\nI will check the saved website, then explain the evidence.\n\n- Check the destination\n- Review the affected configuration\n\n```text\nNo live changes have been approved.\n```\n\n' + 'Evidence is required before proposing a fix. '.repeat(35), createdAt: stamp });
   await page.route('**/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
     const headers = { 'access-control-allow-origin': new URL(page.url()).origin, 'access-control-allow-credentials': 'true', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
@@ -33,6 +34,11 @@ async function fixture(page: Page, options: { ready?: boolean; expired?: boolean
     if (path.endsWith('/access/check')) {
       if (options.checkFailure) { checked = false; return send({ error: { code: 'HOST_KEY_MISMATCH', message: 'synthetic-sensitive-error-never-render' } }, 409); }
       checked = true; return send({ ...metadata, status: 'READY_FOR_SECURE_SESSION', lastCheckedAt: stamp });
+    }
+    if (path.endsWith('/assessment')) {
+      if (options.assessmentFailure) return send({ error: { code: 'SCAN_ALREADY_ACTIVE', message: 'An inspection is already queued or running. Review saved progress before starting another.' } }, 409);
+      messages.push({ id: 'inspection-completed', type: 'AI', content: 'Synthetic inspection completed. Two evidence-backed findings saved. No files were changed.', createdAt: stamp });
+      return send({ scanId: id, findingCount: 2 }, 201);
     }
     return send([]);
   });
@@ -66,8 +72,8 @@ test('security selection opens chat rather than a support brief', async ({ page 
 });
 test('checked SSH asks about symptoms; chat saves real replies and never starts an assessment', async ({ page }) => {
   const writes = await fixture(page, { ready: true }); await page.goto(url);
-  await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toBeVisible();
-  await expect(page.getByText('A saved question from yesterday.')).toBeVisible(); await expect(page.getByText(/No assessment or cleanup has started/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect website', exact: true })).toBeVisible();
+  await expect(page.getByText('A saved question from yesterday.')).toBeVisible(); await expect(page.getByLabel('Security intake guidance')).toHaveCount(0);
   await page.getByLabel('Message CodeBandage').fill('My homepage redirects to another site. I noticed it this morning.'); await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect(page.getByText('Which pages changed, and when did you first notice?')).toBeVisible();
   expect(writes).toHaveLength(1); expect(writes[0]!.body).toMatchObject({ mode: 'MESSAGE', content: 'My homepage redirects to another site. I noticed it this morning.' }); expect(writes[0]!.path).toBe(`/v1/websites/${id}/chat/ingest`);
@@ -78,10 +84,10 @@ test('four-field SSH requires consent but no fingerprint; success starts no jobs
   const submit = page.getByRole('button', { name: 'Connect SSH', exact: true }); await expect(submit).toBeDisabled();
   await page.getByLabel('I own or administer this server').check(); await page.getByLabel('SSH port', { exact: true }).fill('65002'); await expect(page.getByLabel('I own or administer this server')).not.toBeChecked(); await page.getByLabel('I own or administer this server').check();
   expect((await new AxeBuilder({ page }).include('[aria-label="Secure SSH connection"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
-  await submit.click(); await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toBeVisible();
+  await submit.click(); await expect(page.getByRole('button', { name: 'Inspect website', exact: true })).toBeVisible();
   expect(writes.map(row => row.path)).toEqual([`/v1/websites/${id}/chat/ingest`, `/v1/websites/${id}/access/check`]); expect(writes[0]!.body).toMatchObject({ mode: 'SECURE', authorizationConfirmed: true, environment: 'PRODUCTION' });
   expect(JSON.parse(writes[0]!.body.content as string)).toMatchObject({ kind: 'SSH', port: 65002, username: 'deployment', authMethod: 'PASSWORD', firstConnectionTrustConfirmed: true }); expect(await page.locator('body').innerText()).not.toContain('synthetic-test-only-not-a-real-secret');
-  await page.reload(); await expect(page.getByRole('heading', { name: 'What suspicious changes have you noticed?' })).toBeVisible(); expect(writes).toHaveLength(2);
+  await page.reload(); await expect(page.getByRole('button', { name: 'Inspect website', exact: true })).toBeVisible(); expect(writes).toHaveLength(2);
 });
 test('four fields, password default, key alternative and cancellation clears secrets', async ({ page }) => {
   const writes = await fixture(page); await page.goto(url); await fillSsh(page); await expect(page.getByLabel('Trusted host fingerprint')).toHaveCount(0); await expect(page.getByLabel('SSH password')).toHaveAttribute('type', 'password');
@@ -113,4 +119,37 @@ test('provider and status failures stay honest; existing approvals remain reacha
   const writes = await fixture(page, { chatFailure: true, ready: true, statusFailure: true, savedJobs: true }); await page.goto(url);
   await expect(page.getByText('SSH needed', { exact: true })).toBeVisible(); await expect(page.getByRole('alert').filter({ hasText: 'SSH status could not be verified' })).toBeVisible(); await expect(page.getByRole('link', { name: 'Review saved jobs & approvals' })).toHaveAttribute('href', base);
   await page.getByLabel('Message CodeBandage').fill('I noticed unexpected users on my site.'); await page.getByRole('button', { name: 'Send message' }).click(); await expect(page.getByRole('alert').filter({ hasText: 'An AI provider is not configured' })).toBeVisible(); expect(writes).toHaveLength(1);
+});
+
+for (const width of [390, 1440]) test(`active conversation has a visible composer and collapsed system notices at ${width}px`, async ({ page }) => {
+  const writes = await fixture(page, { ready: true, rich: true }); await page.setViewportSize({ width, height: 900 }); await page.goto(url);
+  const chat = page.getByRole('region', { name: 'Security recovery conversation' });
+  const history = page.getByLabel('Conversation history', { exact: true });
+  await expect(chat.getByLabel('Security intake guidance')).toHaveCount(0);
+  await expect(chat.getByText('Let’s help secure your website.', { exact: true })).toHaveCount(0);
+  await expect(history.locator('details')).toHaveCount(12);
+  await expect(history.locator('details[open]')).toHaveCount(0);
+  const composer = page.getByLabel('Message CodeBandage', { exact: true }); await expect(composer).toBeInViewport();
+  expect(await composer.evaluate(element => { const box = element.getBoundingClientRect(); return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2) === element; })).toBe(true);
+  expect(await history.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await history.evaluate(element => { element.scrollTop = 0; });
+  await history.locator('details summary').first().click(); await expect(history.locator('details[open]')).toHaveCount(1);
+  expect((await new AxeBuilder({ page }).include('[aria-label="Security recovery conversation"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.screenshot({ path: `/tmp/codebandage-guided-chat-${width}.png`, fullPage: true }); expect(writes).toEqual([]);
+});
+test('explicit inspection invokes the real assessment endpoint without a model message or repair request', async ({ page }) => {
+  const writes = await fixture(page, { ready: true }); await page.goto(url);
+  await expect(page.getByText(/Live security repairs are not enabled in this deployment/)).toBeVisible();
+  await page.getByRole('button', { name: 'Inspect website', exact: true }).click();
+  await expect(page.getByText('Synthetic inspection completed. Two evidence-backed findings saved. No files were changed.')).toBeVisible();
+  expect(writes).toEqual([{ path: `/v1/websites/${id}/assessment`, body: {} }]);
+  await page.reload(); await expect(page.getByText(/Synthetic inspection completed/)).toBeVisible(); expect(writes).toHaveLength(1);
+});
+test('an inspection failure is actionable and never retried automatically', async ({ page }) => {
+  const writes = await fixture(page, { ready: true, assessmentFailure: true }); await page.goto(url);
+  await page.getByRole('button', { name: 'Inspect website', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'An inspection is already queued or running' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Inspect website', exact: true })).toBeEnabled();
+  expect(writes).toEqual([{ path: `/v1/websites/${id}/assessment`, body: {} }]);
 });

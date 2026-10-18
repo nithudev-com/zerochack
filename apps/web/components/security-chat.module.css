@@ -1,34 +1,43 @@
-.chat { --ink: #142d50; --muted: #52637b; --border: #dce4ee; color: var(--ink); background: #fff; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; max-width: 900px; margin: 0 auto; }
-.header { display: flex; gap: 12px; align-items: center; padding: 18px 24px; border-bottom: 1px solid var(--border); }
+.chat { --ink: #142d50; --muted: #52637b; --border: #dce4ee; color: var(--ink); background: #fff; border: 1px solid var(--border); border-radius: 20px; overflow: hidden; max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; height: min(940px, calc(100dvh - 130px)); min-height: 480px; }
+.header { display: flex; gap: 12px; align-items: center; padding: 18px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .header > a { display: grid; place-items: center; min-width: 44px; min-height: 44px; color: var(--ink); border-radius: 12px; text-decoration: none; font-size: 1.3rem; }
 .header > div { min-width: 0; }
 .header h1 { margin: 0; font-size: 1rem; letter-spacing: -.025em; font-weight: 700; }
 .header p { color: var(--muted); margin: 5px 0 0; font-size: .75rem; overflow-wrap: anywhere; }
 .badge { margin-left: auto; flex-shrink: 0; background: #edf4ff; color: #235494; border-radius: 20px; padding: 7px 10px; font-size: .6875rem; }
-.history { padding: 28px 32px 12px; min-height: 330px; }
+.history { padding: 24px max(24px, calc((100% - 76ch) / 2)) 12px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .intro { text-align: center; margin: 12px auto 30px; }
 .intro img { width: 44px; height: 44px; margin: 0 auto 14px; }
 .intro h2 { font-size: 1.5rem; letter-spacing: -.035em; font-weight: 650; }
 .intro p { color: var(--muted); font-size: .8125rem; margin-top: 9px; line-height: 1.7; }
-.message { padding: 18px 20px; margin: 14px 0; border-radius: 16px; line-height: 1.8; overflow-wrap: anywhere; font-size: .9375rem; }
-.assistant { background: #f6f8fc; max-width: 94%; border: 1px solid #e4eaf3; }
-.customer { background: #eaf2ff; margin-left: auto; max-width: 85%; }
+.message { padding: 14px 4px; margin: 14px 0 24px; border-radius: 16px; line-height: 1.8; overflow-wrap: anywhere; font-size: 1rem; }
+.assistant { background: #fff; max-width: 100%; }
+.customer { background: #eef3fa; margin-left: auto; max-width: 85%; padding: 14px 20px; }
+.systemMessage { color: var(--muted); font-size: .75rem; padding: 10px 12px; margin-block: 8px; border: 1px solid var(--border); border-radius: 10px; background: #f8fafc; }
+.systemMessage summary { cursor: pointer; min-height: 28px; line-height: 28px; }
+.systemMessage time { margin-left: 12px; font-size: .6875rem; }
+.systemMessage p { white-space: pre-wrap; line-height: 1.7; margin: 10px 0 0; overflow-wrap: anywhere; }
 .author { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; font-size: .6875rem; color: var(--muted); }
 .author strong { font-weight: 600; }.author time { margin-left: auto; font-size: .625rem; }
-.message h2 { font-size: 1rem; line-height: 1.6; font-weight: 650; margin-bottom: 8px; }
-.message p + p { margin-top: 8px; }.message ul, .message ol { padding-left: 22px; }
-.message pre { overflow-x: auto; white-space: pre; max-width: 100%; background: #e9edf5; border-radius: 8px; padding: 12px; font-size: .8125rem; }
+.message :is(h1, h2, h3, h4) { font-size: 1.08rem; line-height: 1.5; font-weight: 700; margin: 22px 0 10px; }
+.message p { margin-block: 0 14px; }.message p:last-child { margin-bottom: 0; }.message ul, .message ol { padding-left: 24px; margin-block: 12px 18px; }.message li { margin-block: 8px; }
+.message blockquote { border-left: 3px solid #b8c9df; padding-left: 16px; margin: 16px 0; color: var(--muted); }
+.message pre { overflow-x: auto; white-space: pre; max-width: 100%; background: #11243e; color: #f1f5fb; border-radius: 12px; padding: 16px; font-size: .8125rem; line-height: 1.7; }
+.message :not(pre) > code { background: #edf2f8; padding: 2px 5px; border-radius: 5px; font-size: .875em; }
+.workflow { padding: 10px 24px 0; flex-shrink: 0; border-top: 1px solid var(--border); background: #f8fafc; }
+.workflow > div { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.workflow a { font-size: .75rem; }.workflow p { font-size: .6875rem; color: var(--muted); line-height: 1.6; margin: 8px 0; }
 .chat a { color: #1759ba; text-underline-offset: 3px; }.chat a:focus-visible, .chat button:focus-visible, .chat input:focus-visible, .chat textarea:focus-visible, .chat select:focus-visible, .history:focus-visible { outline: 3px solid #185bd8; outline-offset: 3px; }
 .chat .note { color: var(--muted); font-size: .75rem; line-height: 1.8; }
 .chat button { font: inherit; min-height: 44px; cursor: pointer; border-radius: 10px; padding: 10px 14px; border: 1px solid var(--border); }
 .chat button:disabled { cursor: not-allowed; opacity: .6; }
 .chat .primary, .chat .send { background: #185bd8; color: #fff; border-color: #185bd8; font-size: .8125rem; font-weight: 600; }
 .primary { margin-block: 12px; }.chat .secondary { background: #fff; color: #344c6e; font-size: .75rem; }
-.composer { position: static; margin: 14px 32px 12px; padding: 14px 16px; border: 1px solid #b8c9df; border-radius: 18px; background: #fff; box-shadow: 0 5px 20px #142d5008; }
+.composer { position: static; margin: 12px 24px; padding: 12px 16px; border: 1px solid #a7bdd8; border-radius: 20px; background: #fff; box-shadow: 0 4px 24px #142d500a; flex-shrink: 0; }
 .composer textarea { display: block; width: 100%; resize: vertical; min-height: 82px; max-height: 240px; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 1rem; line-height: 1.65; padding: 4px; }
 .composer textarea::placeholder { color: var(--muted); }.composer > div { display: flex; align-items: center; gap: 10px; justify-content: space-between; margin-top: 10px; }
 .composer small { font-size: .6875rem; line-height: 1.6; color: var(--muted); }.send { flex-shrink: 0; }
-.footer { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: center; padding: 0 24px 22px; color: var(--muted); text-align: center; font-size: .6875rem; line-height: 1.7; }
+.footer { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: center; padding: 0 24px 14px; color: var(--muted); text-align: center; font-size: .6875rem; line-height: 1.7; flex-shrink: 0; }
 .ssh { background: #fff; border: 1px solid #b8c9df; border-radius: 16px; padding: 20px; margin: 14px 0; }
 .ssh h2 { font-size: 1rem; font-weight: 650; }.ssh p { font-size: .8125rem; color: var(--muted); margin: 10px 0; line-height: 1.8; }
 .ssh fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }.fields { display: grid; grid-template-columns: minmax(0, 2fr) minmax(80px, 1fr); gap: 12px; }
@@ -36,5 +45,5 @@
 .ssh .consent { display: flex; gap: 10px; align-items: flex-start; line-height: 1.8; font-size: .75rem; }.consent input { accent-color: #185bd8; width: 18px; height: 18px; flex-shrink: 0; margin-top: 3px; }.saved { border-bottom: 1px solid var(--border); padding-bottom: 14px; }
 .chat .error { margin: 12px 24px; color: #9c2535; background: #fff2f3; border: 1px solid #f0ccd2; border-radius: 10px; padding: 12px; font-size: .8125rem; line-height: 1.7; }
 @media (max-width: 640px) {
-  .chat { border-radius: 16px; }.header { padding: 12px 10px; gap: 6px; }.header h1 { font-size: .875rem; }.badge { padding: 6px 8px; font-size: .625rem; }.history { padding: 22px 14px 8px; min-height: 270px; }.intro { margin-top: 4px; margin-bottom: 24px; }.intro h2 { font-size: 1.1875rem; }.message { padding: 14px; max-width: 100%; font-size: .875rem; }.customer { max-width: 90%; }.composer { margin: 12px 14px; padding: 12px; }.composer > div { align-items: flex-end; }.composer small { max-width: 160px; }.ssh { padding: 14px; }.footer { padding-inline: 16px; }.chat .error { margin-inline: 14px; }
+  .chat { border-radius: 16px; height: calc(100dvh - 154px); min-height: 480px; }.header { padding: 12px 10px; gap: 6px; }.header h1 { font-size: .875rem; }.badge { padding: 6px 8px; font-size: .625rem; }.history { padding: 18px 14px 8px; min-height: 0; }.intro { margin-top: 4px; margin-bottom: 24px; }.intro h2 { font-size: 1.1875rem; }.message { padding: 12px 2px; max-width: 100%; font-size: .9375rem; }.customer { max-width: 92%; padding: 12px 14px; }.composer { margin: 10px 12px; padding: 10px 12px; }.composer textarea { min-height: 56px; }.composer > div { align-items: flex-end; }.composer small { max-width: 160px; }.ssh { padding: 14px; }.workflow { padding-inline: 14px; }.footer { padding-inline: 14px; font-size: .625rem; gap: 4px 10px; }.chat .error { margin-inline: 14px; }
 }

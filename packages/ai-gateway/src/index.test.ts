@@ -117,6 +117,16 @@ describe('OpenAI Responses adapter', () => {
 });
 
 describe('AI safety helpers', () => {
+  it('keeps security conversation short without converting vague consent into live repair authority', () => {
+    const instructions = buildInstructions('SECURITY_CHAT');
+    expect(instructions).toContain('Ask at most one focused question per turn');
+    expect(instructions).toContain('Never repeat a questionnaire');
+    expect(instructions).toContain('use the saved website URL');
+    expect(instructions).toContain('no live SSH security repair tool is available');
+    expect(instructions).toContain('separate approval');
+    expect(buildInstructions('SOURCE_REVIEW')).not.toContain('Conversation style:');
+    expect(buildInstructions('ISOLATED_REPAIR')).not.toContain('Conversation style:');
+  });
   it('supports all website work without implying new execution authority', () => {
     for (const purpose of ['GENERAL_CHAT', 'SECURITY_CHAT'] as const) {
       const instructions = buildInstructions(purpose);
