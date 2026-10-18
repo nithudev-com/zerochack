@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-10-18T16:58:08Z",
+  "branch": "codex/security-workplace-vps-execution",
+  "baseline": "fa4e8668fc4a773372f9b44d8e2b39037b4f92d2",
+  "testedCandidate": "7279cda5188868db6848f21b2bc18a4a046fb024",
+  "currentPhase": "P1",
+  "phaseStatus": { "P0": "AUDIT_AND_BASELINE_RECORDED", "P1": "IMPLEMENTATION_IN_PROGRESS", "P2": "NOT_IMPLEMENTED", "P3": "PROVISIONING_PREPARATION_ONLY", "P4": "NOT_IMPLEMENTED", "P5": "NOT_IMPLEMENTED", "P6": "NOT_READY" },
+  "implemented": ["website-only inspection confinement and limited-coverage presentation hotfix"],
+  "verified": ["exact7279 production images build", "856 unit tests", "173 integration tests with 1 explicit optional live-scan skip", "production/development browser41/41 each", "compiled API/TLS6negative checks and fresh empty-fixture worker", "LangGraph PostgreSQL pause/3process restart/persisted decision through synthetic existinggateway", "local9graph/checkpointer protocol tests"],
+  "notVerified": ["new P1schema/journal/controller full gates", "VPS-local gVisor isolation", "any new customer production security repair", "24 incident executor trials"],
+  "deployment": { "lastObservedRevision": "7279cda5188868db6848f21b2bc18a4a046fb024", "status": "RESTRICTED_PREVIEW", "inspectionChatIngress": "RESTORED_WITH_WEBSITE_SCOPE_HOTFIX", "newSecurityExecutionActivated": false },
+  "blockers": ["new runtime not installed or isolated/limit-tested", "VPS disk95% needs explicit bounded storage budget and reserve; not by itself a proven capacity shortfall", "trusted filesystem exclusive-writer/link identity missing", "production backup-provider/operation recovery unavailable", "public-release dependency/container audit gates unresolved"],
+  "next": ["validate new additive P1schema/journal/decisions/controller against fresh disposable PostgreSQL", "review scoped VPSlocalruntime provisioning and test enforced boundaries before activation", "complete typed permission repair with independent writer/recovery/approval evidence"],
+  "evidenceDirectory": "/opt/codebandage/audit-website-scope-20261018",
+  "liveCustomerRepairVerified": false
+}
