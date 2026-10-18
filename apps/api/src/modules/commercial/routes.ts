@@ -12,6 +12,7 @@ import { writeAudit } from '../auth/service.js';
 import { createCommissionForPayment, reverseCommissionForPayment } from '../affiliate/service.js';
 import type { Queue } from 'bullmq';
 import { publishTenantEvent } from '../communications/service.js';
+import { websiteFindingScope } from '../customer/assessment-scope.js';
 
 const uuid = z.string().uuid();
 const currency = z.string().trim().length(3).transform((value) => value.toUpperCase());
@@ -36,7 +37,32 @@ function safeCheckoutUrl(value: string, environment: Environment): string { let 
 type PriceableFinding={id:string;title:string;description:string|null;severity:'LOW'|'MEDIUM'|'HIGH'|'CRITICAL';affectedResource:string;recommendation:string;cwe:string|null;owaspCategory:string|null;confidence:Prisma.Decimal};
 function priceMatchesFinding(price:{severity:string|null;owaspCategory:string|null;cwe:string|null;matchTerms:string[]},finding:PriceableFinding):boolean{if(price.severity&&price.severity!==finding.severity)return false;if(price.owaspCategory&&price.owaspCategory.toLowerCase()!==(finding.owaspCategory??'').toLowerCase())return false;if(price.cwe&&price.cwe.toLowerCase()!==(finding.cwe??'').toLowerCase())return false;const haystack=[finding.title,finding.description,finding.affectedResource,finding.recommendation,finding.cwe,finding.owaspCategory].filter(Boolean).join(' ').toLowerCase();if(price.matchTerms.length&&!price.matchTerms.some((term)=>haystack.includes(term.toLowerCase())))return false;return Boolean(price.severity||price.owaspCategory||price.cwe||price.matchTerms.length);}
 function matchReason(price:{scope:string;severity:string|null;owaspCategory:string|null;cwe:string|null;matchTerms:string[]},finding?:PriceableFinding):string{if(price.scope==='PROJECT')return 'Owner-published whole-website remediation project';const reasons=[] as string[];if(price.severity)reasons.push(`${price.severity.toLowerCase()} severity`);if(price.owaspCategory)reasons.push(price.owaspCategory);if(price.cwe)reasons.push(price.cwe);if(price.matchTerms.length&&finding){const text=[finding.title,finding.description,finding.recommendation].filter(Boolean).join(' ').toLowerCase();const term=price.matchTerms.find((item)=>text.includes(item.toLowerCase()));if(term)reasons.push(`matched “${term}”`);}return `Matched verified finding by ${reasons.join(', ')}`;}
-async function remediationOffers(tenantId:string,websiteId:string,findingId?:string){const [website,finding,prices,existingOrders]=await Promise.all([database.website.findFirst({where:{id:websiteId,tenantId,lifecycle:'ACTIVE'},select:{id:true,name:true}}),findingId?database.securityFinding.findFirst({where:{id:findingId,websiteId,tenantId},select:{id:true,title:true,description:true,severity:true,affectedResource:true,recommendation:true,cwe:true,owaspCategory:true,confidence:true}}):null,database.securityFixPrice.findMany({where:{active:true,archivedAt:null},orderBy:[{priority:'desc'},{createdAt:'asc'}]}),database.securityFixOrder.findMany({where:{tenantId,websiteId,...(findingId?{OR:[{findingId},{scope:'PROJECT'}]}:{})},include:{ticket:{select:{id:true,status:true,assignedSpecialistId:true}}},orderBy:{createdAt:'desc'},take:20})]);if(!website)throw new ApiError(404,'WEBSITE_NOT_FOUND','Website was not found');if(findingId&&!finding)throw new ApiError(404,'FINDING_NOT_FOUND','Finding was not found');const issuePrices=finding?prices.filter((price)=>price.scope!=='PROJECT'&&priceMatchesFinding(price,finding)).map((price)=>({...price,matchReason:matchReason(price,finding)})):[];const projects=prices.filter((price)=>price.scope==='PROJECT').map((price)=>({...price,matchReason:matchReason(price)}));return{website,finding,issueOffers:issuePrices,projectOffers:projects,orders:existingOrders};}
+async function remediationOffers(tenantId: string, websiteId: string, findingId?: string) {
+  const savedWebsite = await database.website.findFirst({
+    where: { id: websiteId, tenantId, lifecycle: 'ACTIVE' },
+    select: { id: true, name: true, normalizedHost: true }
+  });
+  if (!savedWebsite) throw new ApiError(404, 'WEBSITE_NOT_FOUND', 'Website was not found');
+  const { normalizedHost, ...website } = savedWebsite;
+  const [finding, prices, existingOrders] = await Promise.all([
+    findingId ? database.securityFinding.findFirst({
+      where: { id: findingId, websiteId, tenantId, AND: [websiteFindingScope(normalizedHost)] },
+      select: { id: true, title: true, description: true, severity: true, affectedResource: true, recommendation: true, cwe: true, owaspCategory: true, confidence: true }
+    }) : null,
+    database.securityFixPrice.findMany({ where: { active: true, archivedAt: null }, orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] }),
+    // Existing orders are retained as history; this guard controls new offers and
+    // checkouts, not provider callbacks or already-paid order reconciliation.
+    database.securityFixOrder.findMany({
+      where: { tenantId, websiteId, ...(findingId ? { OR: [{ findingId }, { scope: 'PROJECT' }] } : {}) },
+      include: { ticket: { select: { id: true, status: true, assignedSpecialistId: true } } },
+      orderBy: { createdAt: 'desc' }, take: 20
+    })
+  ]);
+  if (findingId && !finding) throw new ApiError(404, 'FINDING_NOT_FOUND', 'Finding was not found');
+  const issuePrices = finding ? prices.filter(price => price.scope !== 'PROJECT' && priceMatchesFinding(price, finding)).map(price => ({ ...price, matchReason: matchReason(price, finding) })) : [];
+  const projects = prices.filter(price => price.scope === 'PROJECT').map(price => ({ ...price, matchReason: matchReason(price) }));
+  return { website, finding, issueOffers: issuePrices, projectOffers: projects, orders: existingOrders };
+}
 
 async function finalizeSecurityFixOrder(orderId:string,verification:PaymentVerification):Promise<void>{
   if(!verification.verified||verification.status!=='SUCCEEDED'||!verification.paymentReference)return;

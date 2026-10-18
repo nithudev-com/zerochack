@@ -108,13 +108,61 @@ test('activity follows saved inspection stages, survives reload and never invent
 for (const scenario of [
   { name: 'failed', scan: { ...runningScan('INSPECTING_SSH'), status: 'FAILED', errorCode: 'SSH_AUTH_FAILED' }, state: 'failed', detail: 'Inspection stopped (ssh auth failed)' },
   { name: 'interrupted', scan: runningScan('INTERRUPTED'), state: 'blocked', detail: 'completion is not confirmed.' },
-  { name: 'incomplete', scan: { ...runningScan('COMPLETED'), status: 'SUCCEEDED', coverageState: 'INCOMPLETE', coverageLimitations: ['Bounded inspection did not cover every server path'] }, state: 'blocked', detail: 'not proof that the website is clean or repaired.' },
+  { name: 'incomplete', scan: { ...runningScan('COMPLETED'), status: 'SUCCEEDED', coverageState: 'INCOMPLETE', coverageLimitations: ['Bounded inspection did not cover every server path'] }, state: 'completed_limited', detail: 'not proof that the website is clean or secured.' },
   { name: 'cancelled', scan: { ...runningScan('CANCELLED'), status: 'FAILED', errorCode: 'ASSESSMENT_CANCELLED' }, state: 'cancelled', detail: 'no repair was authorized.' }
 ]) test(`${scenario.name} server result is honest instead of becoming a successful repair`, async ({ page }) => {
   const fixture = await pendingResponseFixture(page, { scan: scenario.scan }); await page.goto(workspace);
   const activity = page.getByRole('region', { name: 'Agent activity', exact: true });
   await expect(activity).toHaveAttribute('data-agent-state', scenario.state); await expect(activity).toContainText(scenario.detail);
   expect(await activity.innerText()).not.toMatch(/fix delivered|repair complete|\d+\s*%/iu);
+  expect(fixture.writes).toEqual([]);
+});
+
+for (const width of [320, 1440]) test(`finished inspection exposes real limited-coverage reasons safely at ${width}px`, async ({ page }) => {
+  const reason = 'Antivirus exceeded its deadline; its result is incomplete, not a clean scan.';
+  const literal = 'Recorded text: <img src=x onerror="window.coverageXss=true"><script>window.coverageXss=true</script>';
+  const longReason = 'A long recorded limitation: ' + 'bounded-path-segment-'.repeat(80);
+  const fixture = await pendingResponseFixture(page, { scan: { ...runningScan('COMPLETED'), status: 'SUCCEEDED', coverageState: 'INCOMPLETE', coverageLimitations: [reason, ' ', `  ${reason}  `, literal, longReason] } });
+  await page.setViewportSize({ width, height: 900 }); await page.goto(workspace);
+  const activity = page.getByRole('region', { name: 'Agent activity', exact: true }); const details = activity.locator('details');
+  await expect(activity).toHaveAttribute('data-agent-state', 'completed_limited'); await expect(activity).toHaveAttribute('data-tone', 'attention');
+  await expect(activity.getByRole('status')).toContainText('Inspection finished'); await expect(activity.getByRole('status')).toContainText('Limited coverage');
+  await expect(activity.getByRole('status')).toContainText('No repair was applied.');
+  await expect(details).toHaveJSProperty('open', false); await expect(details.locator('summary')).toHaveText('View coverage limitations (3)');
+  await details.locator('summary').focus(); await page.keyboard.press('Enter'); await expect(details).toHaveJSProperty('open', true);
+  const reasons = activity.getByRole('list', { name: 'Recorded coverage limitations', exact: true });
+  await expect(reasons.getByRole('listitem')).toHaveCount(3); await expect(reasons.getByText(reason, { exact: true })).toHaveCount(1);
+  await expect(reasons.getByText(literal, { exact: true })).toBeVisible(); await expect(reasons.getByText(longReason, { exact: true })).toBeVisible();
+  await expect(activity.locator('script, img, a')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { coverageXss?: boolean }).coverageXss)).toBeUndefined();
+  expect(await activity.getByRole('status').innerText()).not.toContain(reason);
+  expect((await new AxeBuilder({ page }).include('[aria-label="Agent activity"]').withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  await page.getByLabel('Conversation history', { exact: true }).evaluate(element => { const activity = element.querySelector('[aria-label="Agent activity"]'); if (activity) element.scrollTop += activity.getBoundingClientRect().top - element.getBoundingClientRect().top - 12; });
+  await page.screenshot({ path: `/tmp/website-scope-limited-${width}.png`, fullPage: true });
+  await page.reload(); await expect(details.locator('summary')).toHaveText('View coverage limitations (3)');
+  await details.locator('summary').click(); await expect(reasons.getByText(reason, { exact: true })).toBeVisible(); expect(fixture.writes).toEqual([]);
+});
+
+test('limited coverage without detailed reasons has an honest fallback rather than an invented cause', async ({ page }) => {
+  const fixture = await pendingResponseFixture(page, { scan: { ...runningScan('COMPLETED'), status: 'SUCCEEDED', coverageState: 'INCOMPLETE', coverageLimitations: ['', '   '] } });
+  await page.goto(workspace); const activity = page.getByRole('region', { name: 'Agent activity', exact: true });
+  await expect(activity).toHaveAttribute('data-agent-state', 'completed_limited'); await activity.locator('summary').click();
+  await expect(activity.getByText('No detailed reason was recorded for this inspection. Review the saved findings and coverage before deciding next steps.', { exact: true })).toBeVisible();
+  await expect(activity.getByRole('list', { name: 'Recorded coverage limitations', exact: true })).toHaveCount(0); expect(fixture.writes).toEqual([]);
+});
+
+test('historical scope warning stays visible as escaped text and never starts a new inspection', async ({ page }) => {
+  const warning = 'This historical inspection was not limited to the selected website. It may include other websites on the account. It is preserved for history, not accepted as a current website-only assessment.';
+  const completed = { ...runningScan('COMPLETED'), status: 'SUCCEEDED' };
+  const fixture = await pendingResponseFixture(page, { scan: { ...completed, scopeWarning: warning } });
+  await page.goto(workspace); const activity = page.getByRole('region', { name: 'Agent activity', exact: true });
+  await expect(activity.getByText(warning, { exact: true })).toBeVisible(); expect(await activity.getByRole('status').innerText()).not.toContain(warning);
+  const literalWarning = warning + ' <script>window.scopeWarningXss=true</script>';
+  fixture.setScan({ ...completed, scopeWarning: literalWarning }); await page.reload();
+  await expect(activity.getByText(literalWarning, { exact: true })).toBeVisible(); await expect(activity.locator('script')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { scopeWarningXss?: boolean }).scopeWarningXss)).toBeUndefined();
+  fixture.setScan(completed); await page.reload(); await expect(activity.getByText(warning, { exact: true })).toHaveCount(0);
   expect(fixture.writes).toEqual([]);
 });
 

@@ -31,6 +31,12 @@
 .content p { margin: 5px 0 0; color: var(--activity-muted); font-size: .875rem; line-height: 1.7; }
 .content .stage { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--activity-border); white-space: pre-wrap; }
 .stage > span { display: block; margin-bottom: 3px; font-size: .625rem; line-height: 1.6; font-weight: 650; letter-spacing: .035em; text-transform: uppercase; }
+.limitations { margin-top: 10px; padding-top: 6px; border-top: 1px solid var(--activity-border); color: var(--activity-muted); font-size: .875rem; line-height: 1.7; }
+.limitations summary { min-height: 44px; padding-block: 10px; cursor: pointer; color: var(--activity-ink); font-weight: 600; }
+.limitations summary:focus-visible { outline: 3px solid #185bd8; outline-offset: 3px; border-radius: 4px; }
+.limitations ul { list-style: disc; margin: 8px 0 0; padding-left: 20px; }
+.limitations li { white-space: pre-wrap; overflow-wrap: anywhere; }.limitations li + li { margin-top: 8px; }
+.content .scopeWarning { margin-top: 12px; padding: 10px 12px; color: #704408; background: #fff7e5; border-left: 3px solid #9b6110; border-radius: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
 @keyframes agent-pulse { 0%, 75%, 100% { transform: translateY(0); opacity: .55; } 35% { transform: translateY(-3px); opacity: 1; } }
 @media (max-width: 480px) {
   .activity { gap: 10px; padding: 12px; border-radius: 14px; }
@@ -38,4 +44,4 @@
   .heading strong { font-size: .875rem; }.content p { font-size: .875rem; }
 }
 @media (prefers-reduced-motion: reduce) { .orbit span { animation: none; opacity: 1; } }
-@media (forced-colors: active) { .activity, .indicator, .badge { border: 1px solid; }.activity { background: Canvas; color: CanvasText; }.content p { color: CanvasText; } }
+@media (forced-colors: active) { .activity, .indicator, .badge { border: 1px solid; }.activity { background: Canvas; color: CanvasText; }.content p { color: CanvasText; }.content .scopeWarning { color: CanvasText; background: Canvas; border-color: CanvasText; } }
