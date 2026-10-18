@@ -434,12 +434,18 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
       try { validatePublicHttpTarget(target.url, target.normalizedHost); }
       catch { throw new ApiError(400, 'MONITORING_TARGET_INVALID', 'Monitoring requires a public HTTP or HTTPS website URL on port 80 or 443. No SSH connection is needed.'); }
     }
-    const existing = await database.monitoringPolicy.findUnique({ where: { websiteId } }); const intervalMinutes = input.intervalMinutes ?? existing?.intervalMinutes ?? 5;
-    await database.$transaction(async tx => {
+    const intervalMinutes = await database.$transaction(async tx => {
+      // Match the probe's commit lock: a completed check cannot overwrite PAUSED
+      // or create new alert events after this change has committed.
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
+      const existing = await tx.monitoringPolicy.findUnique({ where: { websiteId } });
+      const intervalMinutes = input.intervalMinutes ?? existing?.intervalMinutes ?? 5;
       await tx.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled: input.enabled, intervalMinutes }, update: { enabled: input.enabled, intervalMinutes } });
       await tx.website.update({ where: { id: websiteId }, data: { monitoringStatus: input.enabled ? 'PENDING' : 'PAUSED' } });
       if (input.emailAlerts !== undefined) await tx.notificationPreference.upsert({ where: { tenantId_userId_eventType: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT' } }, create: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT', emailEnabled: input.emailAlerts }, update: { emailEnabled: input.emailAlerts } });
+      return intervalMinutes;
     });
+    let schedulerUpdated = false;
     try {
       if (!options.queues?.monitoring) throw new Error('queue unavailable');
       if (input.enabled) {
@@ -447,11 +453,16 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
         await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts });
         await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { ...opts, jobId: `monitor-${websiteId}-${crypto.randomUUID()}` });
       } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`);
+      schedulerUpdated = true;
     } catch {
-      await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]);
-      throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. It remains disabled; retry shortly.');
+      // Disabling is durable even during a Redis outage. Old queued/repeating
+      // jobs fail the database policy guard and cannot probe or send mail.
+      if (input.enabled) {
+        await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]);
+        throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. It remains disabled; retry shortly.');
+      }
     }
-    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: input.enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { intervalMinutes } });
+    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: input.enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { intervalMinutes, schedulerUpdated } });
     return database.website.findUniqueOrThrow({ where: { id: websiteId } });
   });
 

@@ -24,7 +24,7 @@ async function fixture(page: Page, options: { state?: UptimeSummary['state']; fa
     }
     if (path.endsWith('/monitoring')) {
       if (options.saveFailure) { data.enabled = false; data.state = 'PAUSED'; return route.fulfill({ headers, status: 503, json: { error: { code: 'SCHEDULER_UNAVAILABLE', message: 'Monitoring could not be scheduled. It remains disabled; retry shortly.' } } }); }
-      data = { ...data, ...req.postDataJSON(), state: 'PENDING' }; return route.fulfill({ headers, json: {} });
+      const input = req.postDataJSON(); data = { ...data, ...input, state: input.enabled ? 'PENDING' : 'PAUSED' }; return route.fulfill({ headers, json: {} });
     }
     if (path.endsWith('/monitoring/checks')) return route.fulfill({ headers, status: 202, json: { queued: true } });
     if (path.endsWith('/navigation-activity') || path.endsWith('/notifications')) return route.fulfill({ headers, json: [] });
@@ -47,6 +47,34 @@ test('history, incidents and own email deliveries are readable and older checks 
   await panel.getByRole('button', { name: 'View check history' }).click(); await expect(panel.getByText('SMTP accepted', { exact: true })).toBeVisible();
   await expect(panel.getByText('Recovered', { exact: true })).toBeVisible(); await panel.getByRole('button', { name: 'Load older checks' }).click(); await expect(panel.getByText('HTTP 503 · 120 ms', { exact: true })).toBeVisible();
   await page.getByLabel('Monitoring history window').selectOption('7d'); expect(writes).toEqual([]);
+});
+test('visible pause and resume preserve history and saved settings without applying a draft', async ({ page }) => {
+  const writes = await fixture(page); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
+  await expect(panel.getByRole('button', { name: 'Pause monitoring', exact: true })).toBeVisible();
+  await panel.getByText('Monitoring & email settings', { exact: true }).click();
+  await page.getByLabel('Check frequency').selectOption('15'); await page.getByLabel('Monitoring emails for my account').uncheck();
+  await panel.getByText('Monitoring & email settings', { exact: true }).click();
+  await panel.getByRole('button', { name: 'Pause monitoring', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-uptime-state', 'PAUSED');
+  await expect(panel.getByText(/Monitoring paused for this website/)).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Check now', exact: true })).toBeDisabled();
+  await expect(panel.getByText('75.00%', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: 'View check history' }).click(); await expect(panel.getByText('SMTP accepted', { exact: true })).toBeVisible();
+  await page.reload(); await expect(panel).toHaveAttribute('data-uptime-state', 'PAUSED');
+  await panel.getByRole('button', { name: 'Resume monitoring', exact: true }).click();
+  await expect(panel).toHaveAttribute('data-uptime-state', 'PENDING');
+  await panel.getByText('Monitoring & email settings', { exact: true }).click();
+  await expect(page.getByLabel('Check frequency')).toHaveValue('5'); await expect(page.getByLabel('Monitoring emails for my account')).toBeChecked();
+  expect(writes).toEqual([{ path: `/v1/websites/${first}/monitoring`, body: { enabled: false } }, { path: `/v1/websites/${first}/monitoring`, body: { enabled: true } }]);
+  await page.getByLabel('Switch website').selectOption(second); await expect(panel.getByRole('button', { name: 'Resume monitoring', exact: true })).toBeVisible();
+});
+test('quick resume fails honestly and unsupported targets cannot resume', async ({ page }) => {
+  const writes = await fixture(page, { noSamples: true, saveFailure: true }); await page.goto('/customer/overview'); const panel = page.getByRole('region', { name: 'Uptime monitoring' });
+  await panel.getByRole('button', { name: 'Resume monitoring', exact: true }).click();
+  await expect(panel.getByRole('alert').filter({ hasText: 'Monitoring could not be scheduled' })).toBeVisible(); await expect(panel).toHaveAttribute('data-uptime-state', 'PAUSED');
+  expect(writes).toEqual([{ path: `/v1/websites/${first}/monitoring`, body: { enabled: true } }]);
+  await page.unroute('**/v1/**'); await fixture(page, { noSamples: true, eligible: false }); await page.reload();
+  await expect(panel.getByRole('button', { name: 'Resume monitoring', exact: true })).toBeDisabled();
 });
 test('last hour and last 24 hours use real API ranges and isolate the check-history cache', async ({ page }) => {
   const reads: string[] = []; page.on('request', request => { if (request.method() === 'GET' && request.url().includes('/uptime')) reads.push(request.url()); });

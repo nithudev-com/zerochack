@@ -1,5 +1,6 @@
 .panel { min-width: 0; padding: 24px; border: 1px solid #d9e4ee; border-radius: 18px; background: linear-gradient(135deg, #fff 55%, #f2f9ff); color: #173153; animation: enter .4s ease-out; }
 .heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .eyebrow { font-size: 10px; font-weight: 750; letter-spacing: .12em; color: #1754b2; }
 .heading h2 { margin: 6px 0 4px; font-size: clamp(20px, 3vw, 26px); letter-spacing: -.025em; }
 .heading p, .note { color: #53647d; font-size: 12px; line-height: 1.7; }

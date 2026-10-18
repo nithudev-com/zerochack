@@ -6,9 +6,23 @@ import { renderEmailTemplate, monitoringEmailData, type EmailProvider } from '@z
 
 const code=(error:unknown):string=>error instanceof Error&&/^[A-Z][A-Z0-9_:-]{2,119}$/u.test(error.message)?error.message.slice(0,120):'EMAIL_PROVIDER_FAILED';
 
+async function monitoringMailAllowed(event: { tenantId: string; createdAt: Date; payload: unknown }): Promise<boolean> {
+  const payload = typeof event.payload === 'object' && event.payload !== null && !Array.isArray(event.payload) ? event.payload as Record<string, unknown> : {};
+  const websiteId = payload.websiteId;
+  if (typeof websiteId !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/iu.test(websiteId)) return false;
+  const policy = await database.monitoringPolicy.findFirst({ where: { tenantId: event.tenantId, websiteId, enabled: true, website: { lifecycle: 'ACTIVE' } }, select: { updatedAt: true } });
+  if (!policy) return false;
+  // A paused interval must never produce an old-alert burst when resumed.
+  // Older outbox records did not carry a policy version: fence them by time.
+  return payload.monitoringPolicyVersion === undefined ? event.createdAt >= policy.updatedAt : payload.monitoringPolicyVersion === policy.updatedAt.toISOString();
+}
+
 export async function processEmailDelivery(job:Pick<Job<{deliveryId:string}>,'data'|'attemptsMade'|'opts'>,provider:EmailProvider):Promise<void>{
   const delivery=await database.emailDelivery.findUnique({where:{id:job.data.deliveryId},include:{event:true,templateVersion:true}});if(!delivery||delivery.status==='DELIVERED'||delivery.status==='SUPPRESSED')return;const staleBefore=new Date(Date.now()-120_000);if(delivery.status==='SENDING'&&delivery.attemptStartedAt&&delivery.attemptStartedAt>staleBefore)throw new Error('EMAIL_DELIVERY_BUSY');
   if (delivery.event.eventType === 'MONITORING_ALERT') {
+    if (!await monitoringMailAllowed(delivery.event)) {
+      await database.emailDelivery.update({ where: { id: delivery.id }, data: { status: 'SUPPRESSED', nextAttemptAt: null, attemptStartedAt: null, lastErrorCode: 'MONITORING_PAUSED_OR_CHANGED' } }); return;
+    }
     const [recipient, membership, preference, permissions] = await Promise.all([
       database.user.findUnique({ where: { id: delivery.recipientUserId }, select: { email: true, status: true, emailVerifiedAt: true } }),
       database.tenantMembership.findUnique({ where: { tenantId_userId: { tenantId: delivery.tenantId, userId: delivery.recipientUserId } }, select: { status: true } }),
@@ -21,6 +35,11 @@ export async function processEmailDelivery(job:Pick<Job<{deliveryId:string}>,'da
   }
   if(delivery.event.eventType==='MONITORING_ALERT'&&delivery.attempts>=5){await database.emailDelivery.update({where:{id:delivery.id},data:{status:'FAILED',lastErrorCode:delivery.status==='SENDING'?'SMTP_OUTCOME_UNKNOWN':'SMTP_RETRY_EXHAUSTED',attemptStartedAt:null}});return;}
   const claimed=await database.emailDelivery.updateMany({where:{id:delivery.id,...(delivery.event.eventType==='MONITORING_ALERT'?{attempts:{lt:5}}:{}),OR:[{status:{in:['QUEUED','RETRYING','FAILED']}},{status:'SENDING',attemptStartedAt:{lte:staleBefore}}]},data:{status:'SENDING',attempts:{increment:1},nextAttemptAt:null,attemptStartedAt:new Date()}});if(!claimed.count)return;
+  // Re-check immediately before SMTP, not only when a queued job is loaded.
+  // SMTP already in flight cannot be recalled; no network call holds a DB lock.
+  if (delivery.event.eventType === 'MONITORING_ALERT' && !await monitoringMailAllowed(delivery.event)) {
+    await database.emailDelivery.update({ where: { id: delivery.id }, data: { status: 'SUPPRESSED', nextAttemptAt: null, attemptStartedAt: null, lastErrorCode: 'MONITORING_PAUSED_OR_CHANGED' } }); return;
+  }
   try{const payload=typeof delivery.event.payload==='object'&&delivery.event.payload!==null&&!Array.isArray(delivery.event.payload)?delivery.event.payload as Record<string,unknown>:{};const monitoring=delivery.event.eventType==='MONITORING_ALERT'?monitoringEmailData(payload.monitoring,process.env.APP_URL??'https://codebandage.com'):undefined;const renderedSubject=renderEmailTemplate(delivery.templateVersion.subjectTemplate,payload,240);const subject=monitoring?`${monitoring.state==='RECOVERED'?'UP':monitoring.state} · ${renderedSubject}`.slice(0,240):renderedSubject;const text=renderEmailTemplate(delivery.templateVersion.bodyTemplate,payload);const result=await provider.send({to:delivery.recipientEmail,subject,text,idempotencyKey:delivery.idempotencyKey,...(monitoring?{monitoring}:{})});await database.$transaction([database.emailDelivery.update({where:{id:delivery.id},data:{status:'DELIVERED',providerMessageId:result.providerMessageId,deliveredAt:new Date(),lastErrorCode:null,attemptStartedAt:null}}),database.auditLog.create({data:{tenantId:delivery.tenantId,requestId:`email:${delivery.id}`.slice(0,100),action:'email.delivered',resourceType:'email_delivery',resourceId:delivery.id,metadata:{eventType:delivery.event.eventType,attempt:job.attemptsMade+1}}})]);}
   catch(error){const attempts=typeof job.opts.attempts==='number'?job.opts.attempts:1;const final=job.attemptsMade+1>=attempts||(delivery.event.eventType==='MONITORING_ALERT'&&delivery.attempts+1>=5);const delay=2_000*(2**job.attemptsMade);await database.$transaction([database.emailDelivery.update({where:{id:delivery.id},data:{status:final?'FAILED':'RETRYING',lastErrorCode:code(error),nextAttemptAt:final?null:new Date(Date.now()+delay),attemptStartedAt:null}}),database.auditLog.create({data:{tenantId:delivery.tenantId,requestId:`email:${delivery.id}:${job.attemptsMade+1}`.slice(0,100),action:final?'email.failed':'email.retry_scheduled',resourceType:'email_delivery',resourceId:delivery.id,metadata:{attempt:job.attemptsMade+1,errorCode:code(error)}}})]);throw error;}
 }

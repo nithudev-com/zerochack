@@ -46,14 +46,14 @@ async function preserveAndAlert(tx: Prisma.TransactionClient, input: { tenantId:
   return true;
 }
 
-async function recordOutbox(tx: Prisma.TransactionClient, input: { tenantId: string; websiteId: string; checkId: string; websiteName: string; websiteUrl: string; state: 'DOWN' | 'RECOVERED' | 'UNKNOWN'; at: Date; httpStatus: number | null; startedAt: Date | null; recent: Array<'UP' | 'DOWN' | 'UNKNOWN'> }) {
+async function recordOutbox(tx: Prisma.TransactionClient, input: { tenantId: string; websiteId: string; checkId: string; policyVersion: Date; websiteName: string; websiteUrl: string; state: 'DOWN' | 'RECOVERED' | 'UNKNOWN'; at: Date; httpStatus: number | null; startedAt: Date | null; recent: Array<'UP' | 'DOWN' | 'UNKNOWN'> }) {
   // Never accept recipient addresses or raw HTML from a customer/remote response.
   const recipients = await tx.tenantMembership.findMany({ where: { tenantId: input.tenantId, status: 'ACTIVE', user: { status: 'APPROVED', emailVerifiedAt: { not: null } } }, include: { user: { select: { displayName: true } } } });
   const title = input.state === 'DOWN' ? 'Website downtime detected' : input.state === 'RECOVERED' ? 'Website recovery detected' : 'Website monitoring needs attention';
   const message = `${input.websiteName}: ${title.toLowerCase()} at ${input.at.toISOString()}. This is a sampled check, not continuous uptime certification. Open Overview to review history.`;
   for (const member of recipients) await tx.communicationEvent.upsert({ where: { deduplicationKey: `uptime:${input.checkId}:${input.state}:${member.userId}` }, update: {}, create: {
     tenantId: input.tenantId, recipientUserId: member.userId, eventType: 'MONITORING_ALERT', deduplicationKey: `uptime:${input.checkId}:${input.state}:${member.userId}`,
-    payload: { title, message, recipientName: member.user.displayName ?? 'there', websiteId: input.websiteId, websiteName: input.websiteName, websiteHost: new URL(input.websiteUrl).hostname, eventCount: input.state === 'RECOVERED' ? 0 : 1, checkedAt: input.at.toISOString(), status: input.state, actionUrl: `/customer/overview?website=${input.websiteId}`, monitoring: { state: input.state, websiteId: input.websiteId, websiteName: input.websiteName, websiteHost: new URL(input.websiteUrl).hostname, checkedAt: input.at.toISOString(), outageStartedAt: input.startedAt?.toISOString() ?? null, httpStatus: input.httpStatus, recent: input.recent }, existingMonitoringNotification: input.state !== 'RECOVERED' }
+    payload: { title, message, recipientName: member.user.displayName ?? 'there', websiteId: input.websiteId, monitoringPolicyVersion: input.policyVersion.toISOString(), websiteName: input.websiteName, websiteHost: new URL(input.websiteUrl).hostname, eventCount: input.state === 'RECOVERED' ? 0 : 1, checkedAt: input.at.toISOString(), status: input.state, actionUrl: `/customer/overview?website=${input.websiteId}`, monitoring: { state: input.state, websiteId: input.websiteId, websiteName: input.websiteName, websiteHost: new URL(input.websiteUrl).hostname, checkedAt: input.at.toISOString(), outageStartedAt: input.startedAt?.toISOString() ?? null, httpStatus: input.httpStatus, recent: input.recent }, existingMonitoringNotification: input.state !== 'RECOVERED' }
   } });
 }
 
@@ -110,7 +110,7 @@ export async function processMonitoringCheck(job: Job<MonitoringJob>, runner: ty
     if (newAlerts || recovered) {
       const recent = await tx.monitoringCheck.findMany({ where: { tenantId, websiteId, completedAt: { not: null } }, orderBy: { completedAt: 'desc' }, take: 12 });
       const states = recent.reverse().map(row => { const snapshot = row.snapshot as { status?: number } | null; return row.status === 'SUCCEEDED' && typeof snapshot?.status === 'number' ? snapshot.status >= 200 && snapshot.status < 400 ? 'UP' as const : 'DOWN' as const : ['CONNECTION_FAILED', 'CONNECTION_TIMEOUT', 'DNS_UNRESOLVED'].includes(row.errorCode ?? '') ? 'DOWN' as const : 'UNKNOWN' as const; });
-      await recordOutbox(tx, { tenantId, websiteId, checkId: check.id, websiteName: active.website.name, websiteUrl: active.website.url, state: recovered ? 'RECOVERED' : current && !current.available || reachabilityFailure ? 'DOWN' : 'UNKNOWN', at, httpStatus: current?.status ?? null, startedAt: outages[0]?.firstSeenAt ?? (!current?.available && reachabilityFailure || current && !current.available ? at : null), recent: states });
+      await recordOutbox(tx, { tenantId, websiteId, checkId: check.id, policyVersion: active.updatedAt, websiteName: active.website.name, websiteUrl: active.website.url, state: recovered ? 'RECOVERED' : current && !current.available || reachabilityFailure ? 'DOWN' : 'UNKNOWN', at, httpStatus: current?.status ?? null, startedAt: outages[0]?.firstSeenAt ?? (!current?.available && reachabilityFailure || current && !current.available ? at : null), recent: states });
     }
     // Do not mutate policy.updatedAt here: it is a configuration version used to
     // reject results when pause/target/policy changes race with a probe.

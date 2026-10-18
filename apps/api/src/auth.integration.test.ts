@@ -300,6 +300,54 @@ describe('authentication, RBAC, and tenant isolation', () => {
     expect(probes).toBe(1);
   });
 
+  it('pauses only the selected website, fences probes and queued mail, and keeps history and preferences', async () => {
+    const token = await register('Customer', 'uptime-pause@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'uptime-pause@example.test')).headers['set-cookie']);
+    const identity = (await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { cookie } })).json(); const tenantId = identity.tenant.id as string;
+    const site = await database.website.create({ data: { tenantId, name: 'Pause fixture', url: 'https://example.com/', normalizedHost: 'example.com' } });
+    const other = await database.website.create({ data: { tenantId, name: 'Other website', url: 'https://example.org/', normalizedHost: 'example.org' } });
+    await database.monitoringPolicy.createMany({ data: [site, other].map(website => ({ tenantId, websiteId: website.id, enabled: true, intervalMinutes: 15 })) });
+    await database.notificationPreference.create({ data: { tenantId, userId: identity.user.id, eventType: 'MONITORING_ALERT', emailEnabled: true } });
+    const response = { url: site.url, status: 503, headers: {}, body: Buffer.from('fixture'), resolvedAddress: '93.184.216.34', redirects: [] };
+    const probe = (id: string, runner = async () => response) => processMonitoringCheck({ id, timestamp: Date.now(), data: { tenantId, websiteId: site.id } } as Job, runner);
+    await probe('pause-down'); await probe('pause-recovery', async () => ({ ...response, status: 200 }));
+    const events = await database.communicationEvent.findMany({ where: { tenantId, eventType: 'MONITORING_ALERT' }, orderBy: { createdAt: 'asc' } }); expect(events).toHaveLength(2);
+    const queue = { async add() { return {}; } } as unknown as Queue;
+    for (const event of events) await processCommunicationEvent(event.id, queue);
+    const deliveries = await database.emailDelivery.findMany({ where: { tenantId }, orderBy: { createdAt: 'asc' } }); expect(deliveries).toHaveLength(2);
+    await database.emailDelivery.update({ where: { id: deliveries[0]!.id }, data: { status: 'RETRYING', nextAttemptAt: new Date() } });
+    const before = await database.monitoringCheck.count({ where: { websiteId: site.id, completedAt: { not: null } } });
+    const pause = () => app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie }, payload: { enabled: false } });
+    // No scheduler exists in this test app: a queue outage cannot prevent pause.
+    expect((await pause()).statusCode).toBe(200); expect((await pause()).statusCode).toBe(200);
+    expect(await database.website.findUniqueOrThrow({ where: { id: site.id } })).toMatchObject({ monitoringStatus: 'PAUSED' });
+    expect(await database.monitoringPolicy.findUniqueOrThrow({ where: { websiteId: site.id } })).toMatchObject({ enabled: false, intervalMinutes: 15 });
+    expect(await database.monitoringPolicy.findUniqueOrThrow({ where: { websiteId: other.id } })).toMatchObject({ enabled: true });
+    expect(await database.notificationPreference.findUniqueOrThrow({ where: { tenantId_userId_eventType: { tenantId, userId: identity.user.id, eventType: 'MONITORING_ALERT' } } })).toMatchObject({ emailEnabled: true });
+    const noSend: EmailProvider = { async send() { throw new Error('PAUSED_MAIL_MUST_NOT_SEND'); } };
+    await processEmailDelivery({ data: { deliveryId: deliveries[0]!.id }, attemptsMade: 1, opts: { attempts: 5 } } as never, noSend);
+    expect(await database.emailDelivery.findUniqueOrThrow({ where: { id: deliveries[0]!.id } })).toMatchObject({ status: 'SUPPRESSED', attempts: 0, lastErrorCode: 'MONITORING_PAUSED_OR_CHANGED' });
+    let probes = 0; await expect(probe('pause-queued-probe', async () => { probes++; return response; })).rejects.toThrow('MONITORING_JOB_BINDING_INVALID'); expect(probes).toBe(0);
+    expect((await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/monitoring/checks`, headers: { cookie } })).statusCode).toBe(409);
+    expect((await app.inject({ method: 'GET', url: `/v1/websites/${site.id}/uptime`, headers: { cookie } })).json()).toMatchObject({ state: 'PAUSED', enabled: false, knownCount: before, emailAlerts: true, intervalMinutes: 15 });
+    // Resuming changes the policy version. Even mail not consumed during pause
+    // must be suppressed rather than sent as an old downtime/recovery alert.
+    await database.monitoringPolicy.update({ where: { websiteId: site.id }, data: { enabled: true } });
+    await processEmailDelivery({ data: { deliveryId: deliveries[1]!.id }, attemptsMade: 0, opts: { attempts: 5 } } as never, noSend);
+    expect(await database.emailDelivery.findUniqueOrThrow({ where: { id: deliveries[1]!.id } })).toMatchObject({ status: 'SUPPRESSED', attempts: 0 });
+    await probe('pause-new-incident');
+    const fresh = await database.communicationEvent.findFirstOrThrow({ where: { tenantId, eventType: 'MONITORING_ALERT', processedAt: null } }); await processCommunicationEvent(fresh.id, queue);
+    const freshDelivery = await database.emailDelivery.findUniqueOrThrow({ where: { eventId: fresh.id } }); let sent = 0;
+    await processEmailDelivery({ data: { deliveryId: freshDelivery.id }, attemptsMade: 0, opts: { attempts: 5 } } as never, { async send() { sent++; return { providerMessageId: 'synthetic-resumed' }; } }); expect(sent).toBe(1);
+    const eventCount = await database.communicationEvent.count({ where: { tenantId } });
+    await expect(probe('pause-inflight', async () => { expect((await pause()).statusCode).toBe(200); return { ...response, status: 200 }; })).rejects.toThrow('MONITORING_BINDING_CHANGED');
+    expect(await database.communicationEvent.count({ where: { tenantId } })).toBe(eventCount);
+    expect(await database.monitoringCheck.count({ where: { websiteId: site.id, completedAt: { not: null } } })).toBe(before + 1);
+    const stranger = await register('Customer', 'uptime-pause-other@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token: stranger } });
+    const strangerCookie = cookieFrom((await login('customer', 'uptime-pause-other@example.test')).headers['set-cookie']);
+    expect((await app.inject({ method: 'PATCH', url: `/v1/websites/${site.id}/monitoring`, headers: { cookie: strangerCookie }, payload: { enabled: false } })).statusCode).toBe(404);
+  });
+
   it('fails closed for backup and restore, enforces retention scope, and deduplicates monitoring alert storms', async () => {
     const token = await register('Customer', 'operations@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } }); const cookie = cookieFrom((await login('customer', 'operations@example.test')).headers['set-cookie']); const identity = (await app.inject({ method: 'GET', url: '/v1/auth/me', headers: { cookie } })).json(); const tenantId = identity.tenant.id as string;
     const site = await database.website.create({ data: { tenantId, name: 'Operations site', url: 'https://example.com/', normalizedHost: 'example.com', connectionStatus: 'VERIFIED', connectedAt: new Date() } });
