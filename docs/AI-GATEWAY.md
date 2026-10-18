@@ -8,6 +8,10 @@ Provider, credential, model, tenant policy, and usage records are database-backe
 
 AI is deny-by-default. An Owner with recent MFA and `ai.providers.manage` must create a provider, encrypted credential, model, and enabled tenant policy. Management endpoints are under `/v1/owner/ai`. Only adapter keys compiled into the backend are accepted; arbitrary provider URLs are not.
 
+The Owner AI Gateway screen has four separate setup steps. A saved key is not activation: enable its provider, add a provider-compatible model with current nonzero USD prices per million tokens, and explicitly save the intended customer's tenant policy. Step 4 searches organization names and shows enabled/disabled state; it never enables every customer or the Owner's organization implicitly. Enabling a tenant requires a positive estimated daily spending threshold. The listing and policy mutation require recent Owner MFA and are private/no-store.
+
+The UTC-day spending threshold is an estimate based on completed successful usage, not an atomic reservation or a hard billing cap. In-flight requests and failed tool turns can cost money beyond that estimate. Use conservative concurrency/output limits and provider-side spending controls; do not represent a $1 threshold as a guaranteed $1 invoice cap. Chat activation does not enable assessment, repair, browser execution or production release.
+
 ## Authorization and isolation
 
 The API derives tenant and roles from the authenticated session. Website, finding, evidence, and ticket queries combine IDs with that tenant and website. Client tenant headers and query values are ignored. Customer, Agency, Specialist, and Owner policies may use security context when RBAC also allows it. Affiliate may use only general AI and cannot reach website security endpoints or receive security context.
@@ -33,3 +37,11 @@ Idempotency is unique per tenant, user, and UUID. Completed requests return the 
 - Successful calls mark the selected provider and credential healthy; provider failures mark them degraded.
 - Keep provider processing, retention, regional, and incident-response terms under review.
 - No provider is preconfigured, and default tests make no live provider call.
+
+### Approved single-tenant server setup
+
+`apps/api/src/scripts/configure-tenant-ai.ts` is a one-off maintenance CLI for an explicitly approved server administrator, not a replacement login, customer endpoint, or a fabricated Owner session. Normal dashboard changes still require recent Owner MFA. Run it in the tools image with production configuration, the existing trust mounts, and a mode-600 JSON approval file mounted outside `/workspace`. Set `AI_SETUP_APPROVAL` to the approval reference in that file. The CLI loads production validation, uses the existing encrypted credential, verifies the exact model via Anthropic's Models API (no paid generation), and appends an `ai.tenant_setup_applied` audit event with source `approved-server-maintenance` and no impersonated user.
+
+Required JSON fields: `approvalReference`, `tenantId`, `providerId`, `credentialId`, `name`, `providerModel`, `maxOutputTokens`, `requestsPerMinute`, `requestsPerUserMinute`, `maxConcurrent`, `dailyCostLimitMicros`, `inputCostMicrosPerM`, `outputCostMicrosPerM`. UUIDs and prices are non-secret configuration; never put a provider API key in this file. Obtain model IDs from the actual key's Models API and review current official standard prices. The script activates only the named tenant and provider/model, refuses conflicting existing settings, preserves credential ciphertext/key version, and is a no-op on an identical rerun. It does not change Care flags, create users/sessions, or claim a successful chat generation from a model-discovery check.
+
+To disable a tenant later, use Step 4 in the Owner portal; do not erase its policy, usage or encrypted key to resolve a provider error. A revoked key, missing credits, unsupported model or provider failure must be repaired at its actual boundary.

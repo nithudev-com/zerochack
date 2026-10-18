@@ -1,0 +1,4 @@
+ARG RUNNER_IMAGE
+FROM ${RUNNER_IMAGE}
+ENV ZEROCHACK_TEST_IMAGE=1
+COPY fixtures/trusted-wordpress.json /opt/runner/trusted-wordpress.json

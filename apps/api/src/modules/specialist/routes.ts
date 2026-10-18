@@ -219,7 +219,7 @@ const token = generateOpaqueToken();
 const expiresAt = new Date(Math.min(Date.now() + durationMinutes * 60_000, authorization.expiresAt.getTime()));
 const session = await database.$transaction(async (tx) => { await tx.remediationSession.updateMany({ where: { ticketId, status: 'ACTIVE' }, data: { status: 'REVOKED', revokedAt: new Date(), revokedReason: 'replaced' } });
 const created = await tx.remediationSession.create({ data: { tenantId: ticket.tenantId, websiteId: ticket.websiteId, ticketId, specialistId: request.userId!, authorizationId: authorization.id, tokenHash: hashOpaqueToken(token, options.environment.SESSION_SECRET), scope: authorization.scope, expiresAt } });
-await tx.ticket.update({ where: { id: ticketId }, data: { status: 'IN_PROGRESS', progressStage: 'REMEDIATING', progressNote: 'A time-limited secure session is active and the approved fix is in progress.', progressUpdatedAt: new Date() } });
+await tx.ticket.update({ where: { id: ticketId }, data: { status: 'IN_PROGRESS', progressStage: 'AWAITING_APPROVAL', progressNote: 'A time-limited authorized access session is ready. No repair has run; a supported executor and reviewed repair approval are required.', progressUpdatedAt: new Date() } });
 return created;
 });
 await writeAudit({ tenantId: ticket.tenantId, actorUserId: request.userId, requestId: request.id, action: 'remediation.session_created', resourceType: 'remediation_session', resourceId: session.id, ipAddress: request.ip, metadata: { ticketId, websiteId: ticket.websiteId, scope: session.scope, expiresAt } });
@@ -239,13 +239,13 @@ requirePermission(request, 'remediation.manage');
 const input = parse(z.object({ name: z.string().trim().min(2).max(160), version: z.number().int().positive(), description: z.string().max(2000).optional(), enabled: z.boolean().default(false), actionKeys: z.array(z.literal('FINDING_MARK_IN_REMEDIATION')).min(1), requiredScopes: scopes }), request.body);
 return reply.code(201).send(await database.remediationPlaybook.create({ data: { name: input.name, version: input.version, enabled: input.enabled, actionKeys: input.actionKeys, requiredScopes: input.requiredScopes, ...(input.description ? { description: input.description } : {}) } }));
 });
-  app.post('/specialist/tickets/:ticketId/remediate', async (request, reply) => { specialist(request);
+  app.post('/specialist/tickets/:ticketId/remediate', async (request) => { specialist(request);
 requirePermission(request, 'remediation.execute');
 const ticketId = parse(uuid, (request.params as { ticketId?: string }).ticketId);
 const { playbookId } = parse(z.object({ playbookId: uuid }), request.body);
 const rawToken = request.headers['x-remediation-token'];
 if (typeof rawToken !== 'string') throw new ApiError(401, 'REMEDIATION_TOKEN_REQUIRED', 'Temporary remediation token required');
-const ticket = await database.ticket.findFirst({ where: { id: ticketId, assignedSpecialistId: request.userId, status: 'IN_PROGRESS' }, include: { finding: true } });
+const ticket = await database.ticket.findFirst({ where: { id: ticketId, assignedSpecialistId: request.userId, status: 'IN_PROGRESS' } });
 if (!ticket) throw new ApiError(404, 'TICKET_NOT_FOUND', 'In-progress assigned ticket not found');
 const session = await database.remediationSession.findUnique({ where: { tokenHash: hashOpaqueToken(rawToken, options.environment.SESSION_SECRET) } });
 const authorization = session ? await database.remediationAuthorization.findUnique({ where: { id: session.authorizationId } }) : null;
@@ -255,21 +255,12 @@ if (!session || !authorization || !backup || !playbook) throw new ApiError(409, 
 try { assertRemediationGate({ tenantId: ticket.tenantId, websiteId: ticket.websiteId, ticketId, specialistId: request.userId!, authorization, backup, session, requiredScopes: playbook.requiredScopes });
 } catch (error) { if (error instanceof RemediationGateError) throw new ApiError(409, error.code, error.message);
 throw error;
-} if (!ticket.findingId || !playbook.actionKeys.every((key) => key === 'FINDING_MARK_IN_REMEDIATION')) throw new ApiError(409, 'PLAYBOOK_UNSUPPORTED', 'Playbook action is not supported for this ticket');
-const beforeScanId = ticket.finding?.scanId ?? null;
-const [run, postScan] = await database.$transaction(async (tx) => { await tx.securityFinding.updateMany({ where: { id: ticket.findingId!, tenantId: ticket.tenantId, websiteId: ticket.websiteId }, data: { status: 'IN_REMEDIATION' } });
-const scan = await tx.scan.create({ data: { tenantId: ticket.tenantId, websiteId: ticket.websiteId } });
-const created = await tx.remediationRun.create({ data: { tenantId: ticket.tenantId, websiteId: ticket.websiteId, ticketId, specialistId: request.userId!, authorizationId: authorization.id, sessionId: session.id, backupId: backup.id, playbookId, status: 'AWAITING_POST_SCAN', executedActions: playbook.actionKeys, beforeScanId, postScanId: scan.id, startedAt: new Date() } });
-await tx.ticket.update({ where: { id: ticketId }, data: { status: 'POST_SCAN', progressStage: 'VERIFYING', progressNote: 'The fix is complete. A post-fix security scan is verifying the result.', progressUpdatedAt: new Date() } });
-await tx.remediationSession.update({ where: { id: session.id }, data: { status: 'COMPLETED', revokedAt: new Date(), revokedReason: 'playbook_completed' } });
-return [created, scan] as const;
-});
-try { await options.queues?.scans?.add('scan.requested', { scanId: postScan.id, websiteId: ticket.websiteId, tenantId: ticket.tenantId }, { jobId: postScan.id, attempts: 3, removeOnComplete: 1000, removeOnFail: 5000 });
-} catch { await database.$transaction([database.remediationRun.update({ where: { id: run.id }, data: { status: 'FAILED', errorCode: 'POST_SCAN_QUEUE_UNAVAILABLE', completedAt: new Date() } }), database.ticket.update({ where: { id: ticketId }, data: { status: 'AWAITING_CUSTOMER' } })]);
-throw new ApiError(503, 'POST_SCAN_QUEUE_UNAVAILABLE', 'Post-remediation scan could not be queued');
-} await writeAudit({ tenantId: ticket.tenantId, actorUserId: request.userId, requestId: request.id, action: 'remediation.playbook_executed', resourceType: 'remediation_run', resourceId: run.id, ipAddress: request.ip, metadata: { playbookId, actions: playbook.actionKeys, postScanId: postScan.id } });
-await publishTenantEvent({tenantId:ticket.tenantId,eventType:'REMEDIATION_STARTED',deduplicationKey:`remediation-started:${run.id}`,title:'Remediation started',message:`Approved remediation started for “${ticket.title}”.`,actionUrl:`/customer/websites/${ticket.websiteId}/tickets`,data:{ticketId,runId:run.id,websiteId:ticket.websiteId}},options.queues?.notifications);
-return reply.code(202).send({ runId: run.id, postScanId: postScan.id, sessionRevoked: true });
+}
+// FINDING_MARK_IN_REMEDIATION only changed a database label: it never
+// repaired a customer website. No reviewed mutation executor is registered
+// for it or any other playbook action. Keep all prerequisites above, then
+// stop before creating a run/scan or claiming execution in persisted state.
+throw new ApiError(503, 'REMEDIATION_EXECUTOR_UNAVAILABLE', 'No verified website repair executor is available. No repair, finding-status change or post-fix scan was started');
 });
   app.post('/specialist/remediation/:runId/complete-post-scan', async (request) => { specialist(request);
 requirePermission(request, 'remediation.execute');
@@ -278,10 +269,11 @@ const run = await database.remediationRun.findFirst({ where: { id: runId, specia
 if (!run?.postScanId) throw new ApiError(404, 'REMEDIATION_RUN_NOT_FOUND', 'Awaiting post-scan run not found');
 const scan = await database.scan.findFirst({ where: { id: run.postScanId, tenantId: run.tenantId, websiteId: run.websiteId, status: 'SUCCEEDED' } });
 if (!scan) throw new ApiError(409, 'POST_SCAN_INCOMPLETE', 'Post-remediation scan has not succeeded');
-const [beforeOpen, afterOpen] = await Promise.all([run.beforeScanId ? database.securityFinding.count({ where: { scanId: run.beforeScanId, status: { in: ['OPEN','REOPENED','IN_REMEDIATION'] } } }) : 0, database.securityFinding.count({ where: { scanId: run.postScanId, status: { in: ['OPEN','REOPENED','IN_REMEDIATION'] } } })]);
-const comparison = { beforeOpenFindings: beforeOpen, afterOpenFindings: afterOpen, comparedAt: new Date().toISOString() };
-const [, , report]=await database.$transaction([database.remediationRun.update({ where: { id: runId }, data: { status: 'SUCCEEDED', comparison, completedAt: new Date() } }), database.ticket.update({ where: { id: run.ticketId }, data: { status: 'RESOLVED', progressStage: 'DELIVERED', progressNote: 'Fix delivered and verified by the post-remediation security scan.', progressUpdatedAt: new Date() } }), database.report.create({ data: { tenantId: run.tenantId, websiteId: run.websiteId,requestedByUserId:request.userId!,type:'BEFORE_AFTER',sourceId:runId,title: `Remediation comparison ${runId}` } })]);try{if(!options.queues?.reports)throw new Error('queue unavailable');await options.queues.reports.add('report.requested',{reportId:report.id,websiteId:run.websiteId,tenantId:run.tenantId},{jobId:report.id,attempts:3,backoff:{type:'exponential',delay:2_000},removeOnComplete:1000,removeOnFail:5000});}catch{await database.report.update({where:{id:report.id},data:{status:'FAILED',errorCode:'QUEUE_UNAVAILABLE',completedAt:new Date()}});}
-await writeAudit({ tenantId: run.tenantId, actorUserId: request.userId, requestId: request.id, action: 'remediation.post_scan_compared', resourceType: 'remediation_run', resourceId: runId, ipAddress: request.ip, metadata: comparison });await publishTenantEvent({tenantId:run.tenantId,eventType:'POST_SCAN',deduplicationKey:`post-scan:${runId}`,title:'Post-remediation scan completed',message:`The post-scan comparison completed with ${afterOpen} open finding(s).`,actionUrl:`/customer/websites/${run.websiteId}/reports`,data:{runId,beforeOpen,afterOpen}},options.queues?.notifications);await publishTenantEvent({tenantId:run.tenantId,eventType:'REMEDIATION_COMPLETED',deduplicationKey:`remediation-completed:${runId}`,title:'Remediation completed',message:'Remediation and its post-scan verification completed.',actionUrl:`/customer/websites/${run.websiteId}/tickets`,data:{runId,ticketId:run.ticketId}},options.queues?.notifications);return comparison;
+// A successful scan is not proof that a mutation ran, that a particular
+// finding was fixed, or that recovery was tested. Existing action-name
+// records contain no verified execution evidence. Preserve them for review
+// instead of resolving tickets or manufacturing a successful repair report.
+throw new ApiError(409, 'NO_VERIFIED_MUTATION', 'The run has no verified website mutation. A completed scan alone cannot resolve the ticket or certify a repair');
 });
 
   app.put('/owner/warranty/tenants/:tenantId', async (request) => { requireOwnerMfa(request);

@@ -1,1 +1,1 @@
-{ "name": "@zerochack/ai-gateway", "version": "0.0.0", "private": true, "type": "module", "exports": "./src/index.ts", "scripts": { "typecheck": "tsc --noEmit" }, "dependencies": { "@zerochack/auth": "*" } }
+{"name":"@zerochack/ai-gateway","version":"0.0.0","private":true,"type":"module","exports":"./src/index.ts","scripts":{"typecheck":"tsc --noEmit"},"dependencies":{"@anthropic-ai/sdk":"0.128.0","@zerochack/auth":"*","ajv":"8.20.0"}}

@@ -6,6 +6,7 @@ import type { Environment } from '@zerochack/config';
 import { generateOpaqueToken, hashOpaqueToken, hashPassword, normalizeEmail, publicRoleNames, verifyPassword } from '@zerochack/auth';
 import { forgotPasswordSchema, loginSchema, registrationSchema, resetPasswordSchema, tokenSchema } from '@zerochack/validation';
 import { ApiError } from '../../errors.js';
+import { authMeRateLimit } from '../../http-rate-policy.js';
 import { authenticate, clearSessionCookie, setSessionCookie } from './security.js';
 import { consumeAuthToken, createSession, expiresFromNow, issueAuthToken, writeAudit } from './service.js';
 import type { Queue } from 'bullmq';
@@ -40,9 +41,9 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
       await transaction.auditLog.create({ data: { tenantId: tenant.id, actorUserId: user.id, requestId: request.id, action: 'auth.registration', resourceType: 'user', resourceId: user.id, ipAddress: request.ip, metadata: { role: input.role } } });
       return { rawToken, userId: user.id, tenantId: tenant.id };
     });
-    try { await email.send({ to: normalizedEmail, subject: 'Verify your ZeroRoot email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token.rawToken)}\nThis link expires in ${environment.EMAIL_TOKEN_TTL_MINUTES} minutes.` }); }
+    try { await email.send({ to: normalizedEmail, subject: 'Verify your CodeBandage email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token.rawToken)}\nThis link expires in ${environment.EMAIL_TOKEN_TTL_MINUTES} minutes.` }); }
     catch (error) { request.log.error({ err: error, errorCode: 'EMAIL_DELIVERY_FAILED', userId: token.userId }, 'email.verification.failed'); throw new ApiError(503, 'EMAIL_DELIVERY_FAILED', 'Account created, but verification email could not be delivered. Request a new link.'); }
-    await publishTenantEvent({ tenantId: token.tenantId, recipientId: token.userId, eventType: 'REGISTRATION', deduplicationKey: `registration:${token.userId}`, title: 'Registration received', message: 'Your ZeroRoot account was registered. Verify your email to continue.', actionUrl: '/verify-email' }, options.notificationsQueue);
+    await publishTenantEvent({ tenantId: token.tenantId, recipientId: token.userId, eventType: 'REGISTRATION', deduplicationKey: `registration:${token.userId}`, title: 'Registration received', message: 'Your CodeBandage account was registered. Verify your email to continue.', actionUrl: '/verify-email' }, options.notificationsQueue);
     return reply.code(202).send({ status: 'VERIFICATION_REQUIRED' });
   });
 
@@ -51,7 +52,7 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
     if (user && !user.emailVerifiedAt && user.status === 'REGISTERED') {
       await database.authToken.updateMany({ where: { userId: user.id, type: 'EMAIL_VERIFICATION', usedAt: null }, data: { usedAt: new Date() } });
       const token = await issueAuthToken(user.id, 'EMAIL_VERIFICATION', environment.EMAIL_TOKEN_TTL_MINUTES, environment);
-      await email.send({ to: user.email, subject: 'Verify your ZeroRoot email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token)}` });
+      await email.send({ to: user.email, subject: 'Verify your CodeBandage email', text: `Verify your account: ${environment.APP_URL}/verify-email?token=${encodeURIComponent(token)}` });
     }
     return reply.code(202).send({ status: 'ACCEPTED' });
   });
@@ -104,7 +105,7 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
     if (user?.emailVerifiedAt && !['SUSPENDED', 'DEACTIVATED'].includes(user.status)) {
       await database.authToken.updateMany({ where: { userId: user.id, type: 'PASSWORD_RESET', usedAt: null }, data: { usedAt: new Date() } });
       const token = await issueAuthToken(user.id, 'PASSWORD_RESET', environment.RESET_TOKEN_TTL_MINUTES, environment);
-      await email.send({ to: user.email, subject: 'Reset your ZeroRoot password', text: `Reset your password: ${environment.APP_URL}/reset-password?token=${encodeURIComponent(token)}\nThis link expires in ${environment.RESET_TOKEN_TTL_MINUTES} minutes.` });
+      await email.send({ to: user.email, subject: 'Reset your CodeBandage password', text: `Reset your password: ${environment.APP_URL}/reset-password?token=${encodeURIComponent(token)}\nThis link expires in ${environment.RESET_TOKEN_TTL_MINUTES} minutes.` });
       await writeAudit({ actorUserId: user.id, requestId: request.id, action: 'auth.password_reset_requested', resourceType: 'user', resourceId: user.id, ipAddress: request.ip });
     }
     return reply.code(202).send({ status: 'ACCEPTED' });
@@ -137,7 +138,9 @@ export const authRoutes: FastifyPluginAsync<{ environment: Environment; email: E
     await writeAudit({ tenantId: request.tenantId, actorUserId: request.userId, requestId: request.id, action: 'auth.sessions_revoked_all', resourceType: 'user', resourceId: request.userId, ipAddress: request.ip }); return reply.code(204).send();
   });
 
-  app.get('/auth/me', { preHandler: (request) => authenticate(request, environment) }, async (request) => {
+  // Caddy forward_auth checks each protected request. Bound this separately so
+  // checking a session does not spend the same application-request budget twice.
+  app.get('/auth/me', { config: { rateLimit: authMeRateLimit(environment.NODE_ENV) }, preHandler: (request) => authenticate(request, environment) }, async (request) => {
     const [user, tenant] = await Promise.all([
       database.user.findUniqueOrThrow({ where: { id: request.userId! }, select: { id: true, email: true, displayName: true, emailVerifiedAt: true, createdAt: true } }),
       database.tenant.findUniqueOrThrow({ where: { id: request.tenantId! }, select: { id: true, name: true, slug: true } })

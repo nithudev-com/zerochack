@@ -1,13 +1,16 @@
+import type { RouteHandlerMethod } from 'fastify';
+import { looksSensitive } from '@zerochack/care';
+import { brokerSecret, captureAccess, trackedChat, finishChat } from '../care/service.js';
 import { EventEmitter } from 'node:events';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { resolveTxt } from 'node:dns/promises';
 import type { FastifyInstance } from 'fastify';
 import { Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { z } from 'zod';
 import { database } from '@zerochack/database';
-import { decryptSecret, encryptSecret, generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
-import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, type EngineFinding } from '@zerochack/scanner';
+import { generateOpaqueToken, hashOpaqueToken } from '@zerochack/auth';
+import { implementedEngines, normalizeWebsiteUrl, resolvePublicTarget, runSecurityScan, safeHttpRequest, scanQueuePolicy, TargetSecurityError, validateHostname, validatePublicHttpTarget, type EngineFinding } from '@zerochack/scanner';
 import type { Environment } from '@zerochack/config';
 import { ApiError } from '../../errors.js';
 import { authenticate, requirePermission } from '../auth/security.js';
@@ -17,6 +20,12 @@ import { AiGatewayError } from '@zerochack/ai-gateway';
 import { verifyReport, reportTypes, type ReportDocument } from '@zerochack/reports';
 import { publishTenantEvent } from '../communications/service.js';
 import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
+import { connectionSummary } from './connection-summary.js';
+import { verifySshHost } from './ssh-host-trust.js';
+import { navigationActivity, navigationClickAction, navigationClickInput } from './overview-activity.js';
+import { inspectionNextStep, needsInspectionConfirmation } from './conversation-guidance.js';
+import { assessmentAccessDigest, assertActiveAssessment, lockAssessmentAuthority, type AssessmentBinding } from './assessment-authority.js';
+import { assessmentView, assessmentAudit, lockAssessmentWebsite } from './assessment-state.js';
 
 const websiteInput = z.object({ name: z.string().trim().min(2).max(120), url: z.string().url().max(2048) });
 const websiteUpdate = websiteInput.partial().refine((value) => Object.keys(value).length > 0, 'At least one field is required');
@@ -30,12 +39,16 @@ const accessInput = z.object({
   port: z.number().int().min(1).max(65_535).default(22),
   username: z.string().trim().min(1).max(120),
   authMethod: z.enum(['PASSWORD', 'SSH_KEY']),
+  hostKeyFingerprint: z.string().regex(/^SHA256:[A-Za-z0-9+/]{43}=?$/).optional(),
+  firstConnectionTrustConfirmed: z.boolean().default(false),
+  idempotencyKey: z.string().uuid().optional(),
   secret: z.string().min(1).max(50_000),
   authorizationConfirmed: z.literal(true)
 });
 const chatEvents = new EventEmitter();
 chatEvents.setMaxListeners(500);
-const credentialLike = (value: string) => /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:password|passwd|private[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*\S+/iu.test(value);
+const legacyCredentialLike = (value: string) => /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:password|passwd|private[_ -]?key|access[_ -]?token|secret)\s*[:=]\s*\S+/iu.test(value);
+const credentialLike = (value: string) => looksSensitive(value) || legacyCredentialLike(value);
 type PriceFinding={title:string;description?:string|null;severity:string;affectedResource:string;recommendation:string;cwe?:string|null;owaspCategory?:string|null};
 function securityFixPriceMatches(price:{scope:string;severity:string|null;owaspCategory:string|null;cwe:string|null;matchTerms:string[]},finding:PriceFinding):boolean{if(price.scope==='PROJECT')return true;if(price.severity&&price.severity!==finding.severity)return false;if(price.owaspCategory&&price.owaspCategory.toLowerCase()!==(finding.owaspCategory??'').toLowerCase())return false;if(price.cwe&&price.cwe.toLowerCase()!==(finding.cwe??'').toLowerCase())return false;const text=[finding.title,finding.description,finding.affectedResource,finding.recommendation,finding.cwe,finding.owaspCategory].filter(Boolean).join(' ').toLowerCase();if(price.matchTerms.length&&!price.matchTerms.some((term)=>text.includes(term.toLowerCase())))return false;return Boolean(price.severity||price.owaspCategory||price.cwe||price.matchTerms.length);}
 
@@ -68,7 +81,7 @@ function serverObservationFinding(observation: ServerObservation, inspection: Se
     SUSPICIOUS_CRON: { title: 'Suspicious persistence pattern detected in user cron', description: 'The SSH user crontab contains a downloader, decoder, temporary-memory path, or known malware indicator. Command contents were not collected.', severity: 'HIGH', confidence: 0.86, recommendation: 'Preserve the crontab for evidence, validate each scheduled command, remove unauthorized persistence, and investigate account compromise.', cwe: 'CWE-506', owaspCategory: 'A08:2021' }
   };
   const rule = rules[observation.kind];
-  return { fingerprint: evidenceHash(`ssh-forensics-v2\0${observation.kind}\0${observation.path}`), ...rule, affectedResource: observation.path, remediationSupported: true, evidence: { summary: `${rule.title} observed by the read-only SSH assessment. No credential or file content was returned to AI.`, metadata: { path: observation.path, detail: observation.detail ?? null, platform: inspection.platform, malwareScanner: inspection.malwareScanner, scannedFiles: inspection.scannedFiles, rootCount: inspection.roots.length } }, engine: 'ssh-forensics', engineVersion: '2.0.0', observedAt };
+  return { fingerprint: evidenceHash(`ssh-forensics-v2\0${observation.kind}\0${observation.path}`), ...rule, affectedResource: observation.path, remediationSupported: false, evidence: { summary: `${rule.title} observed by the read-only SSH assessment. No credential or file content was returned to AI.`, metadata: { path: observation.path, detail: observation.detail ?? null, platform: inspection.platform, malwareScanner: inspection.malwareScanner, scannedFiles: inspection.scannedFiles, rootCount: inspection.roots.length } }, engine: 'ssh-forensics', engineVersion: '2.0.0', observedAt };
 }
 
 async function websiteForTenant(tenantId: string, websiteId: string) {
@@ -79,7 +92,18 @@ async function websiteForTenant(tenantId: string, websiteId: string) {
 
 type QueueSet = { scans?: Queue; monitoring?: Queue; backups?: Queue; reports?: Queue; notifications?: Queue };
 
-export async function customerRoutes(app: FastifyInstance, options: { environment: Environment; queues?: QueueSet; ai: AiService }): Promise<void> {
+export type AssessmentRunners = { connect: typeof connectSsh; inspect: typeof inspectServerReadOnly; web: typeof runSecurityScan };
+
+export async function customerRoutes(app: FastifyInstance, options: { environment: Environment; queues?: QueueSet; ai: AiService; assessmentRunners?: AssessmentRunners }): Promise<void> {
+  const runners = options.assessmentRunners ?? { connect: connectSsh, inspect: inspectServerReadOnly, web: runSecurityScan };
+  const backgroundAssessments = new Set<Promise<void>>();
+  const assessmentStops = new Set<() => void>();
+  let closing = false;
+  app.addHook('preClose', async () => {
+    closing = true;
+    for (const stop of assessmentStops) stop();
+    await Promise.allSettled([...backgroundAssessments]);
+  });
   const chatPublisher = options.environment.NODE_ENV === 'test' ? undefined : new Redis(options.environment.REDIS_URL, { maxRetriesPerRequest: 1 });
   const chatSubscriber = chatPublisher?.duplicate();
   if (chatSubscriber && chatPublisher) {
@@ -107,60 +131,132 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return conversation;
   };
 
-  const checkWebsiteAccess = async (input: { tenantId: string; websiteId: string; actorUserId: string; requestId: string; ipAddress: string; announce?: boolean }) => {
+  type CheckInput = { tenantId: string; websiteId: string; actorUserId: string; requestId: string; ipAddress: string; announce?: boolean };
+  const activeSshChecks = new Set<string>();
+  const checkWebsiteAccess = async (input: CheckInput) => {
+    const key = `${input.tenantId}:${input.websiteId}`;
+    if (activeSshChecks.has(key)) throw new ApiError(409, 'SSH_CHECK_IN_PROGRESS', 'An SSH check is already running for this website.');
+    if (activeSshChecks.size >= 4) throw new ApiError(429, 'SSH_CHECK_LIMIT', 'SSH checks are busy. Retry shortly.');
+    activeSshChecks.add(key);
+    try { return await performWebsiteAccessCheck(input); } finally { activeSshChecks.delete(key); }
+  };
+  const performWebsiteAccessCheck = async (input: CheckInput) => {
     await websiteForTenant(input.tenantId, input.websiteId);
     const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_CONFIGURED', 'Add your scoped server access in the encrypted Secure Access form before checking it.');
+    const unchanged = { id: access.id, tenantId: input.tenantId, websiteId: input.websiteId, host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, encryptedSecret: access.encryptedSecret, vaultCredentialId: access.vaultCredentialId, hostKeyFingerprint: access.hostKeyFingerprint, updatedAt: access.updatedAt };
     try {
-      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: decryptSecret(access.encryptedSecret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY), hostKeyFingerprint: access.hostKeyFingerprint });
+      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint }, verifySshHost(access, input.actorUserId, input.requestId));
       connection.client.end();
-      const [updated] = await database.$transaction([
-        database.websiteAccessCredential.update({ where: { websiteId: input.websiteId }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } }),
-        database.website.update({ where: { id: input.websiteId }, data: { connectionStatus: 'VERIFIED', connectedAt: new Date(), connectionErrorCode: null } })
-      ]);
+      const updated = await database.$transaction(async tx => {
+        const changed = await tx.websiteAccessCredential.updateMany({ where: { ...unchanged, website: { is: { tenantId: input.tenantId, lifecycle: 'ACTIVE' } }, ...(access.vaultCredentialId ? { vaultCredential: { is: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'STORED', authorizationExpiresAt: { gt: new Date() } } } } : {}) }, data: { status: 'READY_FOR_SECURE_SESSION', hostKeyFingerprint: connection.fingerprint, lastCheckedAt: new Date(), lastErrorCode: null } });
+        if (changed.count !== 1) throw new ApiError(409, 'SSH_ACCESS_CHANGED', 'SSH access changed or expired during this check. Check the current saved account.');
+        await tx.website.update({ where: { id: input.websiteId }, data: { connectionStatus: 'VERIFIED', connectedAt: new Date(), connectionErrorCode: null } });
+        return tx.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId: input.websiteId }, select: { host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, vaultCredential: { select: { authorizationExpiresAt: true } } } });
+      });
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: 'Your SSH details are correct and the server identity has been pinned. I am ready to run the bounded read-only security assessment. I will never place your password or private key in this chat or in an AI prompt.' } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: 'SSH authentication succeeded. The server identity is saved and later changes will be blocked. No assessment, cleanup or changes started. Your password or private key was not added to chat or sent to AI.' } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       await writeAudit({ tenantId: input.tenantId, actorUserId: input.actorUserId, requestId: input.requestId, action: 'website.ssh_access_checked', resourceType: 'website', resourceId: input.websiteId, ipAddress: input.ipAddress, metadata: { hostKeyPinned: true } });
-      return { ...updated, secretStored: true, guidance: 'SSH authentication succeeded. The server key is pinned and secure access is ready.' };
+      const { vaultCredential, ...metadata } = updated;
+      return { ...metadata, secretStored: true, authorizationExpiresAt: vaultCredential?.authorizationExpiresAt ?? null, guidance: 'SSH authentication succeeded. No assessment or changes started.' };
     } catch (error) {
       const code = error instanceof TargetSecurityError ? error.code : sshErrorCode(error);
-      await database.websiteAccessCredential.update({ where: { websiteId: input.websiteId }, data: { status: 'NEEDS_ATTENTION', lastCheckedAt: new Date(), lastErrorCode: code } });
-      const guidance = code === 'SSH_AUTH_FAILED' ? 'I could reach the SSH server, but authentication failed. Recheck the SSH username and use a current password or private key from your hosting dashboard. If you do not know where to find it, tell me your hosting company in chat or choose live support.' : code === 'SSH_HOST_KEY_CHANGED' ? 'The server identity changed since the last successful connection. For safety I stopped. Confirm the change with your hosting provider before rotating the saved access.' : 'I could not reach the SSH service. Confirm the SSH host and port in your hosting dashboard and check whether remote SSH access is enabled.';
+      await database.websiteAccessCredential.updateMany({ where: unchanged, data: { status: 'NEEDS_ATTENTION', lastCheckedAt: new Date(), lastErrorCode: code } });
+      const guidance = code === 'AUTHORIZATION_REQUIRED' ? 'Stored SSH authorization expired or was revoked. Re-enter access in the secure form and approve a new connection check.' : code === 'SSH_ACCESS_CHANGED' ? 'The saved account changed or expired during this check. Check the current saved account; the old result was not applied.' : code === 'SSH_AUTH_FAILED' ? 'The SSH server rejected authentication. Check the username and current key or password in your hosting dashboard.' : code === 'SSH_HOST_KEY_CHANGED' ? 'The server identity did not match your trusted fingerprint. Confirm the identity through your hosting provider before changing the saved fingerprint.' : 'SSH was not verified. Check the SSH host and port from your provider, DNS, firewall and account details. A website domain may point to a CDN rather than its SSH server.';
       if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: guidance } });
+        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content: guidance } });
         await publishChat(input.tenantId, input.websiteId, message);
       }
       throw new ApiError(409, code, guidance);
     }
   };
 
-  const assessWebsite = async (input: { tenantId: string; websiteId: string; actorUserId: string; roles: string[]; requestId: string; ipAddress: string; announce?: boolean; summarizeWithAi?: boolean }) => {
+  const assessWebsite = async (input: { tenantId: string; websiteId: string; actorUserId: string; sessionId: string; roles: string[]; requestId: string; ipAddress: string; announce?: boolean; summarizeWithAi?: boolean; onAdmitted?: (value: { scanId: string; status: 'RUNNING'; repairApplied: false }) => void }) => {
+    if (closing) throw new ApiError(503, 'ASSESSMENT_UNAVAILABLE', 'The inspection service is restarting. Retry shortly.');
     const website = await websiteForTenant(input.tenantId, input.websiteId);
-    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'READY_FOR_SECURE_SESSION' } });
+    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'READY_FOR_SECURE_SESSION' }, include: { vaultCredential: { select: { version: true } } } });
     if (!access) throw new ApiError(409, 'ACCESS_NOT_READY', 'First add and verify the SSH details in Secure Access, or ask for live support.');
     const totalEngines = implementedEngines.length + 1;
-    const scan = await database.scan.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'RUNNING', startedAt: new Date(), progress: 5, engineCount: totalEngines } });
-    const reportProgress = async (progress: number, content: string) => {
-      await database.scan.update({ where: { id: scan.id }, data: { progress } });
-      if (input.announce === false) return;
-      const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content } });
-      await publishChat(input.tenantId, input.websiteId, message);
+    const event = (action: string, stage: string) => ({ tenantId: input.tenantId, actorUserId: input.actorUserId, requestId: input.requestId, action, resourceType: 'scan', ipAddress: input.ipAddress, metadata: { websiteId: input.websiteId, stage } });
+    const scan = await database.$transaction(async tx => {
+      // Global admission lock only covers local database work, never network I/O.
+      await tx.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(684991205)`;
+      const recent = await tx.auditLog.findMany({ where: { action: assessmentAudit.started, resourceType: 'scan', createdAt: { gt: new Date(Date.now() - 180_000) } }, select: { resourceId: true } });
+      const active = await tx.scan.count({ where: { id: { in: recent.flatMap(row => row.resourceId ? [row.resourceId] : []) }, status: 'RUNNING' } });
+      if (active >= 2) throw new ApiError(429, 'ASSESSMENT_CAPACITY', 'Inspection capacity is busy. Retry shortly.');
+      const created = await tx.scan.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, status: 'RUNNING', startedAt: new Date(), progress: 5, engineCount: totalEngines } });
+      await tx.auditLog.create({ data: { ...event(assessmentAudit.started, 'CONNECTING'), resourceId: created.id } });
+      return created;
+    }).catch((error: unknown) => { if (typeof error === 'object' && error && 'code' in error && error.code === 'P2002') throw new ApiError(409, 'SCAN_ALREADY_ACTIVE', 'An inspection is already queued or running. Review saved progress before starting another.'); throw error; });
+    const binding: AssessmentBinding = { tenantId: input.tenantId, websiteId: input.websiteId, scanId: scan.id, userId: input.actorUserId, sessionId: input.sessionId, url: website.url, normalizedHost: website.normalizedHost, accessDigest: assessmentAccessDigest(access), vaultVersion: access.vaultCredential?.version ?? null };
+    let client: Awaited<ReturnType<typeof connectSsh>>['client'] | undefined;
+    let stopped: unknown;
+    let checking = false;
+    let persisted = false;
+    const assessmentController = new AbortController();
+    const guard = async () => { if (stopped) throw stopped; await assertActiveAssessment(database, binding); if (stopped) throw stopped; };
+    const stop = (error: unknown) => { stopped ??= error; assessmentController.abort(); client?.end(); };
+    const shutdown = () => stop(new ApiError(409, 'ASSESSMENT_INTERRUPTED', 'The service restarted during inspection. No repair was applied.'));
+    assessmentStops.add(shutdown);
+    // Admission can await the database while preClose begins. A newly registered
+    // run must observe that shutdown too, before it can acknowledge or connect.
+    if (closing) shutdown();
+    const poll = setInterval(() => {
+      if (checking || stopped) return;
+      checking = true;
+      void guard().catch(stop).finally(() => { checking = false; });
+    }, 2000);
+    poll.unref();
+    const deadline = setTimeout(() => stop(new ApiError(409, 'ASSESSMENT_TIMEOUT', 'The bounded assessment deadline expired. No repair was applied.')), 150_000);
+    deadline.unref();
+    const safePublish = async (message: unknown) => { try { await publishChat(input.tenantId, input.websiteId, message); } catch { app.log.warn({ scanId: scan.id, errorCode: 'ASSESSMENT_EVENT_UNAVAILABLE' }, 'assessment.event_unavailable'); } };
+    const reportProgress = async (progress: number, stage: string, content: string) => {
+      await guard();
+      const message = await database.$transaction(async tx => {
+        await lockAssessmentWebsite(tx, input.tenantId, input.websiteId);
+        await lockAssessmentAuthority(tx, binding);
+        await tx.scan.update({ where: { id: scan.id }, data: { progress } });
+        await tx.auditLog.create({ data: { ...event(assessmentAudit.progress, stage), resourceId: scan.id } });
+        return input.announce === false ? null : tx.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'SYSTEM', content } });
+      });
+      if (message) await safePublish(message);
     };
     try {
-      await reportProgress(10, 'Assessment started: opening the pinned SSH server identity. No server changes are permitted.');
-      const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: decryptSecret(access.encryptedSecret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY), hostKeyFingerprint: access.hostKeyFingerprint });
-      let server; try { server = await inspectServerReadOnly(connection.client); } finally { connection.client.end(); }
-      await reportProgress(70, `SSH file inspection finished: ${server.roots.length} web root(s), ${server.scannedFiles} PHP/JavaScript file(s), malware mode ${server.malwareScanner}. Running public web checks now.`);
-      const web = await runSecurityScan(website.url, { timeoutMs: options.environment.SCANNER_TIMEOUT_MS, maxRedirects: options.environment.SCANNER_MAX_REDIRECTS, maxBytes: options.environment.SCANNER_MAX_RESPONSE_BYTES });
-      await reportProgress(85, `Public web checks finished with ${web.findings.length} configuration indicator(s). Correlating server evidence and saving integrity hashes.`);
+      await reportProgress(10, 'CONNECTING', 'Opening the saved SSH identity for a bounded inspection. No repair is running.');
+      // Explicit browser inspections return acceptance after durable admission,
+      // rather than depending on an open HTTP request through the proxy timeout.
+      input.onAdmitted?.({ scanId: scan.id, status: 'RUNNING', repairApplied: false });
+      const secret = await brokerSecret(access, options.environment);
+      await guard();
+      const connection = await runners.connect({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret, hostKeyFingerprint: access.hostKeyFingerprint });
+      client = connection.client;
+      await reportProgress(20, 'INSPECTING_SSH', 'SSH authenticated. Inspecting bounded server evidence; no file changes are permitted.');
+      let server: ServerInspection;
+      try { server = await runners.inspect(client, { onProgress: async ({ stage, scannedFiles }) => {
+        const phases = { DISCOVERING_ROOTS: [25, 'Locating accessible website folders.'], INSPECTING_FILES: [35, 'Checking a bounded sample of website files and permissions.'], ANTIVIRUS: [50, 'Checking available antivirus within the remaining inspection budget.'], CHECKING_PERSISTENCE: [60, 'Checking bounded account persistence indicators.'] } as const;
+        const [progress, message] = phases[stage];
+        await reportProgress(progress, 'INSPECTING_SSH', `${message} ${scannedFiles} code files analyzed. No file changes are permitted.`);
+      } }); } finally { client.end(); client = undefined; }
+      await reportProgress(70, 'CHECKING_PUBLIC_SITE', 'Server inspection returned. Checking the public website; coverage limitations will be retained.');
+      const web = await runners.web(website.url, { timeoutMs: options.environment.SCANNER_TIMEOUT_MS, maxRedirects: options.environment.SCANNER_MAX_REDIRECTS, maxBytes: options.environment.SCANNER_MAX_RESPONSE_BYTES, signal: assessmentController.signal });
+      await reportProgress(85, 'SAVING_EVIDENCE', 'Public checks returned. Validating current authorization before saving evidence.');
       const observedAt = new Date();
-      const uniqueObservations = [...new Map(server.observations.map((observation) => [`${observation.kind}\0${observation.path}`, observation])).values()];
-      const serverFindings = uniqueObservations.map((observation) => serverObservationFinding(observation, server, observedAt));
-      const findings = [...web.findings, ...serverFindings];
+      const uniqueObservations = [...new Map(server.observations.map(observation => [`${observation.kind}\0${observation.path}`, observation])).values()];
+      const serverFindings = uniqueObservations.map(observation => ({ ...serverObservationFinding(observation, server, observedAt), remediationSupported: false }));
+      const findings = [...web.findings.map(finding => ({ ...finding, remediationSupported: false })), ...serverFindings];
       const fixPrices = await database.securityFixPrice.findMany({ where: { active: true, archivedAt: null }, orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] });
-      await database.$transaction(async (tx) => {
+      const matched = fixPrices.filter(price => price.scope === 'PROJECT' || findings.some(finding => securityFixPriceMatches(price, finding)));
+      const coverage = { platform: server.platform, webRoots: server.roots, codeFilesAnalyzed: server.scannedFiles, scanLimitReached: server.scanLimitReached, malwareScanner: server.malwareScanner, malwareScannerStatus: server.malwareScannerStatus, coverageState: server.coverageState, coverageLimitations: server.coverageLimitations, serverIndicators: serverFindings.length, publicWebIndicators: web.findings.length };
+      const lines = findings.length ? findings.slice(0, 20).map((finding, index) => `${index + 1}. [${finding.severity}] ${finding.title} — ${finding.affectedResource}`).join('\n') : 'No indicator matched the implemented rules within the inspected scope.';
+      const priceLines = matched.map(item => `• ${item.name}: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: item.currency }).format(item.priceMinor / 100)} one time`).join('\n') || 'No owner-published security-fix price reliably matches. Contact support for scoping.';
+      const content = `Bounded inspection finished. No repair was applied.\n\nCoverage: ${server.coverageState}\n• Platform: ${server.platform}\n• Web roots: ${server.roots.length}\n• Code files analyzed locally: ${server.scannedFiles}\n• Malware scanner: ${server.malwareScanner} (${server.malwareScannerStatus})\n• File limit reached: ${server.scanLimitReached ? 'yes' : 'no'}\n${server.coverageLimitations.map(limit => `• ${limit}`).join('\n')}\n\nObserved findings\n${lines}\n\nThis is not proof that the website is malware-free or secured. Live automated repair is unavailable; these are saved observations, not completed fixes.\n\nPublished pricing\n${priceLines}`;
+      await guard();
+      const message = await database.$transaction(async tx => {
+        await lockAssessmentWebsite(tx, input.tenantId, input.websiteId);
+        await lockAssessmentAuthority(tx, binding);
+        if (stopped) throw stopped;
         for (const resultFinding of findings) {
           const { evidence, engine, engineVersion, observedAt: findingObservedAt, ...finding } = resultFinding;
           const created = await tx.securityFinding.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, scanId: scan.id, ...finding } });
@@ -168,37 +264,27 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
           await tx.findingEvidence.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, scanId: scan.id, findingId: created.id, engine, engineVersion, observedAt: findingObservedAt, summary, metadata, integrityHash: evidenceHash(JSON.stringify({ engine, engineVersion, findingObservedAt, summary, metadata })) } });
         }
         await tx.scan.update({ where: { id: scan.id }, data: { status: 'SUCCEEDED', progress: 100, completedEngines: totalEngines, completedAt: new Date(), finalUrl: web.response.url } });
-        await tx.website.update({ where: { id: input.websiteId }, data: { lastScanAt: new Date(), securityStatus: findings.some((item) => item.severity === 'CRITICAL') ? 'CRITICAL' : findings.some((item) => ['HIGH', 'MEDIUM'].includes(item.severity)) ? 'ATTENTION' : 'HEALTHY' } });
-      });
-      const serverIssueLines = serverFindings.length ? serverFindings.slice(0, 20).map((item, index) => `${index + 1}. [${item.severity}] ${item.title} — ${item.affectedResource}`).join('\n') : 'No server-side indicator matched the implemented rules.';
-      const webIssueLines = web.findings.length ? web.findings.slice(0, 10).map((item, index) => `${index + 1}. [${item.severity}] ${item.title} — ${item.affectedResource}`).join('\n') : 'No public HTTP issue matched the implemented rules.';
-      const matched = fixPrices.filter((price) => price.scope === 'PROJECT' || findings.some((finding) => securityFixPriceMatches(price, finding))); const priceLines = matched.map((item) => `• ${item.name} (${item.scope.toLowerCase()}): ${new Intl.NumberFormat('en-US', { style: 'currency', currency: item.currency }).format(item.priceMinor / 100)} one time`).join('\n') || 'No owner-published security-fix price reliably matches yet; I can connect you to live support for manual scoping.';
-      const coverage = { platform: server.platform, webRoots: server.roots, codeFilesAnalyzed: server.scannedFiles, scanLimitReached: server.scanLimitReached, malwareScanner: server.malwareScanner, serverIndicators: serverFindings.length, publicWebIndicators: web.findings.length };
-      const context = JSON.stringify({ website: { name: website.name, origin: new URL(website.url).origin }, coverage, findings: findings.map((item) => ({ title: item.title, severity: item.severity, affectedResource: item.affectedResource, recommendation: item.recommendation })), securityFixPrices: matched.map((item) => ({ id: item.id, name: item.name, scope: item.scope, priceMinor: item.priceMinor, currency: item.currency, includedWork: item.includedWork })), pricingRule: 'Use only these owner-published one-time security-fix prices. Subscriptions are separate. Never invent or estimate a price.' });
-      let content = `Real read-only server assessment completed over SSH.\n\nCoverage\n• Platform: ${server.platform}\n• Web roots inspected: ${server.roots.length}${server.roots.length ? ` (${server.roots.slice(0, 4).join(', ')})` : ''}\n• PHP/JavaScript files content-analyzed locally: ${server.scannedFiles}\n• Malware engine: ${server.malwareScanner === 'CLAMAV' ? 'ClamAV plus high-confidence web-shell signatures' : 'high-confidence web-shell signatures; ClamAV is not installed for this SSH account'}\n• Scan bound reached: ${server.scanLimitReached ? 'yes — a larger asynchronous scan is required for complete coverage' : 'no'}\n\nServer/file findings\n${serverIssueLines}\n\nPublic website findings\n${webIssueLines}\n\nImportant limitation: no scanner can prove that every malware family or past attack is absent. This result reports only observed evidence and explicitly states its coverage; it does not claim the server is “secured.”\n\nPricing\n${priceLines}`;
-      let usageId: string | undefined;
-      if (input.summarizeWithAi === true) {
-        try { const result = await options.ai.execute({ tenantId: input.tenantId, userId: input.actorUserId, roles: input.roles, requestId: input.requestId, idempotencyKey: crypto.randomUUID(), prompt: 'Report the supplied assessment coverage first, separate server/file evidence from public HTTP findings, preserve every stated limitation, and never claim the server is secured or malware-free.', untrustedContext: context, purpose: 'SECURITY_CHAT' }); content = result.text; usageId = result.usageId; } catch (error) { app.log.info({ errorCode: error instanceof AiGatewayError ? error.code : 'AI_UNAVAILABLE', websiteId: input.websiteId }, 'assessment.ai_fallback'); }
-      }
-      let message;
-      if (input.announce !== false) {
-        message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: content.slice(0, 4000) } });
-        if (usageId) await database.aiUsage.update({ where: { id: usageId }, data: { responseMessageId: message.id } });
-        await publishChat(input.tenantId, input.websiteId, message);
-      }
-      await writeAudit({ tenantId: input.tenantId, actorUserId: input.actorUserId, requestId: input.requestId, action: 'website.ai_assessment_completed', resourceType: 'scan', resourceId: scan.id, ipAddress: input.ipAddress, metadata: { findingCount: findings.length, sshObservationCount: serverFindings.length, codeFilesAnalyzed: server.scannedFiles, webRootCount: server.roots.length, malwareScanner: server.malwareScanner, scanLimitReached: server.scanLimitReached, initiatedBy: input.announce === false ? 'AI_TOOL' : 'USER_ACTION' } });
-      return { scanId: scan.id, findingCount: findings.length, serverPlatform: server.platform, coverage, findings: findings.slice(0, 30).map((item) => ({ title: item.title, severity: item.severity, affectedResource: item.affectedResource, recommendation: item.recommendation })), matchedPrices: matched.map((item) => ({ name: item.name, scope: item.scope, priceMinor: item.priceMinor, currency: item.currency })), ...(message ? { message } : {}) };
+        await tx.website.update({ where: { id: input.websiteId }, data: { lastScanAt: new Date(), securityStatus: findings.some(item => item.severity === 'CRITICAL') ? 'CRITICAL' : findings.some(item => ['HIGH', 'MEDIUM'].includes(item.severity)) ? 'ATTENTION' : server.coverageState === 'INCOMPLETE' ? 'UNKNOWN' : 'HEALTHY' } });
+        await tx.auditLog.create({ data: { ...event(assessmentAudit.completed, 'COMPLETED'), resourceId: scan.id, metadata: { ...event(assessmentAudit.completed, 'COMPLETED').metadata, ...coverage, findingCount: findings.length, repairApplied: false } } });
+        return input.announce === false ? null : tx.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: content.slice(0, 4000) } });
+      }, { timeout: 15_000 });
+      persisted = true;
+      if (message) await safePublish(message);
+      return { scanId: scan.id, findingCount: findings.length, serverPlatform: server.platform, coverage, findings: findings.slice(0, 30).map(item => ({ title: item.title, severity: item.severity, affectedResource: item.affectedResource, recommendation: item.recommendation })), matchedPrices: matched.map(item => ({ name: item.name, scope: item.scope, priceMinor: item.priceMinor, currency: item.currency })), ...(message ? { message } : {}) };
     } catch (error) {
-      const code = error instanceof TargetSecurityError ? error.code : sshErrorCode(error); await database.scan.update({ where: { id: scan.id }, data: { status: 'FAILED', errorCode: code, completedAt: new Date() } });
-      const guidance = code === 'SSH_AUTH_FAILED' ? 'The SSH details are no longer valid. Update them securely; never paste credentials into chat.' : code === 'SSH_INSPECTION_TIMEOUT' ? 'SSH connected successfully, but the server file inspection took too long and was stopped safely. No files were changed and no findings were claimed. The server may have a very large or slow web directory; retry after checking server load, or contact live support for a narrower scan.' : 'The bounded assessment could not connect. Check Secure Access or contact live support.';
-      if (input.announce !== false) {
-        const message = await database.chatMessage.create({ data: { tenantId: input.tenantId, websiteId: input.websiteId, type: 'AI', content: guidance } });
-        await publishChat(input.tenantId, input.websiteId, message);
-      }
-      throw new ApiError(409, code, guidance);
-    }
+      if (persisted) throw error; // A notification failure must never undo saved evidence.
+      const effective = stopped ?? error;
+      const candidate = effective && typeof effective === 'object' && 'code' in effective ? effective.code : undefined;
+      const code = typeof candidate === 'string' && /^[A-Z][A-Z0-9_]{1,79}$/.test(candidate) ? candidate : 'ASSESSMENT_FAILED';
+      const guidance = code === 'ASSESSMENT_CANCELLED' ? 'Inspection cancelled. No repair was applied. A bounded in-flight read request may finish, but its results will not be accepted.' : code === 'ASSESSMENT_BINDING_CHANGED' || code === 'AUTHORIZATION_REQUIRED' ? 'Inspection stopped because access, authorization or the website changed. Its results were not accepted. No repair was applied.' : 'The bounded inspection did not complete. No findings or repair success were claimed. Check saved access and retry, or contact support.';
+      await database.$transaction(async tx => {
+        await lockAssessmentWebsite(tx, input.tenantId, input.websiteId);
+        const changed = await tx.scan.updateMany({ where: { id: scan.id, tenantId: input.tenantId, websiteId: input.websiteId, status: 'RUNNING' }, data: { status: 'FAILED', errorCode: code, completedAt: new Date() } });
+        if (changed.count) await tx.auditLog.create({ data: { ...event(assessmentAudit.failed, 'FAILED'), resourceId: scan.id } });
+      });
+      throw new ApiError(effective instanceof ApiError ? effective.statusCode : 409, code, guidance);
+    } finally { clearInterval(poll); clearTimeout(deadline); assessmentStops.delete(shutdown); client?.end(); }
   };
-
   app.get('/customer/overview', async (request) => {
     requirePermission(request, 'websites.read');
     const tenantId = request.tenantId!;
@@ -223,10 +309,36 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.get('/websites', async (request) => {
     requirePermission(request, 'websites.read');
-    return database.website.findMany({
+    const websites = await database.website.findMany({
       where: { tenantId: request.tenantId!, lifecycle: 'ACTIVE' }, orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { findings: { where: { status: 'OPEN' } } } } }
+      include: {
+        _count: { select: { findings: { where: { status: 'OPEN' } } } },
+        accessCredential: { where: { tenantId: request.tenantId! }, select: { status: true, lastCheckedAt: true, lastErrorCode: true, vaultCredentialId: true, vaultCredential: { select: { status: true, authorizationExpiresAt: true } } } },
+        connectors: { where: { tenantId: request.tenantId! }, select: { provider: true, websiteUrl: true, status: true, authorizationExpiresAt: true, lastCheckedAt: true, lastErrorCode: true }, orderBy: { provider: 'asc' } }
+      }
     });
+    return websites.map(({ accessCredential, connectors, ...site }) => ({ ...site, connectionSummary: connectionSummary({ ...site, accessCredential, connectors }) }));
+  });
+
+  app.get('/websites/:websiteId/navigation-activity', { schema: { tags: ['websites'], summary: 'My latest website option clicks; not work results' } }, async (request) => {
+    requirePermission(request, 'websites.read');
+    const { websiteId } = parse(idParams, request.params);
+    await websiteForTenant(request.tenantId!, websiteId);
+    const rows = await database.auditLog.findMany({
+      where: { tenantId: request.tenantId!, actorUserId: request.userId!, action: navigationClickAction, resourceType: 'website', resourceId: websiteId },
+      select: { id: true, createdAt: true, metadata: true }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 50
+    });
+    return rows.flatMap(row => { const entry = navigationActivity(row); return entry ? [entry] : []; });
+  });
+
+  app.post('/websites/:websiteId/navigation-activity', { schema: { tags: ['websites'], summary: 'Record a personal option click without starting work', response: { 204: { type: 'null', description: 'Click recorded; no work started' } } }, bodyLimit: 512, config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10000 : 60, timeWindow: '1 minute' } } }, async (request, reply) => {
+    requirePermission(request, 'websites.read');
+    const { websiteId } = parse(idParams, request.params);
+    const click = parse(navigationClickInput, request.body);
+    await websiteForTenant(request.tenantId!, websiteId);
+    await writeAudit({ tenantId: request.tenantId!, actorUserId: request.userId!, requestId: request.id, action: navigationClickAction, resourceType: 'website', resourceId: websiteId, metadata: click });
+    // A click receipt is not a job, approval, provider result or proof of work.
+    return reply.code(204).send();
   });
 
   app.post('/websites', async (request, reply) => {
@@ -273,8 +385,11 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     requirePermission(request, 'websites.read');
     const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
     await websiteForTenant(tenantId, websiteId);
-    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
-    return access ? { ...access, secretStored: true } : null;
+    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true, encryptedSecret: true, vaultCredentialId: true, vaultCredential: { select: { status: true, authorizationExpiresAt: true } } } });
+    if (!access) return null;
+    const { encryptedSecret, vaultCredentialId, vaultCredential, ...metadata } = access;
+    const authorized = !vaultCredentialId || Boolean(options.environment.CARE_ENABLED && vaultCredential?.status === 'STORED' && vaultCredential.authorizationExpiresAt > new Date());
+    return { ...metadata, ...(!authorized ? { status: 'NEEDS_ATTENTION', lastErrorCode: 'AUTHORIZATION_REQUIRED' } : {}), secretStored: vaultCredentialId ? vaultCredential?.status === 'STORED' : Boolean(encryptedSecret), authorizationExpiresAt: vaultCredential?.authorizationExpiresAt ?? null };
   });
 
   app.put('/websites/:websiteId/access', async (request) => {
@@ -283,13 +398,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     await websiteForTenant(tenantId, websiteId);
     const host = input.host.toLowerCase();
     try { validateHostname(host); } catch (error) { if (error instanceof TargetSecurityError) throw new ApiError(400, error.code, error.message); throw error; }
-    const encryptedSecret = encryptSecret(input.secret, options.environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY);
-    const access = await database.websiteAccessCredential.upsert({
-      where: { websiteId },
-      create: { tenantId, websiteId, host, port: input.port, username: input.username, authMethod: input.authMethod, encryptedSecret },
-      update: { host, port: input.port, username: input.username, authMethod: input.authMethod, encryptedSecret, hostKeyFingerprint: null, status: 'CONFIGURED', lastCheckedAt: null, lastErrorCode: null },
-      select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true }
-    });
+    await captureAccess(request, websiteId, { content: JSON.stringify({ kind: 'SSH', host, port: input.port, username: input.username, authMethod: input.authMethod, secret: input.secret, firstConnectionTrustConfirmed: input.firstConnectionTrustConfirmed, ...(input.hostKeyFingerprint ? { hostKeyFingerprint: input.hostKeyFingerprint } : {}) }), environment: 'PRODUCTION', authorizationConfirmed: input.authorizationConfirmed, idempotencyKey: input.idempotencyKey ?? randomUUID() }, options.environment);
+    const access = await database.websiteAccessCredential.findUniqueOrThrow({ where: { websiteId }, select: { id: true, host: true, port: true, username: true, authMethod: true, status: true, lastCheckedAt: true, lastErrorCode: true, updatedAt: true } });
     await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'website.access_saved', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { host, port: input.port, authMethod: input.authMethod, secretStored: true } });
     return { ...access, secretStored: true };
   });
@@ -302,7 +412,16 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.delete('/websites/:websiteId/access', async (request, reply) => {
     requirePermission(request, 'websites.manage'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
-    await websiteForTenant(tenantId, websiteId); await database.websiteAccessCredential.deleteMany({ where: { tenantId, websiteId } });
+    await websiteForTenant(tenantId, websiteId);
+    await database.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
+      const previous = await tx.websiteAccessCredential.findUnique({ where: { websiteId } });
+      if (previous?.vaultCredentialId) {
+        await tx.careCredential.updateMany({ where: { id: previous.vaultCredentialId, tenantId, websiteId }, data: { status: 'REVOKED', encryptedEnvelope: '' } });
+        await tx.careAccessRequest.updateMany({ where: { credentialId: previous.vaultCredentialId }, data: { status: 'REVOKED' } });
+      }
+      await tx.websiteAccessCredential.deleteMany({ where: { tenantId, websiteId } });
+    });
     await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'website.access_revoked', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip });
     return reply.code(204).send();
   });
@@ -362,22 +481,93 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(202).send(scan);
   });
 
-  app.post('/websites/:websiteId/assessment', async (request, reply) => {
+  app.post('/websites/:websiteId/assessment', { config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10_000 : 6, timeWindow: '1 minute' } } }, async (request, reply) => {
     requirePermission(request, 'scans.run'); requirePermission(request, 'ai.security_context');
     const { websiteId } = parse(idParams, request.params);
-    const result = await assessWebsite({ tenantId: request.tenantId!, websiteId, actorUserId: request.userId!, roles: request.roleNames ?? [], requestId: request.id, ipAddress: request.ip });
+    const input = { tenantId: request.tenantId!, websiteId, actorUserId: request.userId!, sessionId: request.sessionId!, roles: request.roleNames ?? [], requestId: request.id, ipAddress: request.ip };
+    if (request.headers.prefer === 'respond-async') {
+      if (backgroundAssessments.size >= 2) throw new ApiError(429, 'ASSESSMENT_CAPACITY', 'Inspection capacity is busy. Retry shortly.');
+      let accept!: (value: { scanId: string; status: 'RUNNING'; repairApplied: false }) => void;
+      let refuse!: (reason: unknown) => void;
+      const admitted = new Promise<{ scanId: string; status: 'RUNNING'; repairApplied: false }>((resolve, reject) => { accept = resolve; refuse = reject; });
+      const running = assessWebsite({ ...input, onAdmitted: accept }).then(() => undefined, error => {
+        refuse(error);
+        app.log.warn({ requestId: request.id, errorCode: sshErrorCode(error) }, 'assessment.background_stopped');
+      }).finally(() => backgroundAssessments.delete(running));
+      backgroundAssessments.add(running);
+      return reply.code(202).header('preference-applied', 'respond-async').send(await admitted);
+    }
+    // Retained for existing internal tool callers; browser uses respond-async.
+    const result = await assessWebsite(input);
     return reply.code(201).send(result);
   });
 
-  app.patch('/websites/:websiteId/monitoring', async (request) => {
+  app.get('/websites/:websiteId/assessment', async (request, reply) => {
+    requirePermission(request, 'findings.read');
+    const { websiteId } = parse(idParams, request.params);
+    await websiteForTenant(request.tenantId!, websiteId);
+    reply.header('cache-control', 'private, no-store');
+    return assessmentView(request.tenantId!, websiteId);
+  });
+
+  app.post('/websites/:websiteId/assessment/:scanId/cancel', { config: { rateLimit: { max: options.environment.NODE_ENV === 'test' ? 10_000 : 10, timeWindow: '1 minute' } } }, async (request, reply) => {
+    requirePermission(request, 'scans.run');
+    const { websiteId, scanId } = parse(z.object({ websiteId: z.string().uuid(), scanId: z.string().uuid() }), request.params);
+    const tenantId = request.tenantId!;
+    await websiteForTenant(tenantId, websiteId);
+    await database.$transaction(async tx => {
+      await lockAssessmentWebsite(tx, tenantId, websiteId);
+      const start = await tx.auditLog.findFirst({ where: { tenantId, resourceType: 'scan', resourceId: scanId, action: assessmentAudit.started, metadata: { path: ['websiteId'], equals: websiteId } } });
+      const scan = start && await tx.scan.findFirst({ where: { id: scanId, tenantId, websiteId } });
+      if (!scan) throw new ApiError(404, 'ASSESSMENT_NOT_FOUND', 'This website assessment was not found.');
+      if (scan.errorCode === 'ASSESSMENT_CANCELLED') return;
+      if (scan.status !== 'RUNNING') throw new ApiError(409, 'ASSESSMENT_NOT_ACTIVE', 'The assessment already finished. Its result was not changed.');
+      await tx.scan.update({ where: { id: scanId }, data: { status: 'FAILED', errorCode: 'ASSESSMENT_CANCELLED', completedAt: new Date() } });
+      await tx.auditLog.create({ data: { tenantId, actorUserId: request.userId!, requestId: request.id, action: assessmentAudit.cancelled, resourceType: 'scan', resourceId: scanId, ipAddress: request.ip, metadata: { websiteId, stage: 'CANCELLED', repairApplied: false } } });
+    });
+    reply.header('cache-control', 'private, no-store');
+    return assessmentView(tenantId, websiteId);
+  });
+
+  app.patch('/websites/:websiteId/monitoring', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async request => {
     requirePermission(request, 'monitoring.manage'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!;
-    const { enabled } = parse(z.object({ enabled: z.boolean() }), request.body); await websiteForTenant(tenantId, websiteId); const intervalMinutes = (await database.monitoringPolicy.findUnique({ where: { websiteId } }))?.intervalMinutes ?? 60;
-    await database.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled, intervalMinutes }, update: { enabled } });
-    const website = await database.website.update({ where: { id: websiteId }, data: { monitoringStatus: enabled ? 'PENDING' : 'PAUSED' } });
-    try { if (!options.queues?.monitoring) throw new Error('queue unavailable'); if (enabled) { await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60_000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts: { removeOnComplete: 1000, removeOnFail: 5000 } }); await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { jobId: `monitor-${websiteId}-${crypto.randomUUID()}`, removeOnComplete: 1000, removeOnFail: 5000 }); } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`); }
-    catch { await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]); throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. Retry shortly.'); }
-    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip });
-    return website;
+    const input = parse(z.object({ enabled: z.boolean(), intervalMinutes: z.number().int().refine(value => [5, 15, 60].includes(value)).optional(), emailAlerts: z.boolean().optional() }).strict(), request.body);
+    if (input.emailAlerts !== undefined) requirePermission(request, 'notifications.manage');
+    const target = await websiteForTenant(tenantId, websiteId);
+    if (input.enabled) {
+      try { validatePublicHttpTarget(target.url, target.normalizedHost); }
+      catch { throw new ApiError(400, 'MONITORING_TARGET_INVALID', 'Monitoring requires a public HTTP or HTTPS website URL on port 80 or 443. No SSH connection is needed.'); }
+    }
+    const intervalMinutes = await database.$transaction(async tx => {
+      // Match the probe's commit lock: a completed check cannot overwrite PAUSED
+      // or create new alert events after this change has committed.
+      await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
+      const existing = await tx.monitoringPolicy.findUnique({ where: { websiteId } });
+      const intervalMinutes = input.intervalMinutes ?? existing?.intervalMinutes ?? 5;
+      await tx.monitoringPolicy.upsert({ where: { websiteId }, create: { websiteId, tenantId, enabled: input.enabled, intervalMinutes }, update: { enabled: input.enabled, intervalMinutes } });
+      await tx.website.update({ where: { id: websiteId }, data: { monitoringStatus: input.enabled ? 'PENDING' : 'PAUSED' } });
+      if (input.emailAlerts !== undefined) await tx.notificationPreference.upsert({ where: { tenantId_userId_eventType: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT' } }, create: { tenantId, userId: request.userId!, eventType: 'MONITORING_ALERT', emailEnabled: input.emailAlerts }, update: { emailEnabled: input.emailAlerts } });
+      return intervalMinutes;
+    });
+    let schedulerUpdated = false;
+    try {
+      if (!options.queues?.monitoring) throw new Error('queue unavailable');
+      if (input.enabled) {
+        const opts = { attempts: 3, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000, removeOnFail: 5000 };
+        await options.queues.monitoring.upsertJobScheduler(`monitor-${websiteId}`, { every: intervalMinutes * 60000 }, { name: 'monitoring.scheduled', data: { websiteId, tenantId }, opts });
+        await options.queues.monitoring.add('monitoring.immediate', { websiteId, tenantId }, { ...opts, jobId: `monitor-${websiteId}-${crypto.randomUUID()}` });
+      } else await options.queues.monitoring.removeJobScheduler(`monitor-${websiteId}`);
+      schedulerUpdated = true;
+    } catch {
+      // Disabling is durable even during a Redis outage. Old queued/repeating
+      // jobs fail the database policy guard and cannot probe or send mail.
+      if (input.enabled) {
+        await database.$transaction([database.monitoringPolicy.update({ where: { websiteId }, data: { enabled: false } }), database.website.update({ where: { id: websiteId }, data: { monitoringStatus: 'ERROR' } })]);
+        throw new ApiError(503, 'SCHEDULER_UNAVAILABLE', 'Monitoring could not be scheduled. It remains disabled; retry shortly.');
+      }
+    }
+    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: input.enabled ? 'monitoring.enabled' : 'monitoring.paused', resourceType: 'website', resourceId: websiteId, ipAddress: request.ip, metadata: { intervalMinutes, schedulerUpdated } });
+    return database.website.findUniqueOrThrow({ where: { id: websiteId } });
   });
 
   app.post('/websites/:websiteId/backups', async (request, reply) => {
@@ -409,6 +599,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
   app.post('/websites/:websiteId/tickets', async (request, reply) => {
     requirePermission(request, 'tickets.create'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; const input = parse(ticketInput, request.body);
     await websiteForTenant(tenantId, websiteId);
+    if (looksSensitive(`${input.title}\n${input.description ?? ''}`)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Remove credentials from the support request and use secure access capture instead.');
     if (input.findingId && !(await database.securityFinding.findFirst({ where: { id: input.findingId, tenantId, websiteId } }))) throw new ApiError(400, 'INVALID_FINDING_REFERENCE', 'Finding does not belong to this website');
     const ticket = await database.ticket.create({ data: { tenantId, websiteId, title: input.title, ...(input.description ? { description: input.description } : {}), ...(input.findingId ? { findingId: input.findingId } : {}) } });
     await publishTenantEvent({ tenantId, recipientId: request.userId!, eventType: 'TICKET_CREATED', deduplicationKey: `ticket-created:${ticket.id}`, title: 'Support ticket created', message: `Your ticket “${ticket.title}” was created.`, actionUrl: `/customer/websites/${websiteId}/tickets`, data: { websiteId, ticketId: ticket.id } }, options.queues?.notifications);
@@ -439,7 +630,12 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
 
   app.get('/websites/:websiteId/chat', async (request) => {
     requirePermission(request, 'chat.read'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; await websiteForTenant(tenantId, websiteId);
-    return database.chatMessage.findMany({ where: { tenantId, websiteId }, orderBy: { createdAt: 'asc' }, take: 200, include: { author: { select: { displayName: true } } } });
+    const { environment, before } = parse(z.object({ environment: z.enum(['PRODUCTION','STAGING']).default('PRODUCTION'), before: z.string().uuid().optional() }), request.query);
+    const anchor = before ? await database.chatMessage.findFirst({ where: { id: before, tenantId, websiteId, environment }, select: { id: true, createdAt: true } }) : null;
+    if (before && !anchor) throw new ApiError(404, 'HISTORY_CURSOR_INVALID', 'The history cursor is outside this conversation.');
+    // Let the database compare its full timestamp precision; JS Date truncates microseconds.
+    const messages = await database.chatMessage.findMany({ where: { tenantId, websiteId, environment }, ...(anchor ? { cursor: { id: anchor.id }, skip: 1 } : {}), orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 200, include: { author: { select: { displayName: true } } } });
+    return messages.reverse();
   });
 
   app.patch('/websites/:websiteId/findings/:findingId/status', async (request) => {
@@ -464,7 +660,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(201).send(message);
   });
 
-  app.post('/websites/:websiteId/chat/ai', async (request, reply) => {
+  const aiChatHandler: RouteHandlerMethod = async (request, reply) => {
     requirePermission(request, 'ai.use'); requirePermission(request, 'ai.security_context');
     const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; const input = parse(aiMessageInput, request.body);
     const website = await websiteForTenant(tenantId, websiteId);
@@ -480,9 +676,12 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
       database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId }, select: { status: true, lastErrorCode: true, lastCheckedAt: true } }),
       database.securityFixPrice.findMany({where:{active:true,archivedAt:null},orderBy:[{priority:'desc'},{createdAt:'asc'}]}),
       database.securityFixOrder.findFirst({ where: { tenantId,websiteId,status:{in:['PAID','QUEUED','IN_PROGRESS','COMPLETED']} }, select: { id: true } }),
-      database.chatMessage.findMany({ where: { tenantId, websiteId }, orderBy: { createdAt: 'desc' }, take: 12, select: { type: true, content: true, createdAt: true } }),
+      database.chatMessage.findMany({ where: { tenantId, websiteId, environment: 'PRODUCTION' }, orderBy: { createdAt: 'desc' }, take: 12, select: { type: true, content: true, createdAt: true } }),
       database.scan.findFirst({ where: { tenantId, websiteId }, orderBy: { requestedAt: 'desc' }, select: { id: true, status: true, progress: true, engineCount: true, completedEngines: true, requestedAt: true, completedAt: true, errorCode: true } })
     ]);
+    // Resolve an inspection clarification loop, never a different work request
+    // or a production-change approval. The explicit action remains necessary.
+    if (needsInspectionConfirmation(input.content, recentMessages.find(message => message.type === 'AI')?.content ?? '')) return quickAnswer(inspectionNextStep);
     const latestAssessmentAudit = latestScan ? await database.auditLog.findFirst({ where: { tenantId, action: 'website.ai_assessment_completed', resourceType: 'scan', resourceId: latestScan.id }, orderBy: { createdAt: 'desc' }, select: { metadata: true, createdAt: true } }) : null;
     const applicablePrices=fixPrices.filter((price)=>price.scope==='PROJECT'||Boolean(finding&&securityFixPriceMatches(price,finding)));const context = JSON.stringify({ website: { name: website.name, origin: new URL(website.url).origin, connectionStatus: website.connectionStatus, securityStatus: website.securityStatus }, secureAccess: access, latestScan, latestMeasuredCoverage: latestAssessmentAudit?.metadata, securityFixPaymentConfirmed: Boolean(successfulPayment), securityFixPrices:applicablePrices.map((item)=>({name:item.name,scope:item.scope,priceMinor:item.priceMinor,currency:item.currency,includedWork:item.includedWork})),pricingRule:'Only quote the supplied owner-published security-fix prices. Never estimate or invent an amount. Subscriptions are unrelated.', finding: finding ? { id: finding.id, scanId: finding.scanId, title: finding.title, description: finding.description, authoritativeSeverity: finding.severity, authoritativeStatus: finding.status, recommendation: finding.recommendation, evidence: finding.evidence } : undefined, ticket, recentFindings, recentConversation: recentMessages.reverse().map((message) => ({ role: message.type, content: message.content, at: message.createdAt })) });
     const emptyToolSchema = { type: 'object', properties: {}, additionalProperties: false, required: [] };
@@ -522,7 +721,7 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
       execute: async () => {
         try {
           requirePermission(request, 'scans.run');
-          const assessment = await assessWebsite({ tenantId, websiteId, actorUserId: request.userId!, roles: request.roleNames ?? [], requestId: request.id, ipAddress: request.ip, announce: false, summarizeWithAi: false });
+          const assessment = await assessWebsite({ tenantId, websiteId, actorUserId: request.userId!, sessionId: request.sessionId!, roles: request.roleNames ?? [], requestId: request.id, ipAddress: request.ip, announce: false, summarizeWithAi: false });
           return { ok: true, ...assessment, readOnly: true, secretExposed: false, findingsPath: `/customer/websites/${websiteId}/findings` };
         } catch (error) {
           if (error instanceof ApiError) return { ok: false, errorCode: error.code, guidance: error.message, secureAccessPath: `/customer/websites/${websiteId}/access`, secretExposed: false };
@@ -553,7 +752,8 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
         }
       }
     }];
-    let result; try { result = await options.ai.execute({ tenantId, userId: request.userId!, roles: request.roleNames ?? [], requestId: request.id, idempotencyKey: input.idempotencyKey, prompt: input.content, untrustedContext: context, purpose: 'SECURITY_CHAT', tools }, { ...(input.providerId ? { providerId: input.providerId } : {}), ...(input.modelId ? { modelId: input.modelId } : {}) }); } catch (error) { if (error instanceof AiGatewayError) throw new ApiError(error.statusCode, error.code, error.message); throw error; }
+    const invoke = (signal?: AbortSignal) => options.ai.execute({ tenantId, ...(signal ? { signal } : {}), userId: request.userId!, roles: request.roleNames ?? [], requestId: request.id, idempotencyKey: input.idempotencyKey, prompt: input.content, untrustedContext: context, purpose: 'SECURITY_CHAT', tools }, { ...(input.providerId ? { providerId: input.providerId } : {}), ...(input.modelId ? { modelId: input.modelId } : {}) });
+    let result; try { result = options.environment.CARE_ENABLED ? await trackedChat(request, websiteId, input.idempotencyKey, invoke) : await invoke(); } catch (error) { if (error instanceof AiGatewayError) throw new ApiError(error.statusCode, error.code, error.message); throw error; }
     const existing = await database.aiUsage.findUnique({ where: { id: result.usageId }, include: { responseMessage: { include: { author: { select: { displayName: true } } } } } });
     if (existing?.responseMessage) return reply.code(200).send(existing.responseMessage);
     const [, aiMessage] = await database.$transaction([
@@ -562,8 +762,17 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     ]);
     await database.aiUsage.update({ where: { id: result.usageId }, data: { responseMessageId: aiMessage.id } });
     const eventKey = `${tenantId}:${websiteId}`; if (chatPublisher) await chatPublisher.publish('zerochack:chat', JSON.stringify({ key: eventKey, message: aiMessage })); else chatEvents.emit(eventKey, aiMessage);
+    if (options.environment.CARE_ENABLED) await finishChat(tenantId, websiteId, input.idempotencyKey, aiMessage.id);
     await writeAudit({ tenantId, actorUserId: request.userId, requestId: request.id, action: 'ai.security_chat_completed', resourceType: 'ai_usage', resourceId: result.usageId, ipAddress: request.ip, metadata: { websiteId, findingId: input.findingId } });
     return reply.code(201).send(aiMessage);
+  };
+  app.post('/websites/:websiteId/chat/ai', aiChatHandler);
+  app.post('/websites/:websiteId/chat/ingest', async (request, reply) => {
+    const { websiteId } = parse(idParams, request.params);
+    const capture = z.object({ mode: z.literal('SECURE'), idempotencyKey: z.string().uuid(), content: z.string().min(1).max(100000), environment: z.enum(['PRODUCTION','STAGING']), authorizationConfirmed: z.literal(true) }).safeParse(request.body);
+    if (capture.success) return reply.code(201).send(await captureAccess(request, websiteId, capture.data, options.environment));
+    if ((request.body as { mode?: string })?.mode !== 'MESSAGE') throw new ApiError(400, 'AUTHORIZATION_REQUIRED', 'Confirm your authority and use secure capture for access details.');
+    return aiChatHandler.call(app, request, reply);
   });
 
   app.post('/websites/:websiteId/findings/:findingId/explain', async (request, reply) => {

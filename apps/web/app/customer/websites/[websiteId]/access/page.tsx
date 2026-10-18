@@ -1,5 +1,2 @@
-import { WorkspacePage } from '../../../../../components/workspace';
-
-export default function AccessPage() {
-  return <WorkspacePage section="access" />;
-}
+import { PlatformConnectors } from '../../../../../components/platform-connectors';
+export default function AccessPage() { return <PlatformConnectors />; }
