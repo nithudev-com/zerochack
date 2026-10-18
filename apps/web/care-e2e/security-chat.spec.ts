@@ -35,7 +35,8 @@ async function fixture(page: Page, options: { ready?: boolean; expired?: boolean
       if (options.checkFailure) { checked = false; return send({ error: { code: 'HOST_KEY_MISMATCH', message: 'synthetic-sensitive-error-never-render' } }, 409); }
       checked = true; return send({ ...metadata, status: 'READY_FOR_SECURE_SESSION', lastCheckedAt: stamp });
     }
-    if (path.endsWith('/assessment')) {
+    if (path.endsWith('/assessment') && request.method() === 'GET') return send({ scan: null });
+    if (path.endsWith('/assessment') && request.method() === 'POST') {
       if (options.assessmentFailure) return send({ error: { code: 'SCAN_ALREADY_ACTIVE', message: 'An inspection is already queued or running. Review saved progress before starting another.' } }, 409);
       messages.push({ id: 'inspection-completed', type: 'AI', content: 'Synthetic inspection completed. Two evidence-backed findings saved. No files were changed.', createdAt: stamp });
       return send({ scanId: id, findingCount: 2 }, 201);
@@ -73,6 +74,7 @@ test('security selection opens chat rather than a support brief', async ({ page 
 test('checked SSH asks about symptoms; chat saves real replies and never starts an assessment', async ({ page }) => {
   const writes = await fixture(page, { ready: true }); await page.goto(url);
   await expect(page.getByRole('button', { name: 'Inspect website', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Review findings', exact: true })).toHaveAttribute('href', `${base}/findings`);
   await expect(page.getByText('A saved question from yesterday.')).toBeVisible(); await expect(page.getByLabel('Security intake guidance')).toHaveCount(0);
   await page.getByLabel('Message CodeBandage').fill('My homepage redirects to another site. I noticed it this morning.'); await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect(page.getByText('Which pages changed, and when did you first notice?')).toBeVisible();

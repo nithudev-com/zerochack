@@ -7,6 +7,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { api, ApiClientError } from '../lib/api';
 import { BrandLogo } from './brand-logo';
+import { SecurityAgentActivity } from './security-agent-activity';
+import { securityActivity, type AssessmentActivity } from '../lib/security-activity';
 import styles from './security-chat.module.css';
 
 type Website = { id: string; name: string; url: string };
@@ -22,12 +24,16 @@ export function SecurityChat({ website }: { website: Website }) {
   const [inspecting, setInspecting] = useState(false); const [pendingMessage, setPendingMessage] = useState('');
   const [error, setError] = useState(''); const [connectionOpen, setConnectionOpen] = useState(false);
   const [checkFailed, setCheckFailed] = useState(false);
+  const [cancelling, setCancelling] = useState(false); const cancellingRequest = useRef(false);
   const sending = useRef(false); const controller = useRef<AbortController | null>(null);
   const alive = useRef(true); const bottom = useRef<HTMLDivElement>(null); const input = useRef<HTMLTextAreaElement>(null);
   const followLatest = useRef(true);
+  const previousScan = useRef<string | null>(null); const cancelRequested = useRef(false);
   const access = useQuery({ queryKey: ['website-access', website.id], queryFn: () => api<Access | null>(`${base}/access`), retry: false, refetchInterval: 10000 });
   const care = useQuery({ queryKey: ['security-capture', website.id], queryFn: () => api<Care>(`${base}/care?environment=PRODUCTION`), retry: false, refetchInterval: 10000 });
   const chat = useInfiniteQuery({ queryKey: ['chat', website.id, 'PRODUCTION'], queryFn: ({ pageParam }) => api<Message[]>(`${base}/chat?environment=PRODUCTION${pageParam ? `&before=${pageParam}` : ''}`), initialPageParam: null as string | null, getNextPageParam: page => page.length === 200 ? page[0]!.id : undefined, refetchInterval: 5000, retry: false });
+  const assessment = useQuery({ queryKey: ['security-assessment', website.id], queryFn: async () => { const result = await api<AssessmentActivity>(`${base}/assessment`); if (!result || !Object.hasOwn(result, 'scan')) throw new Error('Inspection activity is unavailable.'); return result; }, retry: false, refetchInterval: query => inspecting || query.state.data?.scan?.status === 'RUNNING' ? 1500 : 10000 });
+  const activity = securityActivity(assessment.data, assessment.isError, busy, inspecting, previousScan.current);
   const messages = [...new Map((chat.data?.pages.slice().reverse().flat() ?? []).map(message => [message.id, message])).values()];
   const latestMessageId = messages.at(-1)?.id;
   const hasConversation = messages.some(message => message.type !== 'SYSTEM');
@@ -35,21 +41,29 @@ export function SecurityChat({ website }: { website: Website }) {
   const ready = authorized && !checkFailed && !access.isError && access.data?.status === 'READY_FOR_SECURE_SESSION' && Boolean(access.data.secretStored && access.data.lastCheckedAt && !access.data.lastErrorCode);
   const canCapture = !care.isError && care.data?.capabilities.secureCapture === true;
   const hasActivity = Boolean(care.data?.jobs.length || care.data?.accessRequests.some(request => ['PENDING', 'APPROVED'].includes(request.status)));
-  const refresh = async () => { await Promise.all([access.refetch(), chat.refetch(), client.invalidateQueries({ queryKey: ['website', website.id] }), client.invalidateQueries({ queryKey: ['care', website.id] })]); };
+  const refresh = async () => { await Promise.all([access.refetch(), chat.refetch(), assessment.refetch(), client.invalidateQueries({ queryKey: ['website', website.id] }), client.invalidateQueries({ queryKey: ['care', website.id] })]); };
   useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort(); }; }, []);
   useEffect(() => { if (ready) input.current?.focus({ preventScroll: true }); }, [ready]);
-  useEffect(() => { if (followLatest.current) bottom.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); }, [latestMessageId]);
+  useEffect(() => { if (followLatest.current) bottom.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); }, [latestMessageId, activity?.state]);
   async function inspect() {
     if (sending.current || !ready) return;
-    sending.current = true; setBusy(true); setInspecting(true); setError(''); followLatest.current = true; controller.current = new AbortController();
+    sending.current = true; setBusy(true); setInspecting(true); setError(''); followLatest.current = true; previousScan.current = assessment.data?.scan?.id ?? null; cancelRequested.current = false; controller.current = new AbortController();
     try {
       // A deliberate customer action invokes the actual bounded assessment,
       // not a model-generated claim or a hidden production-change approval.
       await api(`${base}/assessment`, { method: 'POST', signal: controller.current.signal });
       if (alive.current) await refresh();
     } catch (caught) {
-      if (alive.current) { setError(caught instanceof ApiClientError ? caught.message : 'The inspection connection ended. Review saved progress before starting another inspection.'); await chat.refetch(); }
+      if (alive.current) { if (!cancelRequested.current) setError(caught instanceof ApiClientError ? caught.message : 'The inspection connection ended. Review saved progress before starting another inspection.'); await refresh(); }
     } finally { sending.current = false; if (alive.current) { setBusy(false); setInspecting(false); } }
+  }
+  async function cancelInspection() {
+    const scan = assessment.isError ? null : assessment.data?.scan;
+    if (!scan || scan.status !== 'RUNNING' || cancellingRequest.current) return;
+    cancellingRequest.current = true; setCancelling(true); setError('');
+    try { await api(`${base}/assessment/${scan.id}/cancel`, { method: 'POST' }); cancelRequested.current = true; if (inspecting) controller.current?.abort(); await refresh(); }
+    catch (caught) { if (alive.current) setError(caught instanceof ApiClientError ? caught.message : 'Cancellation could not be confirmed. Review saved activity.'); }
+    finally { cancellingRequest.current = false; if (alive.current) setCancelling(false); }
   }
   async function send() {
     if (sending.current || !draft.trim()) return;
@@ -92,11 +106,12 @@ export function SecurityChat({ website }: { website: Website }) {
       {connectionOpen && <SecureSsh key={website.id} id={website.id} available={canCapture} loading={care.isLoading} access={access.isError ? null : access.data ?? null} onChanged={refresh} onChecked={() => { setCheckFailed(false); setConnectionOpen(false); }} onCheckFailed={() => setCheckFailed(true)} close={() => setConnectionOpen(false)} />}
       {access.isError && <p role="alert">SSH status could not be verified. <button className={styles.secondary} onClick={() => void access.refetch()}>Retry SSH status</button></p>}
       {pendingMessage && !messages.some(message => message.type === 'CUSTOMER' && message.content === pendingMessage) && <article className={`${styles.message} ${styles.customer}`} aria-label="Message being sent"><div className={styles.author}><strong>You</strong><span>Sending…</span></div><p>{pendingMessage}</p></article>}
-      {busy && <p role="status" className={styles.note}>{inspecting ? 'Inspecting your website. Saved progress will appear here; no server changes are authorized.' : 'Waiting for the assistant response…'}</p>}
+      {activity && <SecurityAgentActivity {...activity} />}
+      {!assessment.isError && assessment.data?.scan?.status === 'RUNNING' && <button className={styles.secondary} disabled={cancelling} aria-busy={cancelling} onClick={() => void cancelInspection()}>{cancelling ? 'Cancelling inspection…' : 'Cancel inspection'}</button>}
       <div ref={bottom} />
     </div>
     {error && <p className={styles.error} role="alert">{error}</p>}
-    {ready && <div className={styles.workflow}><div><button className={styles.secondary} disabled={busy} onClick={() => void inspect()}>{inspecting ? 'Inspecting…' : 'Inspect website'}</button><Link href={`${base}/findings`}>Review findings</Link></div><p>Inspect website authorizes a bounded SSH and public web assessment, not file changes. Live security repairs are not enabled in this deployment; a verified backup, supported repair runner and approval are required.</p></div>}
+    {ready && <div className={styles.workflow}><div><button className={styles.secondary} disabled={busy || (!assessment.isError && assessment.data?.scan?.status === 'RUNNING')} onClick={() => void inspect()}>{inspecting ? 'Inspecting…' : 'Inspect website'}</button><Link href={`/customer/websites/${website.id}/findings`}>Review findings</Link></div><p>Inspect website authorizes a bounded SSH and public web assessment, not file changes. Live security repairs are not enabled in this deployment; a verified backup, supported repair runner and approval are required.</p></div>}
     <form className={styles.composer} aria-label="Message security assistant" onSubmit={event => { event.preventDefault(); void send(); }}>
       <label className="sr-only" htmlFor={`security-draft-${website.id}`}>Message CodeBandage</label>
       <textarea ref={input} id={`security-draft-${website.id}`} value={draft} disabled={busy} maxLength={4000} autoComplete="off" data-private="true" placeholder={ready ? 'Tell me what changed on your website…' : 'Describe the problem — no passwords or keys…'} onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && window.matchMedia('(min-width: 768px)').matches) { event.preventDefault(); void send(); } }} />
