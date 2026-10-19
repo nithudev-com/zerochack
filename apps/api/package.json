@@ -30,6 +30,7 @@
     "@zerochack/reports": "*",
     "@zerochack/scanner": "*",
     "@zerochack/security": "*",
+    "@zerochack/security-orchestration": "*",
     "@zerochack/types": "*",
     "@zerochack/validation": "*",
     "bullmq": "^5.58.0",

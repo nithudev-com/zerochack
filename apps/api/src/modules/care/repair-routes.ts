@@ -9,6 +9,7 @@ import { ApiError } from '../../errors.js';
 import { careEvent, careWebsite } from './service.js';
 import { reconcileRelease } from './release-service.js';
 import { artifactMetadata, readArtifact, repairConfiguration, reserveEstimate, reserveRepairBudget, writeArtifact } from './repair-service.js';
+import { assertNoSecurityRepairConflict } from '../security-repair/conflicts.js';
 
 const uuid = z.string().uuid();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -65,6 +66,8 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     await database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${artifact.websiteId}::uuid FOR UPDATE`;
       if (await tx.careRelease.count({ where: { websiteId: artifact.websiteId, state: { in: ['QUEUED','RUNNING','VERIFYING','OUTCOME_UNKNOWN'] } } })) throw new ApiError(409, 'RELEASE_ACTIVE', 'Keep recovery artifacts until the release outcome is reconciled.');
+      if (await tx.securityRepairAttempt.count({ where: { tenantId: artifact.tenantId, websiteId: artifact.websiteId, artifactId: artifact.id } })) throw new ApiError(409, 'SECURITY_ARTIFACT_RETAINED', 'This artifact is retained as security workflow evidence and cannot be wiped.');
+      if (await tx.securityRepairDecision.count({ where: { tenantId: artifact.tenantId, websiteId: artifact.websiteId, artifactId: artifact.id } })) throw new ApiError(409, 'SECURITY_ARTIFACT_RETAINED', 'This artifact is retained as security workflow decision evidence and cannot be wiped.');
       await tx.careArtifact.update({ where: { id }, data: { status: 'DELETED', encryptedBody: '' } });
       await careEvent(tx, artifact, 'artifact.deleted', 'DELETED', 'Attachment content removed. Dependent approvals must be reviewed.', artifact.jobId ? { jobId: artifact.jobId } : undefined);
     }); return reply.code(204).send();
@@ -90,6 +93,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${job.id}::uuid FOR UPDATE`;
       const current = await tx.careJob.findUniqueOrThrow({ where: { id: job.id } });
       if (['RUNNING','VERIFYING','QUEUED'].includes(current.state) || await tx.careRevision.findUnique({ where: { jobId_version: { jobId: job.id, version: current.planVersion } } })) throw new ApiError(409, 'PLAN_EXISTS', 'Review the current plan or add feedback to create a new version.');
+      await assertNoSecurityRepairConflict(tx, { tenantId: job.tenantId, websiteId: job.websiteId });
       const revision = await tx.careRevision.create({ data: { tenantId: job.tenantId, websiteId: job.websiteId, jobId: job.id, version: current.planVersion, sourceId: source.id, sourceDigest: source.digest, budgetMicros: body.budgetMicros, plan: { policy: STATIC_POLICY_VERSION, allowedFiles: ['index.html'], issue: current.summary, expectedBehavior: current.expectedBehavior, baseline, maximumEstimateMicros: maximumEstimate, configuration: repairConfiguration(configuration), boundary: 'Prepare one static HTML candidate; no live writes, scripts, package installation, or source execution.', checks: ['static-content-policy','language','viewport','title','image-alternatives','unique-identifiers'], requiresCustomerPreview: true } } });
       await tx.careJob.update({ where: { id: job.id }, data: { state: 'AWAITING_APPROVAL', errorCode: null } });
       await careEvent(tx, job, 'approval.required', 'AWAITING_APPROVAL', 'Review the scoped static HTML plan and maximum model allowance.', { jobId: job.id });
@@ -106,6 +110,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
     const policy = await options.ai.configuration(revision.tenantId);
     return database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${revision.websiteId}::uuid FOR UPDATE`;
+      await assertNoSecurityRepairConflict(tx, { tenantId: revision.tenantId, websiteId: revision.websiteId });
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${revision.jobId}::uuid FOR UPDATE`;
       const job = await tx.careJob.findUniqueOrThrow({ where: { id: revision.jobId } });
       const current = await tx.careRevision.findUniqueOrThrow({ where: { id } });
@@ -127,6 +132,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${job.websiteId}::uuid FOR UPDATE`;
       const existing = await tx.careRelease.findUnique({ where: { tenantId_websiteId_requestKey: { tenantId: job.tenantId, websiteId: job.websiteId, requestKey: body.requestKey } } });
       if (existing) { if (existing.jobId !== job.id || existing.revisionId !== body.revisionId || existing.credentialId !== body.credentialId || existing.remotePath !== body.remotePath) throw new ApiError(409, 'REQUEST_KEY_CONFLICT', 'Use a new request key for a different release.'); return { release: existing, created: false }; }
+      await assertNoSecurityRepairConflict(tx, { tenantId: job.tenantId, websiteId: job.websiteId });
       const revision = await tx.careRevision.findFirst({ where: { id: body.revisionId, jobId: job.id, version: job.planVersion, state: 'VERIFIED' } });
       const credential = await tx.careCredential.findFirst({ where: { id: body.credentialId, tenantId: job.tenantId, websiteId: job.websiteId, environment: 'PRODUCTION', kind: 'SSH', status: 'STORED', authorizationExpiresAt: { gt: new Date() } } });
       const bridge = await tx.websiteAccessCredential.findFirst({ where: { websiteId: job.websiteId, vaultCredentialId: body.credentialId, hostKeyFingerprint: { not: null } } });
@@ -171,6 +177,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
       const release = await tx.careRelease.findFirst({ where: { id, tenantId: request.tenantId! } });
       if (!release) throw new ApiError(404, 'NOT_FOUND', 'Release was not found.'); await careWebsite(request, release.websiteId, tx);
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${release.websiteId}::uuid FOR UPDATE`;
+      await assertNoSecurityRepairConflict(tx, { tenantId: release.tenantId, websiteId: release.websiteId });
       const current = await tx.careRelease.findUniqueOrThrow({ where: { id } });
       const job = await tx.careJob.findUniqueOrThrow({ where: { id: current.jobId } }); const revision = await tx.careRevision.findUniqueOrThrow({ where: { id: current.revisionId } });
       const user = await tx.user.findUniqueOrThrow({ where: { id: request.userId! } });

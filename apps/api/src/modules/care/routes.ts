@@ -20,6 +20,7 @@ import { stopReview } from './review-service.js';
 import { repairRoutes } from './repair-routes.js';
 import { invalidateRepair } from './repair-service.js';
 import { careEvent, careWebsite, credentialMetadata, vaultKey } from './service.js';
+import { assertNoSecurityRepairConflict } from '../security-repair/conflicts.js';
 
 const uuid = z.string().uuid();
 function parse<T>(schema: z.ZodType<T>, input: unknown): T {
@@ -162,6 +163,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${websiteId}::uuid FOR UPDATE`;
       const existing = await tx.careJob.findUnique({ where: { tenantId_websiteId_requestKey: { tenantId, websiteId, requestKey: input.requestKey } } });
       if (existing) return { job: existing, created: false };
+      await assertNoSecurityRepairConflict(tx, { tenantId, websiteId });
       const job = await tx.careJob.create({ data: { tenantId, websiteId, userId: request.userId!, ...input, kind: 'REPAIR', state: 'WAITING_FOR_INPUT', errorCode: options.environment.CARE_REPAIR_ENABLED ? 'SOURCE_REQUIRED' : 'ISOLATED_WORKER_NOT_CONFIGURED' } });
       await careEvent(tx, job, 'job.created', job.state, 'Issue recorded. A configured isolated repair worker and scoped plan are required before work can begin.', { jobId: job.id });
       return { job, created: true };
@@ -180,6 +182,7 @@ export async function careRoutes(app: FastifyInstance, options: { environment: E
       if (looksSensitive(input.content)) throw new ApiError(400, 'SENSITIVE_CONTENT_BLOCKED', 'Use secure capture for access details.');
       await database.$transaction(async (tx) => {
         await invalidateRepair(tx, job);
+        await assertNoSecurityRepairConflict(tx, { tenantId: job.tenantId, websiteId: job.websiteId });
         const current = await tx.careJob.findUniqueOrThrow({ where: { id } });
         const expectedBehavior = [current.expectedBehavior, `Customer correction: ${input.content}`].filter(Boolean).join('\n');
         if (expectedBehavior.length > 4000) throw new ApiError(400, 'SCOPE_LIMIT', 'The combined requirements exceed 4000 characters. Create a new issue with a consolidated scope.');

@@ -17,6 +17,7 @@
     "@zerochack/reports": "*",
     "@zerochack/scanner": "*",
     "@zerochack/storage": "*",
+    "@zerochack/security-orchestration": "*",
     "bullmq": "^5.58.0",
     "dotenv": "^17.2.0",
     "ioredis": "^5.7.0",

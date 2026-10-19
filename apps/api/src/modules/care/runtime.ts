@@ -1,13 +1,15 @@
 import type { Prisma } from '@prisma/client';
 import type { Environment } from '@zerochack/config';
+import { hasSecurityRepairConflict } from '../security-repair/conflicts.js';
 
 export const vaultKey = (environment: Environment) => environment.CARE_VAULT_KEY ?? environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY;
 export async function claimCareWebsite(tx: Prisma.TransactionClient, kind: 'REVIEW' | 'REPAIR') {
-  const sites = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM websites w WHERE EXISTS (SELECT 1 FROM care_jobs j WHERE j.website_id = w.id AND j.kind = ${kind} AND j.state = 'QUEUED') AND NOT EXISTS (SELECT 1 FROM care_jobs a WHERE a.website_id = w.id AND a.kind IN ('REVIEW','REPAIR') AND a.state IN ('RUNNING','VERIFYING')) ORDER BY (SELECT MIN(j.updated_at) FROM care_jobs j WHERE j.website_id = w.id AND j.kind = ${kind} AND j.state = 'QUEUED'), id LIMIT 1 FOR UPDATE SKIP LOCKED`;
+  const sites = await tx.$queryRaw<Array<{ id: string; tenantId: string }>>`SELECT id, tenant_id AS "tenantId" FROM websites w WHERE EXISTS (SELECT 1 FROM care_jobs j WHERE j.website_id = w.id AND j.kind = ${kind} AND j.state = 'QUEUED') AND NOT EXISTS (SELECT 1 FROM care_jobs a WHERE a.website_id = w.id AND a.kind IN ('REVIEW','REPAIR') AND a.state IN ('RUNNING','VERIFYING')) AND NOT EXISTS (SELECT 1 FROM security_repair_runs s WHERE s.tenant_id = w.tenant_id AND s.website_id = w.id AND s.phase NOT IN ('COMPLETED','FAILED','CANCELLED')) ORDER BY (SELECT MIN(j.updated_at) FROM care_jobs j WHERE j.website_id = w.id AND j.kind = ${kind} AND j.state = 'QUEUED'), id LIMIT 1 FOR UPDATE SKIP LOCKED`;
   if (!sites[0]) return null;
   // Recheck after acquiring the common website lock: another claim may have committed
   // after this statement's MVCC snapshot was taken but before the lock was acquired.
   if (await tx.careJob.count({ where: { websiteId: sites[0].id, kind: { in: ['REVIEW','REPAIR'] }, state: { in: ['RUNNING','VERIFYING'] } } })) return null;
+  if (await hasSecurityRepairConflict(tx, { tenantId: sites[0].tenantId, websiteId: sites[0].id })) return null;
   return sites[0].id;
 }
 export async function careEvent(tx: Prisma.TransactionClient, scope: { tenantId: string; websiteId: string; environment: string }, eventType: string, state: string, summary: string, refs?: { jobId?: string; agentRunId?: string }) {

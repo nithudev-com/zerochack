@@ -9,6 +9,7 @@ import { ApiError } from '../../errors.js';
 import { careEvent, careWebsite } from './service.js';
 import { artifactMetadata, assertRepairActor, readArtifact, repairConfiguration, reserveRepairBudget, writeArtifact } from './repair-service.js';
 import { reviewEstimate, reviewReport, type ReviewPlan } from './review-service.js';
+import { assertNoSecurityRepairConflict } from '../security-repair/conflicts.js';
 
 const uuid = z.string().uuid();
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -41,6 +42,7 @@ export async function reviewRoutes(app: FastifyInstance, options: { environment:
         if (existing.kind !== 'REVIEW' || (existing.revisions[0]?.plan as unknown as ReviewPlan)?.requestFingerprint !== requestFingerprint) throw new ApiError(409, 'REQUEST_KEY_CONFLICT', 'This request key belongs to a different review scope.');
         return { jobId: existing.id, state: existing.state, created: false };
       }
+      await assertNoSecurityRepairConflict(tx, { tenantId: request.tenantId!, websiteId });
       if (await tx.careJob.count({ where: { tenantId: request.tenantId!, kind: 'REVIEW', state: { in: ['AWAITING_APPROVAL','QUEUED','RUNNING'] } } }) >= 10) throw new ApiError(429, 'REVIEW_QUEUE_LIMIT', 'Finish or cancel existing reviews before creating more.');
       const job = await tx.careJob.create({ data: { tenantId: request.tenantId!, websiteId, userId: request.userId!, requestKey: body.requestKey, environment: body.environment, kind: 'REVIEW', state: 'AWAITING_APPROVAL', summary: body.summary, expectedBehavior: body.expectedBehavior, sourceRevision: digestBytes(bytes) } });
       const artifact = await writeArtifact(tx, { tenantId: job.tenantId, websiteId, environment: job.environment, jobId: job.id, createdBy: request.userId! }, bytes, 'SOURCE_BUNDLE', 'reviewed-source.json', 'application/json', env);
@@ -76,6 +78,7 @@ export async function reviewRoutes(app: FastifyInstance, options: { environment:
     const configuration = await options.ai.configuration(revision.tenantId, { providerId: plan.configuration.providerId, modelId: plan.configuration.modelId });
     return database.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT id FROM websites WHERE id = ${revision.websiteId}::uuid FOR UPDATE`;
+      await assertNoSecurityRepairConflict(tx, { tenantId: revision.tenantId, websiteId: revision.websiteId });
       await tx.$queryRaw`SELECT id FROM care_jobs WHERE id = ${revision.jobId}::uuid FOR UPDATE`;
       const job = await tx.careJob.findUniqueOrThrow({ where: { id: revision.jobId } });
       const current = await tx.careRevision.findUniqueOrThrow({ where: { id } });
