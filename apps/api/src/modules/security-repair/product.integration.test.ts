@@ -196,7 +196,7 @@ describe.sequential('security product current authority: real isolated PostgreSQ
       const rejected = await f.app.inject({ method: 'POST', url: `${f.prefix}/runs`, headers: { cookie: f.cookie }, payload: { requestKey: randomUUID(), enrollmentId: f.enrollment.id, enrollmentRevision: 1, authorizationConfirmed: true } });
       expect(rejected.statusCode, rejected.body).toBe(409); expect(rejected.json().error.code).toBe('SECURITY_WEBSITE_WORK_CONFLICT'); expect(await database.securityRepairRun.count({ where: { tenantId: f.tenant.id } })).toBe(0);
       const admissions = await database.careArtifact.findMany({ where: { tenantId: f.tenant.id, kind: 'SEC_ADMISSION' } }); expect(admissions).toHaveLength(1); expect(admissions[0]!.encryptedBody).not.toContain('scope');
-      expect(f.remote.calls).toEqual({ observe: 0, prepare: 0, exportRecovery: 0, commit: 0 });
+      expect(f.remote.calls).toEqual({ observe: 0, prepare: 0, exportRecovery: 0, commit: 0, mutationPermits: 0, recoveryExportPermits: 0 });
     } finally { await f.app.close(); }
   });
 });

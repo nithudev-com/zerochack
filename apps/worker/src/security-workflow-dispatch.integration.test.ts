@@ -135,7 +135,7 @@ describe.sequential('real PostgreSQL + BullMQ/Redis isolated dispatch; synthetic
     await f.journal.recordChangeDecision(f.scope, { actorId: f.actorId, sessionId: f.sessionId, requestKey: randomUUID(), artifactId: proposal.artifactId!, digest: proposal.artifactDigest!, status: 'APPROVED' });
     // Test-only persisted states model a stale delivered event after an effect.
     if (condition === 'APPLY_RECORDED') await database.securityRepairAttempt.create({ data: { ...f.scope, runId: f.scope.runId, stepKey: 'apply', kind: 'STAGING_WRITE', inputDigest: 'e'.repeat(64), state: 'SUCCEEDED', leaseVersion: 1, reserveMicros: 0, costMicros: 0, artifactId: proposal.artifactId, artifactDigest: proposal.artifactDigest, completedAt: new Date() } });
-    else await database.securityRepairAttempt.updateMany({ where: { runId: f.scope.runId, stepKey: 'snapshot' }, data: { state: 'OUTCOME_UNKNOWN' } });
+    else await database.securityRepairAttempt.updateMany({ where: { runId: f.scope.runId, stepKey: 'snapshot' }, data: { state: 'OUTCOME_UNKNOWN', artifactId: null, artifactDigest: null, costMicros: null } });
     expect(await f.dispatch.flush()).toEqual({ claimed: 0, published: 0, unconfirmed: 0 }); expect(f.stepCalls).not.toContain('apply');
   });
   it.each(['CANCELLED', 'OUTCOME_UNKNOWN'] as const)('skips a queued job after authoritative %s without constructing a controller or replaying unknown work', async expected => {

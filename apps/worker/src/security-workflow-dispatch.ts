@@ -45,8 +45,8 @@ async function bounded<T>(work: Promise<T>, milliseconds: number): Promise<{ don
   finally { if (timer) clearTimeout(timer); }
 }
 
-/** Dormant transport boundary: no imports from worker/index, schedules, flags or
- * routes enable it. BullMQ is at-least-once transport, never execution authority.
+/** Opt-in transport boundary: worker startup supplies trusted server composition
+ * only when explicitly configured. BullMQ is at-least-once transport, never execution authority.
  * Retention bounds Redis memory; durable published rows and controller receipts,
  * not the lifetime of a Redis job id, remain the deduplication/safety boundary. */
 export function createSecurityWorkflowDispatch(options: SecurityWorkflowDispatchOptions) {
