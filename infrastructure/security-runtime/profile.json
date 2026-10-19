@@ -1,0 +1,34 @@
+{
+  "schema": "codebandage-rootless-security-runtime/v1",
+  "host": "vmi3643652",
+  "account": "codebandage-sandbox",
+  "home": "/var/lib/codebandage-sandbox",
+  "state": "/opt/codebandage/security-runtime",
+  "subordinateIdStart": 2000000,
+  "subordinateIdCount": 65536,
+  "dockerVersion": "29.8.2",
+  "packages": {
+    "libslirp0": "4.7.0-1ubuntu3.1",
+    "libsubid4": "1:4.13+dfsg1-4ubuntu3.2",
+    "slirp4netns": "1.2.1-1build2",
+    "uidmap": "1:4.13+dfsg1-4ubuntu3.2"
+  },
+  "gvisor": {
+    "version": "20261012.0",
+    "url": "https://github.com/google/gvisor/releases/download/release-20261012.0/gvisor-x86_64.tar.zstd",
+    "archiveBytes": 76363853,
+    "sha256": "21c1f60222826204e57eda551efc68fcdfd94a3ba2ef3e01d2a43d8bc4429e51",
+    "maximumExtractedBytes": 536870912
+  },
+  "minimumFreeBytes": 5368709120,
+  "maximumIncrementBytes": 2147483648,
+  "maximumLocalRunnerBytes": 536870912,
+  "aggregateCpuQuota": "25%",
+  "aggregateMemoryBytes": 1073741824,
+  "aggregatePids": 256,
+  "jobCpu": "0.25",
+  "jobMemoryBytes": 536870912,
+  "jobPids": 64,
+  "jobWritableBytes": 67108864,
+  "concurrency": 1
+}

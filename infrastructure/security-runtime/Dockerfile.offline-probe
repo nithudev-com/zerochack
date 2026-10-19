@@ -1,0 +1,11 @@
+# Initial pin metadata verified 2026-10-18; subsequent actual build/audit and
+# failed job-launch evidence is recorded in docs/SECURITY-WORKPLACE-VERIFICATION.md.
+# Docker Official Image: Python 3.12.15 on Alpine, Linux/amd64 manifest.
+FROM python:3.12-alpine@sha256:2055081c860db8c842b663415b795b026e7e5cc63b59c5193fcc9997713ea5b8
+LABEL io.codebandage.offline-runtime-profile="python3-stdlib-v1" \
+      org.opencontainers.image.title="CodeBandage benign offline isolation probe" \
+      org.opencontainers.image.base.digest="sha256:2055081c860db8c842b663415b795b026e7e5cc63b59c5193fcc9997713ea5b8"
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /work
+USER 65532:65532
+CMD ["python3", "-c", "import time; time.sleep(120)"]
