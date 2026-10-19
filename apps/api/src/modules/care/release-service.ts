@@ -6,13 +6,23 @@ import { safeHttpRequest } from '@zerochack/scanner';
 import { careEvent, vaultKey } from './runtime.js';
 import { assertRepairActor, readArtifact, writeArtifact } from './repair-service.js';
 import { openStaticTarget, type StaticTarget } from './static-target.js';
+import { assertNoSecurityRepairConflict, hasSecurityRepairConflict } from '../security-repair/conflicts.js';
 
 type ReleaseDependencies = { open: typeof openStaticTarget; health: (url: string, digest: string) => Promise<boolean> };
 const defaults: ReleaseDependencies = {
   open: openStaticTarget,
   async health(url, digest) { const response = await safeHttpRequest(url, { allowedHostname: new URL(url).hostname, maxBytes: 200000, maxRedirects: 0, timeoutMs: 10000 }); return response.status === 200 && /text\/html/i.test(response.headers['content-type'] ?? '') && digestBytes(response.body) === digest; }
 };
+/** Internal claim selector, shared with the real worker; it performs no remote work. */
+export async function claimReleaseWebsite(tx: Prisma.TransactionClient) {
+  const sites = await tx.$queryRaw<Array<{ id: string; tenantId: string }>>`SELECT id, tenant_id AS "tenantId" FROM websites w WHERE EXISTS (SELECT 1 FROM care_releases r WHERE r.website_id = w.id AND r.state = 'QUEUED') AND NOT EXISTS (SELECT 1 FROM security_repair_runs s WHERE s.tenant_id = w.tenant_id AND s.website_id = w.id AND s.phase NOT IN ('COMPLETED','FAILED','CANCELLED')) ORDER BY (SELECT MIN(r.created_at) FROM care_releases r WHERE r.website_id = w.id AND r.state = 'QUEUED'), id LIMIT 1 FOR UPDATE SKIP LOCKED`;
+  const site = sites[0];
+  if (!site || await hasSecurityRepairConflict(tx, { tenantId: site.tenantId, websiteId: site.id })) return null;
+  return site;
+}
 async function authorize(tx: Prisma.TransactionClient, release: CareRelease, env: Environment) {
+  await tx.$queryRaw`SELECT id FROM websites WHERE tenant_id = ${release.tenantId}::uuid AND id = ${release.websiteId}::uuid FOR UPDATE`;
+  await assertNoSecurityRepairConflict(tx, { tenantId: release.tenantId, websiteId: release.websiteId });
   const job = await tx.careJob.findUniqueOrThrow({ where: { id: release.jobId } });
   const revision = await tx.careRevision.findUniqueOrThrow({ where: { id: release.revisionId } });
   const website = await tx.website.findUniqueOrThrow({ where: { id: release.websiteId } });
@@ -55,7 +65,10 @@ export async function reconcileRelease(id: string, env: Environment, dependencie
 export async function runOneRelease(env: Environment, dependencies: ReleaseDependencies = defaults): Promise<boolean> {
   if (!env.CARE_ENABLED || !env.CARE_REPAIR_ENABLED || !env.CARE_RELEASE_ENABLED) return false;
   const release = await database.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM care_releases WHERE state = 'QUEUED' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`;
+    // All admission/approval/claim paths use website -> release lock order.
+    const site = await claimReleaseWebsite(tx);
+    if (!site) return null;
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM care_releases WHERE website_id = ${site.id}::uuid AND state = 'QUEUED' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED`;
     if (!rows[0]) return null;
     return tx.careRelease.update({ where: { id: rows[0].id }, data: { state: 'RUNNING', heartbeatAt: new Date() } });
   });
@@ -83,6 +96,7 @@ export async function runOneRelease(env: Environment, dependencies: ReleaseDepen
     const authorizeCommit = async (recovery: boolean) => {
       if (fenced) throw new CareError('RELEASE_LEASE_LOST', 'The release heartbeat was lost.');
       await database.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM websites WHERE tenant_id = ${release.tenantId}::uuid AND id = ${release.websiteId}::uuid FOR UPDATE`;
         const current = await tx.careRelease.findUniqueOrThrow({ where: { id: release.id } });
         if (current.state !== 'VERIFYING') throw new CareError('RELEASE_LEASE_LOST', 'The release state changed before replacement.');
         // Approved compensation can finish after the start-approval expiry; current actor/account authority still applies.

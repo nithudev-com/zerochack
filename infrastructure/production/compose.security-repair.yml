@@ -1,0 +1,25 @@
+# Optional, explicit managed STAGING product overlay. Do not add this to the live
+# deployment until the exact adapter, enrollment, recovery and migrations pass.
+services:
+  api:
+    environment:
+      SECURITY_REPAIR_ENABLED: 'true'
+      SECURITY_REPAIR_CONFIG_FILE: /etc/codebandage/security-repair/enrollments.json
+      SECURITY_REPAIR_IMPLEMENTATION_DIGEST: ${SECURITY_REPAIR_IMPLEMENTATION_DIGEST:?Set the reviewed managed adapter digest}
+    volumes:
+      - type: bind
+        source: /etc/codebandage/security-repair
+        target: /etc/codebandage/security-repair
+        read_only: true
+        bind: {create_host_path: false}
+  worker:
+    environment:
+      SECURITY_REPAIR_ENABLED: 'true'
+      SECURITY_REPAIR_CONFIG_FILE: /etc/codebandage/security-repair/enrollments.json
+      SECURITY_REPAIR_IMPLEMENTATION_DIGEST: ${SECURITY_REPAIR_IMPLEMENTATION_DIGEST:?Set the reviewed managed adapter digest}
+    volumes:
+      - type: bind
+        source: /etc/codebandage/security-repair
+        target: /etc/codebandage/security-repair
+        read_only: true
+        bind: {create_host_path: false}

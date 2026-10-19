@@ -521,6 +521,7 @@ model Website {
   careEvents CareEvent[]
   careArtifacts CareArtifact[]
   connectors WebsiteConnector[]
+  securityRepairRuns SecurityRepairRun[]
 
   @@unique([tenantId, id])
 
@@ -2124,6 +2125,9 @@ model CareArtifact {
   expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
+  securityRepairAttempts SecurityRepairAttempt[] @relation("SecurityRepairArtifact")
+  securityRepairDecisions SecurityRepairDecision[] @relation("SecurityDecisionArtifact")
+  securityRepairAdmissions SecurityRepairRun[] @relation("SecurityAdmissionArtifact")
   @@unique([tenantId, websiteId, id])
   @@index([tenantId, websiteId, environment, status])
   @@map("care_artifacts")
@@ -2248,4 +2252,183 @@ model CareVerificationRun {
   @@index([tenantId, websiteId, state])
   @@index([tenantId, websiteId, jobId, createdAt(sort: Desc), id(sort: Desc)], map: "care_verification_history_idx")
   @@map("care_verification_runs")
+}
+
+// P1 infrastructure only. No executor, public route, worker or capability is activated.
+// Historical actor/session identifiers are snapshots, not cascading user relations.
+model SecurityRepairRun {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  requestKey String @map("request_key") @db.Uuid
+  actorId String @map("actor_id") @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
+  inputDigest String @map("input_digest") @db.Char(64)
+  authorityDigest String @map("authority_digest") @db.Char(64)
+  admissionArtifactId String? @map("admission_artifact_id") @db.Uuid
+  admissionDigest String? @map("admission_digest") @db.Char(64)
+  executionProfile String? @map("execution_profile") @db.VarChar(64)
+  policyVersion String @default("security-workflow-v1") @map("policy_version") @db.VarChar(64)
+  phase String @default("PLANNING") @db.VarChar(32)
+  errorCode String? @map("error_code") @db.VarChar(80)
+  allowanceMicros Int @map("allowance_micros")
+  reservedMicros Int @default(0) @map("reserved_micros")
+  chargedMicros Int @default(0) @map("charged_micros")
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  leaseOwnerId String? @map("lease_owner_id") @db.Uuid
+  leaseVersion Int @default(0) @map("lease_version")
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz(6)
+  eventVersion Int @default(0) @map("event_version")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: NoAction, map: "security_repair_runs_website_fkey")
+  admissionArtifact CareArtifact? @relation("SecurityAdmissionArtifact", fields: [tenantId, websiteId, admissionArtifactId], references: [tenantId, websiteId, id], onDelete: NoAction, map: "security_repair_runs_admission_fkey")
+  attempts SecurityRepairAttempt[]
+  decisions SecurityRepairDecision[]
+  costs SecurityRepairCostEntry[]
+  outbox SecurityRepairOutbox[]
+  checkpoints SecurityGraphCheckpoint[]
+  writes SecurityGraphWrite[]
+  @@unique([tenantId, websiteId, environment, id], map: "security_repair_runs_scope_key")
+  @@unique([tenantId, websiteId, environment, requestKey], map: "security_repair_runs_request_key")
+  @@index([tenantId, websiteId, createdAt(sort: Desc), id(sort: Desc)], map: "security_repair_runs_history_idx")
+  @@index([phase, leaseExpiresAt], map: "security_repair_runs_lease_idx")
+  @@index([tenantId, websiteId, admissionArtifactId], map: "security_repair_runs_admission_idx")
+  @@map("security_repair_runs")
+}
+
+model SecurityRepairAttempt {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  runId String @map("run_id") @db.Uuid
+  stepKey String @map("step_key") @db.VarChar(96)
+  kind String @db.VarChar(20)
+  inputDigest String @map("input_digest") @db.Char(64)
+  attemptNumber Int @default(1) @map("attempt_number")
+  state String @default("STARTED") @db.VarChar(24)
+  leaseVersion Int @map("lease_version")
+  reserveMicros Int @map("reserve_micros")
+  costMicros Int? @map("cost_micros")
+  artifactId String? @map("artifact_id") @db.Uuid
+  artifactDigest String? @map("artifact_digest") @db.Char(64)
+  errorCode String? @map("error_code") @db.VarChar(80)
+  startedAt DateTime @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  run SecurityRepairRun @relation(fields: [tenantId, websiteId, environment, runId], references: [tenantId, websiteId, environment, id], onDelete: NoAction, map: "security_repair_attempts_run_fkey")
+  artifact CareArtifact? @relation("SecurityRepairArtifact", fields: [tenantId, websiteId, artifactId], references: [tenantId, websiteId, id], onDelete: NoAction, map: "security_repair_attempts_artifact_fkey")
+  costs SecurityRepairCostEntry[]
+  @@unique([tenantId, websiteId, environment, runId, id], map: "security_repair_attempts_scope_key")
+  @@unique([runId, stepKey, attemptNumber], map: "security_repair_attempts_step_key")
+  @@index([tenantId, websiteId, environment, runId, state], map: "security_repair_attempts_run_idx")
+  @@index([tenantId, websiteId, artifactId], map: "security_repair_attempts_artifact_idx")
+  @@map("security_repair_attempts")
+}
+
+// Append-only in the journal API. A reservation for an uncertain effect stays held.
+model SecurityRepairCostEntry {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  runId String @map("run_id") @db.Uuid
+  attemptId String @map("attempt_id") @db.Uuid
+  kind String @db.VarChar(16)
+  reservedDeltaMicros Int @map("reserved_delta_micros")
+  chargedDeltaMicros Int @map("charged_delta_micros")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  run SecurityRepairRun @relation(fields: [tenantId, websiteId, environment, runId], references: [tenantId, websiteId, environment, id], onDelete: NoAction, map: "security_repair_cost_entries_run_fkey")
+  attempt SecurityRepairAttempt @relation(fields: [tenantId, websiteId, environment, runId, attemptId], references: [tenantId, websiteId, environment, runId, id], onDelete: NoAction, map: "security_repair_cost_entries_attempt_fkey")
+  @@unique([attemptId, kind], map: "security_repair_cost_entries_once_key")
+  @@index([tenantId, websiteId, environment, runId], map: "security_repair_cost_entries_run_idx")
+  @@map("security_repair_cost_entries")
+}
+
+// Immutable customer decision over an exact plan receipt; not production authority.
+model SecurityRepairDecision {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  runId String @map("run_id") @db.Uuid
+  requestKey String @map("request_key") @db.Uuid
+  kind String @default("CANDIDATE") @db.VarChar(16)
+  artifactId String @map("artifact_id") @db.Uuid
+  digest String @db.Char(64)
+  actorId String @map("actor_id") @db.Uuid
+  sessionId String @map("session_id") @db.Uuid
+  status String @db.VarChar(16)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  run SecurityRepairRun @relation(fields: [tenantId, websiteId, environment, runId], references: [tenantId, websiteId, environment, id], onDelete: NoAction, map: "security_repair_decisions_run_fkey")
+  artifact CareArtifact @relation("SecurityDecisionArtifact", fields: [tenantId, websiteId, artifactId], references: [tenantId, websiteId, id], onDelete: NoAction, map: "security_repair_decisions_artifact_fkey")
+  @@unique([tenantId, websiteId, environment, runId, requestKey], map: "security_repair_decisions_request_key")
+  @@unique([runId, kind, artifactId], map: "security_repair_decisions_first_key")
+  @@index([tenantId, websiteId, artifactId], map: "security_repair_decisions_artifact_idx")
+  @@map("security_repair_decisions")
+}
+
+// No external dispatch in P1. Future consumers must fence dispatchVersion/owner.
+model SecurityRepairOutbox {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  runId String @map("run_id") @db.Uuid
+  eventKey String @map("event_key") @db.VarChar(96)
+  eventType String @map("event_type") @db.VarChar(64)
+  phase String @db.VarChar(32)
+  errorCode String? @map("error_code") @db.VarChar(80)
+  dispatchVersion Int @default(0) @map("dispatch_version")
+  dispatchOwnerId String? @map("dispatch_owner_id") @db.Uuid
+  dispatchExpiresAt DateTime? @map("dispatch_expires_at") @db.Timestamptz(6)
+  dispatchAttempts Int @default(0) @map("dispatch_attempts")
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  run SecurityRepairRun @relation(fields: [tenantId, websiteId, environment, runId], references: [tenantId, websiteId, environment, id], onDelete: NoAction, map: "security_repair_outbox_run_fkey")
+  @@unique([runId, eventKey], map: "security_repair_outbox_event_key")
+  @@index([tenantId, websiteId, environment, runId], map: "security_repair_outbox_run_idx")
+  @@index([publishedAt, dispatchExpiresAt, createdAt], map: "security_repair_outbox_dispatch_idx")
+  @@map("security_repair_outbox")
+}
+
+// Only authenticated encrypted envelopes; no graph messages/source/credentials.
+model SecurityGraphCheckpoint {
+  id String @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  runId String @map("run_id") @db.Uuid
+  checkpointNs String @map("checkpoint_ns") @db.VarChar(96)
+  parentId String? @map("parent_id") @db.Uuid
+  encryptedEnvelope String @map("encrypted_envelope") @db.Text
+  digest String @db.Char(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  run SecurityRepairRun @relation(fields: [tenantId, websiteId, environment, runId], references: [tenantId, websiteId, environment, id], onDelete: NoAction, map: "security_graph_checkpoints_run_fkey")
+  @@id([runId, checkpointNs, id])
+  @@unique([tenantId, websiteId, environment, runId, checkpointNs, id], map: "security_graph_checkpoints_scope_key")
+  @@index([tenantId, websiteId, environment, runId, createdAt(sort: Desc)], map: "security_graph_checkpoints_run_idx")
+  @@map("security_graph_checkpoints")
+}
+
+model SecurityGraphWrite {
+  id String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid
+  environment String @db.VarChar(16)
+  runId String @map("run_id") @db.Uuid
+  checkpointNs String @map("checkpoint_ns") @db.VarChar(96)
+  checkpointId String @map("checkpoint_id") @db.Uuid
+  taskId String @map("task_id") @db.Uuid
+  idx Int
+  taskPath String @map("task_path") @db.VarChar(512)
+  encryptedEnvelope String @map("encrypted_envelope") @db.Text
+  digest String @db.Char(64)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  run SecurityRepairRun @relation(fields: [tenantId, websiteId, environment, runId], references: [tenantId, websiteId, environment, id], onDelete: NoAction, map: "security_graph_writes_run_fkey")
+  @@unique([runId, checkpointNs, checkpointId, taskId, idx], map: "security_graph_writes_once_key")
+  @@index([tenantId, websiteId, environment, runId, checkpointNs, checkpointId], map: "security_graph_writes_checkpoint_idx")
+  @@map("security_graph_writes")
 }

@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-10-19T04:55:23Z",
+  "branch": "codex/security-workplace-vps-execution",
+  "baseline": "fa4e8668fc4a773372f9b44d8e2b39037b4f92d2",
+  "testedCandidate": "e7a009c3f5bb87a5913dc1e35c24f5437554772a",
+  "currentPhase": "P2",
+  "phaseStatus": {
+    "P0": "AUDIT_AND_BASELINE_RECORDED",
+    "P1": "TRUSTED_MANAGED_STAGING_PRODUCT_IMPLEMENTED_AND_DATABASE_TESTED",
+    "P2": "DATABASE_PRODUCT_HARDEN_RESTORE_VERIFIED_NEW_REAL_SSH_DRILL_PENDING",
+    "P3": "OFFICIAL_GVISOR_JOB_CREATION_FAILED_RUNTIME_STOPPED",
+    "P4": "NOT_IMPLEMENTED",
+    "P5": "NOT_IMPLEMENTED",
+    "P6": "AUDIT_TYPES_BUILD_AND_INTEGRATION_PASSED_FINAL_BROWSER_CI_PENDING"
+  },
+  "implementationCommits": [
+    "094aae725de92a247db2f6dcf0852fa402a8b879",
+    "908f9efe0648433b907a67cc20c1047b2e4baaac",
+    "c0877a18ec89f8233dfd4fedd3da3a1366c642ff",
+    "289e6c7b21fd4326faf60c0ddb56858584d8ee7d",
+    "98ffec14410272e35c5a0201b2fb9552f899e1bd"
+  ],
+  "implemented": [
+    "Deployed website-only inspection confinement and truthful limited-coverage presentation",
+    "Dormant LangGraph workflow, encrypted Prisma checkpoints, journal/decisions/leases/fencing/costs/controller/outbox and bounded BullMQ dispatch",
+    "Additive 31st migration; shared Care conflict and retained-artifact guards",
+    "Managed-static STAGING fixed-command SSH helper (now registered only through explicit operator product composition) with encrypted recovery and separately authorized one-bit harden/restore",
+    "Local-only observation reconciliation that cannot convert uncertain state into repair success or admit further mutation",
+    "Guarded separate VPS runtime provenance/provision/probe/stop tools and explicit compatibility ADR",
+    "24 predeclared tuning/held-out incidents and strict reporting harness; actual executor registry remains empty",
+    "Source/run-bound GitHub-hosted disposable test-database compatibility with existing blocking audit retained",
+    "Server-derived managed STAGING admission with current actor/session/RBAC, fresh MFA, explicit paid entitlement and exact operator enrollment/credential binding",
+    "Registered deterministic managed-static permission handlers, independently verified encrypted recovery export, separate candidate/change decisions and separately approved RESTORE runs",
+    "Inline security-only capabilities, plan/diff/approval/recovery/result/history cards with authority-expiry cache clearing and truthful cancellation",
+    "Protected operator registry, default-disabled API/worker composition, narrow additive 32nd migration and optional VPS read-only configuration overlay",
+    "Durable bounded fixed-profile runtime broker implemented; actual guest execution remains unavailable and disabled",
+    "Tailwind 4.3.3 official PostCSS upgrade resolves all current npm audit findings; existing custom CSS preserved"
+  ],
+  "verified": [
+    "Exact 7279 deployed production images and prior compiled API/worker/TLS checks",
+    "Final 98ffec1:1,005 unit tests/59 files; full lint and 20 workspace typechecks",
+    "233 actual disposable TLS PostgreSQL/Redis integration passes with 1 explicit optional live-scan skip, before final test/CI-only change",
+    "31 disposable migrations, positive TLS evidence and6 wrong-password/hostname/CA negative checks",
+    "Final 44 production-build and 44 development security browser checks using synthetic APIs; earlier failed preflight/initial-load timeout retained",
+    "Local optimized API/worker/Next build and unchanged generated OpenAPI",
+    "7 build-toolchain checks; 12 trusted LOCAL verification profiles; 31 runtime guard unit tests",
+    "Managed helper:21 Python,6 AES-GCM codec and11 broker local tests",
+    "Earlier exact 584c source-manifest actual VPS managed-static SSH harden/separate restore/lost-ack drill",
+    "Actual separate rootless engine namespaces and aggregate cgroup limits; no passing guest execution",
+    "19 October npm production:0 findings/full:5 HIGH and reviewed 98ffec1 source-secret scan:0",
+    "19 October continuation: 1,051 unit tests/63 files, full lint; 13 local TLS-fixture guards, 26 managed helper, 21 broker/codec and 59 runtime guard tests pass",
+    "66 unique synthetic browser checks (53 preservation and 13 repair), including narrow/mobile layouts; no live customer or SSH execution claim",
+    "Hosted e7a009c: all workspace typechecks, optimized API/worker/Next production build, compiled protected-route smoke and generated OpenAPI consistency passed",
+    "Hosted e7a009c: 249 actual PostgreSQL/Redis integration tests passed, 1 explicit optional live-scan skipped; 32 migrations, including HTTP/graph/approvals/harden/separately approved restore with simulated remote transport",
+    "Hosted e7a009c: 6 static browser tests passed; 6/8 portal tests passed, 2 stale browser journey expectations corrected in 587872b; full browser CI rerun pending"
+  ],
+  "notVerified": [
+    "New recovery export/product on real SSH; PostgreSQL/Redis product journey passed with explicitly simulated remote transport",
+    "VPS-local gVisor guest isolation, adversarial limits or PHP/WP/Node candidate loops",
+    "Later observation-reconciliation extension on real SSH/crash fixtures",
+    "Any new customer production security repair or recovery",
+    "24 incident executor trials or comparative Codex benchmark",
+    "New P1 application container images/runtime/audits, full portal/static-browser release gates and actual hosted CI",
+    "Fresh live-provider, Owner MFA, SMTP, payment or final Cloudflare behavior"
+  ],
+  "deployment": {
+    "observedAt": "2026-10-19T02:57:17Z",
+    "lastObservedRevision": "7279cda5188868db6848f21b2bc18a4a046fb024",
+    "status": "RESTRICTED_PREVIEW",
+    "servicesHealthy": 5,
+    "productionMigrations": 30,
+    "inspectionChatIngress": "RESTORED_WITH_WEBSITE_SCOPE_HOTFIX",
+    "newSecurityExecutionActivated": false,
+    "runtimeManager": "INACTIVE_DATA_PRESERVED",
+    "domainTlsRouting": "UNCHANGED"
+  },
+  "localFixtures": {
+    "legacyStoppedAt": "2026-10-19T02:11:39Z",
+    "v4StoppedAt": "2026-10-19T03:17:00Z",
+    "exitCodes": 0,
+    "containerRecordsAndEvidencePreserved": true,
+    "dataStorage": "Disposable bounded tmpfs; not production persistence or DR evidence",
+    "unrelatedUserContainersStopped": false
+  },
+  "blockers": [
+    "RUNTIME_COMPATIBILITY: pinned official gVisor failed user-systemd cgroup authorization before guest creation; see ADR002",
+    "HOSTING_GATE: ordinary shared SFTP lacks enforced independent-writer/inode/link prerequisites; fresh managed staging proof does not make customer hosting eligible",
+    "RECOVERY_GATE: customer operation recovery and approved off-server storage not established",
+    "EVALUATION_GATE: all 24 actual benchmark trials remain NOT_RUN",
+    "UNFINISHED_LOCAL: general malware/WordPress/PHP/Node repair tracks and exact production-write authority remain unavailable",
+    "DEPLOYMENT_GATE: runtime broker guard tests are not proof of actual gVisor guest network/resource/storage/timeout boundaries",
+    "RELEASE_GATE: current npm audit is zero; exact final application container images and prior deployed-image findings still require rebuild/audit"
+  ],
+  "next": [
+    "Inspect final browser CI on the published branch and PR #2; preserve prior exact-source failures and distinguish local/simulated evidence from real SSH/runtime proof",
+    "Run a separately authorized real managed STAGING recovery-export/product drill before live activation",
+    "Only with explicit approval, evaluate a pinned custom runtime fix; otherwise await a reviewed fixed official build. Keep execution disabled until actual adversarial gates pass",
+    "Complete each B-I vertical slice and real incident trials with exact evidence; no catalogue/fixture-only completion claims",
+    "Build/audit/test exact final application images and perform separately authorized canary/migration/activation only after all gates pass"
+  ],
+  "evidenceDirectories": [
+    "/opt/codebandage/audit-website-scope-20261018",
+    "/opt/codebandage/audit-managed-target-20261018/fixture-KuRFW0Wo",
+    "/opt/codebandage/audit-security-workplace-98ffec1-20261019",
+    "/opt/codebandage/security-runtime",
+    "/home/nithu/codebandage-website-tools-evidence/final-source-gates-20261019-VGddQK"
+  ],
+  "liveCustomerRepairVerified": false,
+  "hostedCiContinuation": {
+    "testedSource": "e7a009c3f5bb87a5913dc1e35c24f5437554772a",
+    "run": "https://github.com/nithudev-com/zerochack/actions/runs/39200821988",
+    "databaseIntegration": "249_PASS_1_OPTIONAL_SKIP",
+    "remainingFailedStep": "portal browser: obsolete services redirect and mobile Menu expectations",
+    "correctedBrowserSource": "587872b6713573d505b1ce4fa0b760aefeb948e4",
+    "latestResults": "See live branch checks and PR #2 for later results; this is an exact-source checkpoint, not a release certificate."
+  }
+}

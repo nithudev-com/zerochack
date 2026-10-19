@@ -16,9 +16,9 @@ Secure remediation sessions return a random temporary token once and store only 
 
 ## Playbooks and post-scan
 
-Owners with recent MFA may register versioned playbooks, but the API accepts only explicitly compiled action keys. Phase 5 supports `FINDING_MARK_IN_REMEDIATION`; there is no shell or unrestricted command endpoint. Execution requires the temporary token and the complete authorization/backup/session gate, records an audit event, revokes the session, and queues a post-scan.
+Owners with recent MFA may register versioned playbooks, but the API accepts only explicitly compiled action keys. The legacy `FINDING_MARK_IN_REMEDIATION` key only described a database label; it is not a website repair. After checking the temporary token and complete authorization/backup/session gate, the current route returns `REMEDIATION_EXECUTOR_UNAVAILABLE` **before** creating a run, changing a finding, revoking the session as completed, or queueing a post-fix scan. There is no shell or unrestricted command endpoint.
 
-After the post-scan succeeds, the API calculates persisted before/after open-finding counts, stores the comparison on the remediation run, creates the comparison report record, and resolves the ticket. Warranty configuration is tenant-specific with duration, eligible severities, exclusions, enablement, and persisted claims.
+Post-scan completion requires actual verified mutation evidence. Historical status-only runs return `NO_VERIFIED_MUTATION` even if their scan succeeded; they are preserved, not converted into resolved tickets or successful repair reports. Warranty configuration/claims remain unchanged. New typed security repair capabilities require their own proven executor, exact authorization, recovery and independent verification; see [Security workplace capabilities](SECURITY-WORKPLACE-CAPABILITIES.md).
 
 ## External requirement
 

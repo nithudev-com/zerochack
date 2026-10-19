@@ -31,7 +31,9 @@ const environment = loadEnvironment({ NODE_ENV: 'test', DATABASE_URL: process.en
 const email = new CapturingEmail(); let app: Awaited<ReturnType<typeof buildApp>>;
 const aiPrompts: string[] = [];
 const aiToolNames: string[][] = [];
-const aiAdapter: AiProviderAdapter = { key: 'openai-responses', async complete(input) { aiPrompts.push(input.prompt); aiToolNames.push(input.tools?.map((tool) => tool.name) ?? []); return { text: 'What we found\nA response header is absent.\nWhy it matters\nDefense is reduced.\nRisk\nUse the authoritative severity.\nWhat could happen\nA browser may have fewer protections.\nRecommended action\nApply the recorded recommendation.', inputTokens: 40, outputTokens: 30, providerRequestId: 'test-response' }; } };
+let aiScopeProbeId: string | null = null;
+const aiScopeProbeResults: unknown[] = [];
+const aiAdapter: AiProviderAdapter = { key: 'openai-responses', async complete(input) { aiPrompts.push(input.prompt); aiToolNames.push(input.tools?.map((tool) => tool.name) ?? []); if (aiScopeProbeId) { for (const name of ['get_latest_assessment_evidence', 'inspect_security_finding']) { const tool = input.tools?.find(tool => tool.name === name); if (tool) aiScopeProbeResults.push(await tool.execute(name === 'inspect_security_finding' ? { findingId: aiScopeProbeId } : {})); } } return { text: 'What we found\nA response header is absent.\nWhy it matters\nDefense is reduced.\nRisk\nUse the authoritative severity.\nWhat could happen\nA browser may have fewer protections.\nRecommended action\nApply the recorded recommendation.', inputTokens: 40, outputTokens: 30, providerRequestId: 'test-response' }; } };
 const paymentAdapter: PaymentProvider = {
   adapterKey: 'integration-payments',
   async createCheckout(_input, context) { return { checkoutReference: `checkout-${context.idempotencyKey}`, checkoutUrl: `https://pay.example.test/${context.idempotencyKey}` }; },
@@ -57,6 +59,7 @@ beforeEach(async () => {
   email.messages.length = 0;
   aiPrompts.length = 0;
   aiToolNames.length = 0;
+  aiScopeProbeId = null; aiScopeProbeResults.length = 0;
   await database.$transaction([
     database.emailDelivery.deleteMany(), database.notification.deleteMany(), database.communicationEvent.deleteMany(), database.notificationPreference.deleteMany(), database.platformIntegration.deleteMany(), database.systemSetting.deleteMany(), database.restoreOperation.deleteMany(), database.restoreAuthorization.deleteMany(), database.securityAlert.deleteMany(), database.securityEventEvidence.deleteMany(), database.securityEvent.deleteMany(), database.monitoringCheck.deleteMany(), database.monitoringPolicy.deleteMany(), database.backupPolicy.deleteMany(), database.developerModeSetting.deleteMany(), database.affiliateCommission.deleteMany(), database.affiliatePayout.deleteMany(), database.affiliateConversion.deleteMany(), database.referralAttribution.deleteMany(), database.paymentRefund.deleteMany(), database.paymentWebhookEvent.deleteMany(), database.quoteLineItem.deleteMany(), database.quote.deleteMany(), database.paymentTransaction.deleteMany(), database.invoice.deleteMany(), database.subscription.deleteMany(), database.paymentProviderConfig.deleteMany(), database.agencyPackageEntitlement.deleteMany(), database.agencyCommercePolicy.deleteMany(), database.affiliateEligibleProduct.deleteMany(), database.affiliateProgramConfig.deleteMany(), database.packageVersion.deleteMany(), database.commercialPackage.deleteMany(), database.warrantyClaim.deleteMany(), database.remediationRun.deleteMany(), database.remediationSession.deleteMany(), database.remediationAuthorization.deleteMany(), database.warrantyPolicy.deleteMany(), database.remediationPlaybook.deleteMany(), database.aiUsage.deleteMany(), database.aiTenantPolicy.deleteMany(), database.aiCredential.deleteMany(), database.aiModel.deleteMany(), database.aiProvider.deleteMany(), database.chatMessage.deleteMany(), database.report.deleteMany(), database.backup.deleteMany(), database.ticket.deleteMany(), database.findingEvidence.deleteMany(), database.securityFinding.deleteMany(), database.scan.deleteMany(), database.websiteVerification.deleteMany(), database.website.deleteMany(), database.notification.deleteMany(), database.auditLog.deleteMany(), database.session.deleteMany(), database.authToken.deleteMany(), database.mfaRecoveryCode.deleteMany(), database.agencyClientRelationship.deleteMany(), database.affiliateProfile.deleteMany(), database.userRole.deleteMany(), database.tenantMembership.deleteMany(), database.user.deleteMany(), database.tenant.deleteMany()
   ]);
@@ -64,6 +67,30 @@ beforeEach(async () => {
 afterAll(async () => { await app.close(); await database.$disconnect(); });
 
 describe('authentication, RBAC, and tenant isolation', () => {
+  it('excludes historical account-wide SSH paths and reports from model context and evidence tools without deleting history', async () => {
+    const token = await register('Customer', 'scope-context@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
+    const cookie = cookieFrom((await login('customer', 'scope-context@example.test')).headers['set-cookie']);
+    const site = (await app.inject({ method: 'POST', url: '/v1/websites', headers: { cookie }, payload: { name: 'Scope context fixture', url: 'https://example.com/' } })).json();
+    const scan = await database.scan.create({ data: { tenantId: site.tenantId, websiteId: site.id, status: 'SUCCEEDED', completedAt: new Date() } });
+    const siblingPath = '/home/fixture/domains/sibling.example/public_html/private.php';
+    const finding = await database.securityFinding.create({ data: { tenantId: site.tenantId, websiteId: site.id, scanId: scan.id, fingerprint: 'b'.repeat(64), title: 'Legacy sibling observation', severity: 'HIGH', confidence: 0.9, affectedResource: siblingPath, recommendation: 'Do not treat this as selected website evidence.' } });
+    await database.findingEvidence.create({ data: { tenantId: site.tenantId, websiteId: site.id, scanId: scan.id, findingId: finding.id, engine: 'ssh-forensics', engineVersion: '2.0.0', observedAt: new Date(), summary: siblingPath, metadata: { path: siblingPath }, integrityHash: 'b'.repeat(64) } });
+    await database.auditLog.create({ data: { tenantId: site.tenantId, action: 'website.ai_assessment_completed', resourceType: 'scan', resourceId: scan.id, requestId: crypto.randomUUID(), metadata: { websiteId: site.id, webRoots: [siblingPath], coverageState: 'INCOMPLETE' } } });
+    const historical = await database.chatMessage.create({ data: { tenantId: site.tenantId, websiteId: site.id, type: 'AI', content: `Legacy account-wide result: ${siblingPath}` } });
+    await database.aiProvider.create({ data: { name: 'Scope fixture provider', adapterKey: 'openai-responses', enabled: true, healthStatus: 'HEALTHY', credentials: { create: { label: 'fixture', encryptedSecret: encryptSecret('synthetic-provider-scope-key', aiKey), healthStatus: 'HEALTHY' } }, models: { create: { name: 'synthetic-scope', providerModel: 'test-model', inputCostMicrosPerM: 1000, outputCostMicrosPerM: 1000 } } } });
+    await database.aiTenantPolicy.create({ data: { tenantId: site.tenantId, enabled: true, requestsPerMinute: 10, requestsPerUserMinute: 5, maxConcurrent: 1, dailyCostLimitMicros: 10000 } });
+    aiScopeProbeId = finding.id;
+    const response = await app.inject({ method: 'POST', url: `/v1/websites/${site.id}/chat/ai`, headers: { cookie }, payload: { content: 'Explain the saved inspection scope.', idempotencyKey: crypto.randomUUID() } });
+    expect(response.statusCode, response.body).toBe(201);
+    expect(aiPrompts).toHaveLength(1); expect(aiPrompts[0]).not.toContain('sibling.example'); expect(aiPrompts[0]).toContain('fullServerInspectionAvailable');
+    expect(JSON.stringify(aiScopeProbeResults)).not.toContain('sibling.example');
+    expect(aiScopeProbeResults[0]).toMatchObject({ historicalUnscopedSshEvidenceExcluded: true, coverage: null, findings: [] });
+    expect(aiScopeProbeResults[1]).toMatchObject({ ok: false, errorCode: 'FINDING_NOT_FOUND' });
+    expect(await database.chatMessage.findUniqueOrThrow({ where: { id: historical.id } })).toMatchObject({ content: `Legacy account-wide result: ${siblingPath}` });
+    expect(await database.findingEvidence.count({ where: { findingId: finding.id } })).toBe(1);
+    const audit = await database.auditLog.findFirstOrThrow({ where: { action: 'ai.security_chat_completed', tenantId: site.tenantId } });
+    expect(audit.metadata).toMatchObject({ messageId: response.json().id, scope: { mode: 'WEBSITE', hostname: 'example.com' } });
+  });
   it('records only personal website navigation clicks, with bounded history and no work side effects', async () => {
     const token = await register('Customer', 'clicks@example.test'); await app.inject({ method: 'POST', url: '/v1/auth/verify-email', payload: { token } });
     const cookie = cookieFrom((await login('customer', 'clicks@example.test')).headers['set-cookie']);

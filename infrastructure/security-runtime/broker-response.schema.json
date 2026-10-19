@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:codebandage:offline-candidate-broker:response:v1",
+  "title": "Offline candidate broker result v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "result", "code", "liveCustomerRepairVerified"],
+      "properties": {
+        "version": {"const": 1},
+        "result": {"const": "UNAVAILABLE"},
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_:.-]{1,100}$"},
+        "liveCustomerRepairVerified": {"const": false}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "result", "code", "profile", "scope", "jobId", "inputDigest", "resultDigest", "liveCustomerRepairVerified"],
+      "properties": {
+        "version": {"const": 1},
+        "result": {"const": "UNCONFIRMED"},
+        "code": {"type": "string", "pattern": "^[A-Z][A-Z0-9_:.-]{1,100}$"},
+        "profile": {"const": "PYTHON_UNITTEST_V1"},
+        "scope": {"$ref": "broker-request.schema.json#/properties/scope"},
+        "jobId": {"$ref": "broker-request.schema.json#/$defs/uuid"},
+        "inputDigest": {"$ref": "#/$defs/sha256"},
+        "resultDigest": {"$ref": "#/$defs/sha256"},
+        "liveCustomerRepairVerified": {"const": false}
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "result", "profile", "scope", "jobId", "inputDigest", "imageId", "runtimeProofDigest", "checks", "elapsedMs", "outputEvidence", "resultDigest", "liveCustomerRepairVerified"],
+      "properties": {
+        "version": {"const": 1},
+        "result": {"enum": ["PASS", "FAIL"]},
+        "profile": {"const": "PYTHON_UNITTEST_V1"},
+        "scope": {"$ref": "broker-request.schema.json#/properties/scope"},
+        "jobId": {"$ref": "broker-request.schema.json#/$defs/uuid"},
+        "inputDigest": {"$ref": "#/$defs/sha256"},
+        "runtimeProofDigest": {"$ref": "#/$defs/sha256"},
+        "resultDigest": {"$ref": "#/$defs/sha256"},
+        "imageId": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "elapsedMs": {"type": "integer", "minimum": 0},
+        "liveCustomerRepairVerified": {"const": false},
+        "checks": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["syntax", "unittest", "exitCode", "containerStopped"],
+          "properties": {
+            "syntax": {"enum": ["PASS", "FAIL"]},
+            "unittest": {"enum": ["PASS", "FAIL", "NOT_RUN"]},
+            "exitCode": {"type": ["integer", "null"], "minimum": -255, "maximum": 255},
+            "containerStopped": {"const": "PASS"}
+          }
+        },
+        "outputEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stdoutDigest", "stderrDigest", "stdoutBytes", "stderrBytes"],
+          "properties": {
+            "stdoutDigest": {"$ref": "#/$defs/sha256"},
+            "stderrDigest": {"$ref": "#/$defs/sha256"},
+            "stdoutBytes": {"type": "integer", "minimum": 0, "maximum": 65536},
+            "stderrBytes": {"type": "integer", "minimum": 0, "maximum": 65536}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}},
+  "$comment": "A PASS is only the narrow candidate's syntax/unittest result after confirmed exact-container stop, not live repair, malware detection or correctness of supplied tests. resultDigest excludes itself and uses the same canonical ASCII JSON algorithm as inputDigest. UNCONFIRMED is returned after consumed admission when no durable confirmed result can be delivered; never automatically resubmit. stdoutBytes+stderrBytes additionally must be <=65536."
+}

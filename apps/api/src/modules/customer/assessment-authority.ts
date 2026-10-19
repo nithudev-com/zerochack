@@ -31,6 +31,25 @@ export function assessmentAccessDigest(access: AccessSnapshot): string {
   })).digest('hex');
 }
 
+/** Retry only a completed transaction rejection that proves NOWAIT contention.
+ * `transaction` must await the whole short database transaction, including its
+ * rollback, and must not include network work, notification or post-commit work.
+ * Never retry raw driver/commit errors: their outcome may be uncertain. The
+ * current binding/stop/deadline guard runs afresh before every attempt.
+ */
+export async function retryAssessmentAuthority<T>(transaction: () => Promise<T>, beforeAttempt: () => Promise<void>): Promise<T> {
+  const delays = [25, 50, 100] as const;
+  for (let attempt = 0; ; attempt++) {
+    await beforeAttempt();
+    try { return await transaction(); }
+    catch (error) {
+      const delay = delays[attempt];
+      if (!(error instanceof ApiError) || error.code !== 'ASSESSMENT_AUTHORITY_BUSY' || delay === undefined) throw error;
+      await new Promise<void>(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
 /** Use inside short transactions before network work and before accepting its result. */
 export async function assertActiveAssessment(tx: Prisma.TransactionClient, binding: AssessmentBinding, now = new Date()): Promise<void> {
   const { tenantId, websiteId, userId } = binding;

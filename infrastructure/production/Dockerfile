@@ -6,6 +6,7 @@ FROM base AS build
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY apps ./apps
 COPY packages ./packages
+COPY infrastructure/security-managed-target/broker.cjs infrastructure/security-managed-target/broker.d.cts infrastructure/security-managed-target/recovery-codec.cjs ./infrastructure/security-managed-target/
 RUN npm ci && npm run db:generate
 ARG NEXT_PUBLIC_API_URL=https://codebandage.com/v1
 ARG APP_URL=https://codebandage.com

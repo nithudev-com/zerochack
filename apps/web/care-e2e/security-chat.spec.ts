@@ -85,6 +85,16 @@ test('checked SSH asks about symptoms; chat saves real replies and never starts 
   expect(writes).toHaveLength(1); expect(writes[0]!.body).toMatchObject({ mode: 'MESSAGE', content: 'My homepage redirects to another site. I noticed it this morning.' }); expect(writes[0]!.path).toBe(`/v1/websites/${id}/chat/ingest`);
   await page.reload(); await expect(page.getByText('Which pages changed, and when did you first notice?')).toBeVisible(); expect(writes).toHaveLength(1);
 });
+test('scope disclosure names the selected website and excludes other websites and account-wide work without starting anything', async ({ page }) => {
+  const writes = await fixture(page, { ready: true }); await page.goto(url);
+  const disclosure = page.locator('details').filter({ has: page.getByText('Scope & safety', { exact: true }) });
+  await expect(disclosure).toHaveJSProperty('open', false); await disclosure.locator('summary').click();
+  await expect(disclosure).toContainText('Inspect website checks only example.test: its exact domain-bound website directory and public URL.');
+  await expect(disclosure).toContainText('Other websites, account-wide SSH files, processes and cron are excluded.');
+  await expect(disclosure).toContainText('If the directory cannot be identified safely, filesystem checks stop; the scope never expands to the account or server.');
+  await expect(disclosure).toContainText('Full-server inspection is not available through this action.');
+  await expect(disclosure).toContainText('This does not authorize file changes.'); expect(writes).toEqual([]);
+});
 test('four-field SSH requires consent but no fingerprint; success starts no jobs', async ({ page }) => {
   const writes = await fixture(page); await page.goto(url); await fillSsh(page);
   const submit = page.getByRole('button', { name: 'Connect SSH', exact: true }); await expect(submit).toBeDisabled();
@@ -162,7 +172,7 @@ for (const width of [390, 1440]) test(`active conversation has a visible compose
 test('explicit inspection invokes the real assessment endpoint without a model message or repair request', async ({ page }) => {
   const writes = await fixture(page, { ready: true }); await page.goto(url);
   await page.getByText('Scope & safety', { exact: true }).click();
-  await expect(page.getByText(/Live security repairs are not enabled in this deployment/)).toBeVisible();
+  await expect(page.getByText(/Live security repairs still require a verified backup, supported repair runner and separate approval/)).toBeVisible();
   const admissionRequest = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === `/v1/websites/${id}/assessment`);
   await page.getByRole('button', { name: 'Inspect website', exact: true }).click();
   expect((await admissionRequest).headers().prefer).toBe('respond-async');

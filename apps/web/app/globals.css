@@ -1,6 +1,17 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source(none);
+@source './**/*.{ts,tsx}';
+@source '../components/**/*.{ts,tsx}';
+@source '../../../packages/ui/src/**/*.{ts,tsx}';
+
+/* Preserve the existing portal defaults while replacing Tailwind 3's vulnerable
+   glob toolchain. Application styles below remain outside the framework layers. */
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button { border-color: #e5e7eb; }
+  input::placeholder, textarea::placeholder { color: #9ca3af; }
+  button, [role='button'] { cursor: pointer; }
+  :disabled { cursor: default; }
+  dialog { margin: auto; }
+}
 
 :root {
   color-scheme: light;
