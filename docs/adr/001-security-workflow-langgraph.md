@@ -21,8 +21,8 @@ paid call or production mutation occurred. The first fixture failed because it
 omitted the membership required by an existing database foreign key; that failure
 and its STARTED journal were retained, not replayed. The corrected fixture uses a
 new run/schema. Node22.22.2/TypeScript5.9.3/Zod4.5.4 local API/types and9graph/
-encrypted-checkpointer protocol tests also passed. Real Prisma saver/journal and
-full new-candidate gates remain pending.
+encrypted-checkpointer protocol tests also passed. At that initial checkpoint the
+real Prisma saver/journal and broader gates were pending; see the continuation below.
 
 LangGraph interrupt nodes restart from their beginning when resumed. Do not place
 unguarded side effects before an interrupt. A checkpoint is not an exactly-once
@@ -52,6 +52,27 @@ graph semantics our responsibility. OpenAI Agents SDK is not rejected for lackin
 tools/sessions/approvals; another provider/runtime layer is unnecessary here
 without a concrete demonstrated advantage. Deep Agents is broader than the narrow
 security contracts. No eve/provider/framework migration is part of this request.
+
+## 19 October implementation continuation
+
+The encrypted Prisma saver, additive seven-table migration, journal/controller,
+saved candidate decisions and dormant outbox/BullMQ path are implemented. The
+broader disposable TLS PostgreSQL/Redis run passed 60 new orchestration cases
+alongside 173 existing integration cases, with one optional live scan skipped.
+Final source `98ffec1` passed 1,005 unit tests, full lint and all 20 workspace
+typechecks. Scope/thread/checkpoint ancestry, decision freshness, fencing, uncertain
+costs/effects, cancellation and terminal-cursor restart behavior have dedicated
+tests. Automatic external tracing and inherited trace context are refused rather
+than exporting checkpoint/customer context to LangSmith.
+
+These checks support the framework choice, not a completed security product.
+Current-actor/grant/payment/MFA admission and actual registered gateway/sandbox/
+production handlers are unfinished; production migration/dispatch is not enabled.
+The separate local runtime encountered an actual upstream compatibility blocker,
+recorded in [ADR002](002-rootless-gvisor-systemd-blocker.md). No executor fallback
+or new provider stack was introduced. See the exact
+[verification record](../SECURITY-WORKPLACE-VERIFICATION.md) for source manifests,
+fixture limitations and failed attempts preserved alongside passing evidence.
 
 Official references reviewed:
 [overview](https://docs.langchain.com/oss/javascript/langgraph/overview),

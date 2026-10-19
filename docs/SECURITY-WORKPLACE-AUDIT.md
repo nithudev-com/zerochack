@@ -2,6 +2,11 @@
 
 This is a source and infrastructure audit, **not a repair-readiness certificate**.
 The implementation base is the upgrade branch, not older `main`.
+This dated P0 baseline is retained. For the later 19 October source checkpoint,
+actual runtime failure, successful staging permission drill and current VPS
+observations, use [verification](SECURITY-WORKPLACE-VERIFICATION.md) and
+[operations](SECURITY-WORKPLACE-OPERATIONS.md), not the historical inventory as a
+current-state assertion.
 
 ## Baseline and preservation
 
@@ -91,6 +96,8 @@ and results. Old ledger totals and historical CI are not current passes. Inspect
 and AI POST ingress were temporarily paused during the scope correction; ordinary
 portal/history/monitoring remained available. Removal of that pause requires the
 verified image release, not a Caddy-only workaround.
+The subsequent verified `7279cda` restricted-preview release lifted that temporary
+pause with the scoped inspector; it did not activate repair execution.
 
 Raw secret-free audit evidence is retained outside build contexts in
 `/home/nithu/codebandage-website-tools-evidence/` and on the VPS under

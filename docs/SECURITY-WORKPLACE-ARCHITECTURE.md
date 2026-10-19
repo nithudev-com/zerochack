@@ -60,11 +60,14 @@ broker. Source archives are untrusted and require traversal/link/expansion check
 
 Actual host tests must prove network and metadata/private-service denial, host
 filesystem separation, process-storm containment, disk quotas, timeout/crash
-cleanup and live-application headroom. Current disk pressure and absent runtime
-prerequisites block activation. Ordinary containers/processes are not a fallback.
+cleanup and live-application headroom. Actual separate-engine prerequisites and
+outer limits passed; the pinned gVisor rootless/systemd job integration failed
+before guest execution. That unresolved compatibility gate, not a proven resource
+shortfall, now blocks runtime activation. Ordinary containers/processes are not a fallback.
 Even verified gVisor shares this VPS's resource/failure domain; it is not physical
 host separation or managed high availability.
 
 See [framework ADR](adr/001-security-workflow-langgraph.md),
+[runtime compatibility ADR](adr/002-rootless-gvisor-systemd-blocker.md),
 [capabilities](SECURITY-WORKPLACE-CAPABILITIES.md) and
 [operations](SECURITY-WORKPLACE-OPERATIONS.md).

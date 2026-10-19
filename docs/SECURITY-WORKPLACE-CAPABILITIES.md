@@ -11,7 +11,7 @@ and separately scoped recovery. No universal shell/SQL/recursivechmod fallback.
 
 | Track | Intended first supported operation | Existing code / unfinished local work | External/deployment gate |
 | --- | --- | --- | --- |
-| A permissions | One eligible regular non-secret website file; remove world-write only | Unwired SFTP primitive; needs trusted helper, journal, exact approval, recovery and end-to-end UI | Independently enforced writer/rename exclusion and single-link identity; ordinary shared SFTP is insufficient |
+| A permissions | One freshly provisioned eligible managed-static STAGING file; remove world-write only | Typed fixed-command SSH helper/broker and encrypted recovery implemented; actual hardening/separate restore/lost-ack drill PASS. New local observation-only uncertain-journal reconciliation tested. Product admission/MFA/payment/exact-decision/UI integration unfinished; old generic SFTP primitive remains unregistered | Only fresh managed namespace with enforced readonly publisher/trusted writer, pinned inode/link identity qualifies. Existing shared SFTP is not eligible. No customer production executor enabled |
 | B quarantine | One exactly identified approved malicious file, preserving bytes/metadata outside executable root | No security quarantine executor/approval/verifier yet | Safe hosting primitive, vetted diagnosis and quarantine/recovery location |
 | C WP core | Exact known version+locale from trusted provenance; exclude wp-config/content | Existing T42/T43 are offline subset comparison/preparation only; no live restoration | Reviewed official package/checksum, custom-core refusal and isolated PHP/WP regression runtime |
 | D plugin/theme | Trusted authorized integrity restoration/security update | No connected security repair slice | Exact source/license, customization preservation and compatibility evidence |
@@ -30,3 +30,11 @@ alone cannot authorize quarantine or certify malware-free status.
 Unsupported/customized stacks receive a specific limitation and requested human
 handoff. New capability status must distinguish implemented, configured, enabled
 and independently live-verified. There is no enable-all switch.
+
+Runtime gate,19October2026: the separate engine passed rootless namespaces and
+aggregate cgroup limits, but the official pinned gVisor20261012 job launch failed
+on user-systemd cgroup authorization before the guest began. The new identity was
+stopped with data preserved. No isolated PHP/WP/Node candidate run is verified;
+tracks requiring those tests remain unavailable. See
+[runtime ADR](adr/002-rootless-gvisor-systemd-blocker.md), not an unrestricted
+container/process or external-service fallback.
