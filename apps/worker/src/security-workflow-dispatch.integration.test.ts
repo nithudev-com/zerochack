@@ -7,15 +7,14 @@ import { database } from '@zerochack/database';
 import { manifestDigest, SecurityWorkflowError, type SecurityScope } from '@zerochack/security-orchestration';
 import { createSecurityRepairController, type SecurityControllerOptions } from '../../api/src/modules/security-repair/controller.js';
 import { createSecurityRepairJournal } from '../../api/src/modules/security-repair/journal.js';
-import { assertSecurityWorkplaceTestDatabase } from '../../api/src/modules/security-repair/fixture-guard.test-helper.js';
+import { assertSecurityWorkplaceTestDatabase, assertSecurityWorkplaceTestRedisUrl } from '../../api/src/modules/security-repair/fixture-guard.test-helper.js';
 import { createSecurityWorkflowDispatch, securityWorkflowDispatchJobId, securityWorkflowJobOptions } from './security-workflow-dispatch.js';
 
 type Fixture = Awaited<ReturnType<typeof buildFixture>>;
 const owned: Fixture[] = [];
 beforeAll(async () => {
   await assertSecurityWorkplaceTestDatabase();
-  let url: URL; try { url = new URL(process.env.REDIS_URL ?? ''); } catch { throw new Error('Explicit isolated Security Workplace Redis fixture required.'); }
-  if (!['redis:', 'rediss:'].includes(url.protocol) || url.hostname !== 'redis' || url.pathname !== '/3') throw new Error('Explicit isolated Security Workplace Redis database 3 required.');
+  assertSecurityWorkplaceTestRedisUrl(process.env.REDIS_URL);
 });
 afterAll(async () => {
   for (const f of owned) {
