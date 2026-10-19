@@ -69,9 +69,9 @@ const server = new Server({ hostKeys: [protectedFile('host.key', 0o400)] }, (cli
         child.stdin.on('error', () => {});
         child.stdout.on('data', (chunk) => {
           output += chunk.length;
-          if (output > 32768) { stop(); stream.destroy(); return; }
-          let commit = false;
-          try { commit = JSON.parse(input).command === 'COMMIT'; } catch {}
+          let commit = false; let recoveryExport = false;
+          try { const request = JSON.parse(input); commit = request.command === 'COMMIT'; recoveryExport = request.command === 'EXPORT_RECOVERY'; } catch {}
+          if (output > (recoveryExport ? 524288 + 32768 : 32768)) { stop(); stream.destroy(); return; }
           if (dropAck && commit) pendingOutput.push(chunk); else stream.write(chunk);
         });
         child.stderr.on('data', (chunk) => { errors += chunk.length; if (errors > 1024) { stop(); stream.destroy(); } });

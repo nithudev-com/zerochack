@@ -26,8 +26,10 @@ MAX_RECORD = 32768
 MAX_RECOVERY = 524288
 MAX_OPERATIONS = 16
 MAX_RECONCILIATIONS = 16
+MAX_RECOVERY_EXPORTS = 16
 ADAPTER = "MANAGED_STATIC_PERMISSION_V1"
 RECONCILIATION_PURPOSE = "OBSERVATION_RECONCILIATION_V1"
+RECOVERY_EXPORT_PURPOSE = "RECOVERY_EXPORT_V1"
 PROFILE_DIGEST = hashlib.sha256(b"codebandage/managed-static-v1/fresh-root0700/site0755/index.html/root-owner/readonly-publisher/one-helper/no-docker-socket").hexdigest()
 UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$")
 HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -140,6 +142,7 @@ def validate_request(request):
         "RECONCILE_OBSERVE": {"operationId", "reconciliationId"},
         "RECONCILE": {"operationId", "observation", "permit"},
         "RECONCILIATION_STATUS": {"operationId", "reconciliationId"},
+        "EXPORT_RECOVERY": {"operationId", "exportId", "permit"},
     }
     require(command in extras)
     expected = BASE | extras[command]
@@ -163,6 +166,9 @@ def validate_request(request):
         require(request["reconciliationId"] != request["operationId"])
     if command == "RECONCILE":
         validate_reconciliation_observation(request["observation"])
+    if command == "EXPORT_RECOVERY":
+        uuid(request["exportId"])
+        require(request["exportId"] != request["operationId"])
     return request
 
 
@@ -187,6 +193,25 @@ def verify_permit(permit, record, key, now_ms):
     hex_digest(permit["mac"])
     require(hmac.compare_digest(hmac.new(key, canonical(payload), hashlib.sha256).hexdigest(), permit["mac"]),
             "MANAGED_AUTHORIZATION_MISMATCH")
+
+
+def recovery_export_payload(record, export_id, issued_at, expires_at):
+    # A mutation/reconciliation permit is never also a recovery-read permit.
+    return dict(permit_payload(record, issued_at, expires_at), purpose=RECOVERY_EXPORT_PURPOSE, exportId=export_id)
+
+
+def verify_recovery_export_permit(permit, record, export_id, key, now_ms):
+    exact_keys(permit, ("payload", "mac"))
+    require(isinstance(permit["payload"], dict), "MANAGED_RECOVERY_EXPORT_AUTHORIZATION_MISMATCH")
+    issued = permit["payload"].get("issuedAt")
+    expires = permit["payload"].get("expiresAt")
+    require(type(issued) is int and type(expires) is int and record["preparedAt"] <= issued <= now_ms < expires and
+            0 < expires - issued <= 15000, "MANAGED_RECOVERY_EXPORT_AUTHORIZATION_EXPIRED")
+    require(canonical(permit["payload"]) == canonical(recovery_export_payload(record, export_id, issued, expires)),
+            "MANAGED_RECOVERY_EXPORT_AUTHORIZATION_MISMATCH")
+    hex_digest(permit["mac"])
+    require(hmac.compare_digest(hmac.new(key, canonical(permit["payload"]), hashlib.sha256).hexdigest(), permit["mac"]),
+            "MANAGED_RECOVERY_EXPORT_AUTHORIZATION_MISMATCH")
 
 
 def validate_record(value):
@@ -513,10 +538,41 @@ class ManagedTarget:
         require(len(records) <= MAX_OPERATIONS and (not admitting or len(records) < MAX_OPERATIONS), "MANAGED_STORAGE_LIMIT")
 
     def check_storage_names(self, names):
-        require(len(names) <= MAX_OPERATIONS * 2 + MAX_RECONCILIATIONS + 1 and
-                all(name == "lock" or re.fullmatch(r"[0-9a-f-]{36}\.(json|recovery|reconciliation)", name) for name in names) and
-                sum(name.endswith(".reconciliation") for name in names) <= MAX_RECONCILIATIONS,
+        require(len(names) <= MAX_OPERATIONS * 2 + MAX_RECONCILIATIONS + MAX_RECOVERY_EXPORTS + 1 and
+                all(name == "lock" or re.fullmatch(r"[0-9a-f-]{36}\.(json|recovery|reconciliation|recovery-export)", name) for name in names) and
+                sum(name.endswith(".reconciliation") for name in names) <= MAX_RECONCILIATIONS and
+                sum(name.endswith(".recovery-export") for name in names) <= MAX_RECOVERY_EXPORTS,
                 "MANAGED_STORAGE_LIMIT")
+
+    def consume_recovery_export(self, request, record, exported_at):
+        # Private append-only one-shot read receipt. No source bytes or key are recorded.
+        names = os.listdir(self.state)
+        self.check_storage_names(names)
+        name = request["exportId"] + ".recovery-export"
+        require(name not in names, "MANAGED_RECOVERY_EXPORT_REPLAY_REFUSED")
+        require(sum(item.endswith(".recovery-export") for item in names) < MAX_RECOVERY_EXPORTS, "MANAGED_STORAGE_LIMIT")
+        receipt = {"version": 1, "purpose": RECOVERY_EXPORT_PURPOSE, "scope": record["scope"],
+                   "namespaceId": record["namespaceId"], "targetId": record["targetId"], "operationId": record["operationId"],
+                   "exportId": request["exportId"], "snapshotDigest": record["snapshotDigest"], "recoveryDigest": record["recoveryDigest"],
+                   "permitDigest": digest(canonical(request["permit"])), "exportedAt": exported_at}
+        encoded = canonical(receipt)
+        require(len(encoded) <= MAX_RECORD, "MANAGED_STORAGE_LIMIT")
+        try:
+            fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | NOFOLLOW, 0o600, dir_fd=self.state)
+        except FileExistsError:
+            raise Refused("MANAGED_RECOVERY_EXPORT_REPLAY_REFUSED") from None
+        try:
+            offset = 0
+            while offset < len(encoded):
+                written = os.write(fd, encoded[offset:])
+                require(written > 0, "MANAGED_STORAGE_INVALID")
+                offset += written
+            os.fsync(fd)
+            os.fsync(self.state)
+        finally:
+            os.close(fd)
+        # A partial/failed write is deliberately retained and consumes that exportId.
+        require(checked_file(self.state, name, MAX_RECORD) == encoded, "MANAGED_STORAGE_INVALID")
 
     def admit_reconciliation(self, reconciliation_id):
         names = os.listdir(self.state)
@@ -638,10 +694,32 @@ class ManagedTarget:
     def verify_recovery(self, record):
         encoded = checked_file(self.state, record["operationId"] + ".recovery", MAX_RECOVERY)
         require(digest(encoded) == record["recoveryDigest"], "MANAGED_RECOVERY_INVALID")
-        result = self.codec("verify", {"envelope": load_json(encoded), "expectedAad": self.recovery_aad(record),
+        envelope = load_json(encoded)
+        require(canonical(envelope) == encoded, "MANAGED_RECOVERY_INVALID")
+        result = self.codec("verify", {"envelope": envelope, "expectedAad": self.recovery_aad(record),
                                        "expectedSnapshot": record["before"]})
         require(result == {"verified": True, "snapshotDigest": record["snapshotDigest"], "digest": record["before"]["digest"]},
                 "MANAGED_RECOVERY_INVALID")
+        return envelope
+
+    def export_recovery(self, request):
+        record = self.record_for(request["operationId"])
+        require(record["scope"] == request["scope"], "MANAGED_SCOPE_MISMATCH")
+        require(record["state"] == "PREPARED", "MANAGED_RECOVERY_EXPORT_NOT_PREPARED")
+        verify_recovery_export_permit(request["permit"], record, request["exportId"], self.key, int(time.time() * 1000))
+        envelope = self.verify_recovery(record)
+        self.assert_binding(request)
+        now_ms = int(time.time() * 1000)
+        verify_recovery_export_permit(request["permit"], record, request["exportId"], self.key, now_ms)
+        self.consume_recovery_export(request, record, now_ms)
+        # Slow durability must not release even encrypted recovery data after this
+        # short-lived read authority expires. The consumed ID remains non-replayable.
+        verify_recovery_export_permit(request["permit"], record, request["exportId"], self.key, int(time.time() * 1000))
+        return {"version": 1, "adapter": ADAPTER, "state": "RECOVERY_EXPORTED", "scope": record["scope"],
+                "namespaceId": record["namespaceId"], "targetId": record["targetId"], "operationId": record["operationId"],
+                "exportId": request["exportId"], "planDigest": record["planDigest"], "authorityDigest": record["authorityDigest"],
+                "snapshotDigest": record["snapshotDigest"], "recoveryDigest": record["recoveryDigest"],
+                "before": record["before"], "envelope": envelope, "exportedAt": now_ms}
 
     def prepare(self, request):
         self.check_journal(admitting=True)
@@ -720,6 +798,8 @@ class ManagedTarget:
         validate_request(request)
         self.assert_binding(request)
         with self.serialized():
+            if request["command"] == "EXPORT_RECOVERY":
+                return self.export_recovery(request)
             if request["command"] == "RECONCILE_OBSERVE":
                 return self.inspect_reconciliation(request)
             if request["command"] == "RECONCILE":

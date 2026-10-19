@@ -14,6 +14,10 @@ import { PlatformSmtp } from '../../api/src/modules/communications/smtp-settings
 import { createNotificationWorker } from './notification-worker.js';
 import { createEmailWorker, reconcileMonitoringEmailJobs } from './email-worker.js';
 import { createReportWorker } from './report-worker.js';
+import { database } from '@zerochack/database';
+import { randomUUID } from 'node:crypto';
+import { createSecurityWorkflowDispatch } from './security-workflow-dispatch.js';
+import { createConfiguredSecurityRepair } from '../../api/src/modules/security-repair/composition.js';
 
 const environment = loadEnvironment();
 const logger = createLogger('worker', environment.LOG_LEVEL);
@@ -37,6 +41,18 @@ const heartbeatRedis = new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 
 const heartbeat = async () => heartbeatRedis.set('zerochack:worker:heartbeat', new Date().toISOString(), 'EX', 90);
 await heartbeat();
 const careAi = new AiService(environment, heartbeatRedis);
+// The security queue is separate from existing Care polling. Its one-attempt
+// jobs only wake the journal controller; Redis never creates execution authority.
+const securityConnection = environment.SECURITY_REPAIR_ENABLED ? new Redis(environment.REDIS_URL, { maxRetriesPerRequest: null }) : null;
+const securityComposition = createConfiguredSecurityRepair(database, environment, randomUUID());
+const securityDispatch = securityConnection ? createSecurityWorkflowDispatch({ database, connection: securityConnection, dispatcherId: randomUUID(), controllerFactory: securityComposition.controllerForScope, onError: errorCode => logger.error({ errorCode }, 'security.dispatch_failed') }) : null;
+let securityDispatchWork: Promise<unknown> | undefined;
+const flushSecurityDispatch = () => {
+  if (!securityDispatch || securityDispatchWork) return;
+  securityDispatchWork = securityDispatch.flush().catch(() => logger.error({ errorCode: 'SECURITY_DISPATCH_FAILED' }, 'security.dispatch_failed')).finally(() => { securityDispatchWork = undefined; });
+};
+if (securityDispatch) { await securityDispatch.start(); flushSecurityDispatch(); }
+const securityDispatchTimer = securityDispatch ? setInterval(flushSecurityDispatch, 2000) : null;
 let repairBusy = false; let releaseBusy = false; let reviewBusy = false;
 let reviewWork: Promise<unknown> | undefined;
 const reviewTimer = setInterval(() => { if (reviewBusy || !environment.CARE_REVIEW_ENABLED) return; reviewBusy = true; reviewWork = runOneReview(environment, careAi).catch(() => logger.error({ errorCode: 'REVIEW_WORKER_FAILED' }, 'care.review_failed')).finally(() => { reviewBusy = false; }); }, 2000);
@@ -55,6 +71,10 @@ logger.info({ queues: queueNames, schedules }, 'worker.ready');
 const shutdown = async (signal: string): Promise<void> => {
   logger.info({ signal }, 'service.shutdown');
   clearInterval(heartbeatTimer);
+  if (securityDispatchTimer) clearInterval(securityDispatchTimer);
+  await securityDispatchWork;
+  await securityDispatch?.close();
+  securityConnection?.disconnect();
   clearInterval(monitoringOutboxTimer);
   await monitoringOutboxWork;
   clearInterval(careMaintenance);

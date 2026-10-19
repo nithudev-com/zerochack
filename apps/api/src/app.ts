@@ -35,8 +35,12 @@ import { affiliateRoutes } from './modules/affiliate/routes.js';
 import { ownerRoutes } from './modules/owner/routes.js';
 import { communicationRoutes } from './modules/communications/routes.js';
 import { authenticateMetricsToken, observeRequest, renderMetrics } from './metrics.js';
+import { database } from '@zerochack/database';
+import { createConfiguredSecurityRepair } from './modules/security-repair/composition.js';
+import { securityRepairRoutes } from './modules/security-repair/routes.js';
+import type { SecurityRepairProductOptions } from './modules/security-repair/product.js';
 
-export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters; careVerification?: VerificationAdapter; careBrowser?: BrowserAdapter; assessmentRunners?: AssessmentRunners }) {
+export async function buildApp(environment: Environment, dependencies?: { email?: EmailProvider; aiAdapters?: AiProviderAdapter[]; paymentProviders?: PaymentProvider[]; careObservations?: ObservationAdapters; careVerification?: VerificationAdapter; careBrowser?: BrowserAdapter; assessmentRunners?: AssessmentRunners; securityRepair?: Omit<SecurityRepairProductOptions, 'database' | 'environment'> }) {
   const logger = createLogger('api', environment.LOG_LEVEL);
   const app = Fastify({ loggerInstance: logger, logController: new LogController({ disableRequestLogging: true }), trustProxy: environment.TRUST_PROXY ? (_address, hop) => hop === 0 : false, bodyLimit: 1_048_576, requestIdHeader: false, genReqId: () => crypto.randomUUID() });
   const rateLimitRedis = environment.NODE_ENV === 'test' ? undefined : new Redis(environment.REDIS_URL, { maxRetriesPerRequest: 1 });
@@ -97,6 +101,7 @@ export async function buildApp(environment: Environment, dependencies?: { email?
     await v1.register(authorizationRoutes, { environment, ...(customerQueues ? { notificationsQueue: customerQueues.notifications } : {}) });
     await v1.register(aiRoutes, { environment, ai });
     await v1.register(careRoutes, { environment, ai, ...(dependencies?.careVerification ? { verificationAdapter: dependencies.careVerification } : {}), ...(dependencies?.careBrowser ? { browserAdapter: dependencies.careBrowser } : {}), ...(dependencies?.careObservations ? { observationAdapters: dependencies.careObservations } : {}) });
+    await v1.register(securityRepairRoutes, { environment, product: dependencies?.securityRepair ?? createConfiguredSecurityRepair(database, environment, crypto.randomUUID()) });
     await v1.register(customerRoutes, { environment, ai, ...(customerQueues ? { queues: customerQueues } : {}), ...(dependencies?.assessmentRunners ? { assessmentRunners: dependencies.assessmentRunners } : {}) });
     await v1.register(connectorRoutes, { environment });
     await v1.register(specialistRoutes, { environment, ...(customerQueues ? { queues: { backups: customerQueues.backups, scans: customerQueues.scans, notifications:customerQueues.notifications,reports:customerQueues.reports } } : {}) });

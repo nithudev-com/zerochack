@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { Prisma, PrismaClient, SecurityRepairRun } from '@prisma/client';
 import { createSecurityWorkflow, effectKinds, manifestDigest, scopeSchema, SECURITY_WORKFLOW_POLICY, SecurityCheckpointer, SecurityWorkflowError, sha256, stepResultSchema, uuid, workSteps, type ArtifactReceipt, type SecurityCheckpointStorage, type SecurityDecisionKind, type SecurityEffectKind, type SecurityPhase, type SecurityScope, type SecurityStepResult, type SecurityWorkStep } from '@zerochack/security-orchestration';
 import { securityCheckpointStorage, type CheckpointAuthority } from './checkpoint-storage.js';
-import { createSecurityRepairJournal, type SecurityJournalOperation, type SecurityLeaseFence } from './journal.js';
+import { createSecurityRepairJournal, type SecurityJournalOperation, type SecurityJournalOptions, type SecurityLeaseFence } from './journal.js';
 
 export type SecurityControllerAuthority = (tx: Prisma.TransactionClient, scope: SecurityScope, operation: SecurityJournalOperation | 'CHECKPOINT' | 'READINESS', run: SecurityRepairRun | null) => Promise<void>;
 export type SecurityControllerBinding = { actorId: string; sessionId: string; requestDigest: string; authorityDigest: string; implementationDigest: string; allowanceMicros: number; policy: typeof SECURITY_WORKFLOW_POLICY };
@@ -26,6 +26,7 @@ export type SecurityControllerOptions = {
   journalFactory?: (authorize: Parameters<typeof createSecurityRepairJournal>[0]['assertAuthority']) => Journal;
   checkpointStorageFactory?: (fence: SecurityLeaseFence, authorize: CheckpointAuthority) => SecurityCheckpointStorage;
   decision?: (input: { scope: Readonly<SecurityScope>; fence: Readonly<SecurityLeaseFence>; kind: SecurityDecisionKind; decisionId: string; artifact: ArtifactReceipt; signal: AbortSignal; assertCurrent(): Promise<void> }) => Promise<'APPROVED' | 'DENIED'>;
+  stagingMutation?: SecurityJournalOptions['stagingMutation'];
 };
 export type SecurityControllerResult = { disposition: 'WAITING' | 'BLOCKED' | 'TERMINAL' | 'UNCONFIRMED' | 'STOPPED'; phase: SecurityPhase | null; code: string | null; checkpointConfirmed: boolean; leaseReleased: boolean; effectsUndone: false };
 type StopReason = 'CANCELLED' | 'SHUTDOWN' | 'DEADLINE' | 'HEARTBEAT_FAILED' | 'STEP_TIMEOUT';
@@ -34,7 +35,7 @@ export type SecurityControllerStop = { reason: StopReason; phase: SecurityPhase 
 const code = z.string().regex(/^[A-Z][A-Z0-9_]{2,79}$/u);
 const bindingSchema = z.object({ actorId: uuid, sessionId: uuid, requestDigest: sha256, authorityDigest: sha256, implementationDigest: sha256, allowanceMicros: z.number().int().min(0).max(100_000_000), policy: z.literal(SECURITY_WORKFLOW_POLICY) }).strict();
 const stepDefinition = z.object({ kind: z.enum(effectKinds), reserveMicros: z.number().int().min(0).max(100_000_000), timeoutMs: z.number().int().min(100).max(120_000), implementationId: z.string().regex(/^[a-z][a-z0-9_.-]{0,79}$/u), implementationVersion: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,39}$/u), implementationDigest: sha256 }).strict();
-const allowedKinds: Record<SecurityWorkStep, readonly SecurityEffectKind[]> = { plan: ['READ', 'MODEL'], snapshot: ['READ'], candidate: ['MODEL', 'SANDBOX'], verify: ['READ', 'SANDBOX'], proposal: ['READ'], apply: ['PRODUCTION_WRITE'], post_verify: ['READ', 'SANDBOX'] };
+const allowedKinds: Record<SecurityWorkStep, readonly SecurityEffectKind[]> = { plan: ['READ', 'MODEL'], snapshot: ['READ'], candidate: ['READ', 'MODEL', 'SANDBOX'], verify: ['READ', 'SANDBOX'], proposal: ['READ'], apply: ['PRODUCTION_WRITE', 'STAGING_WRITE', 'STAGING_RECOVERY'], post_verify: ['READ', 'SANDBOX'] };
 const normalTerminal = ['COMPLETED', 'CANCELLED'] as const;
 const authoritativeTerminal = ['COMPLETED', 'FAILED', 'CANCELLED', 'OUTCOME_UNKNOWN', 'STALE'];
 const invocationErrors = ['SECURITY_WORKFLOW_ALREADY_STARTED', 'SECURITY_WORKFLOW_NOT_WAITING', 'SECURITY_WORKFLOW_NOT_RESUMABLE', 'SECURITY_READINESS_NOT_RESUMABLE'];
@@ -85,7 +86,8 @@ export function createSecurityRepairController(options: SecurityControllerOption
     if (run) assertBinding(run); else if (operation !== 'CREATE') fail('SECURITY_RUN_NOT_FOUND');
     await authorize(tx, scope, operation, run);
   };
-  const journal = journalFactory?.(authorizeJournal) ?? createSecurityRepairJournal({ database, assertAuthority: authorizeJournal });
+  const stagingMutationPolicy = options.stagingMutation ? Object.freeze({ ...options.stagingMutation }) : undefined;
+  const journal = journalFactory?.(authorizeJournal) ?? createSecurityRepairJournal({ database, assertAuthority: authorizeJournal, ...(stagingMutationPolicy ? { stagingMutation: stagingMutationPolicy } : {}) });
   const storageFor = (fence: SecurityLeaseFence, authorize: CheckpointAuthority) => checkpointStorageFactory?.(copyFence(fence), authorize) ?? securityCheckpointStorage(database, scope, fence, authorize);
   const boundAuthorize = (operation: 'CHECKPOINT' | 'READINESS'): CheckpointAuthority => async (tx, run) => { assertBinding(run); await authorize(tx, scope, operation, run); };
   type Active = { abort: AbortController; fence: SecurityLeaseFence | null; task: Promise<SecurityControllerResult> | null; heartbeat: ReturnType<typeof setTimeout> | null; heartbeatWork: Promise<void> | null; deadline: ReturnType<typeof setTimeout> | null; stopped: Promise<SecurityControllerResult>; stopResult(value: SecurityControllerResult): void; stopping: boolean };
@@ -140,7 +142,7 @@ export function createSecurityRepairController(options: SecurityControllerOption
         async transition(phase, errorCode) { await safeNode(async () => { await assertCurrent(); await journal.transition(scope, state.fence!, phase, errorCode); }); },
         async decision(kind, decisionId, artifact) { return safeNode(async () => {
           await assertCurrent();
-          const result = decide ? await decide({ scope, fence: copyFence(state.fence!), kind, decisionId, artifact, signal: state.abort.signal, assertCurrent }) : kind === 'CANDIDATE' ? await journal.resolveCandidateDecision(scope, state.fence!, decisionId, artifact) : fail('UNREGISTERED_SECURITY_EXECUTOR');
+          const result = decide ? await decide({ scope, fence: copyFence(state.fence!), kind, decisionId, artifact, signal: state.abort.signal, assertCurrent }) : kind === 'CANDIDATE' ? await journal.resolveCandidateDecision(scope, state.fence!, decisionId, artifact) : stagingMutationPolicy ? await journal.resolveChangeDecision(scope, state.fence!, decisionId, artifact) : fail('UNREGISTERED_SECURITY_EXECUTOR');
           await assertCurrent(); if (result !== 'APPROVED' && result !== 'DENIED') fail('SECURITY_DECISION_INVALID'); return result;
         }); },
         async step(step, input) { return safeNode<SecurityStepResult>(async () => {
@@ -219,6 +221,9 @@ export function createSecurityRepairController(options: SecurityControllerOption
     expectedCreateBinding: manifest.expectedCreateBinding, inputDigest: manifest.inputDigest, budgetHash: manifest.budgetHash,
     /** Shared bound callback for the separate trusted CREATE flow. */
     authorizeJournal,
+    stagingMutationPolicy,
+    recordCandidateDecision: (input: Parameters<typeof journal.recordCandidateDecision>[1]) => journal.recordCandidateDecision(scope, input),
+    recordChangeDecision: (input: Parameters<typeof journal.recordChangeDecision>[1]) => journal.recordChangeDecision(scope, input),
     get running() { return active !== null; },
     async run(input: { mode: ControllerMode; decisionId?: string }): Promise<SecurityControllerResult> {
       const command = z.discriminatedUnion('mode', [z.object({ mode: z.literal('start') }).strict(), z.object({ mode: z.literal('resume'), decisionId: uuid }).strict(), z.object({ mode: z.literal('continueAfterRestart') }).strict(), z.object({ mode: z.literal('recheckPrerequisites') }).strict()]).parse(input);

@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm';
 import { api, ApiClientError } from '../lib/api';
 import { BrandLogo } from './brand-logo';
 import { SecurityAgentActivity } from './security-agent-activity';
+import { SecurityRepair } from './security-repair';
 import { securityActivity, type AssessmentActivity } from '../lib/security-activity';
 import { canRetainQueryData, pollingInterval, queryRetry } from '../lib/query-policy';
 import styles from './security-chat.module.css';
@@ -122,6 +123,7 @@ export function SecurityChat({ website }: { website: Website }) {
       {pendingMessage && !messages.some(message => message.type === 'CUSTOMER' && message.content === pendingMessage) && <article className={`${styles.message} ${styles.customer}`} aria-label="Message being sent"><div className={styles.author}><strong>You</strong><span>Sending…</span></div><p>{pendingMessage}</p></article>}
       {activity && <SecurityAgentActivity {...activity} />}
       {!assessment.isError && assessment.data?.scan?.status === 'RUNNING' && <button className={styles.secondary} disabled={cancelling} aria-busy={cancelling} onClick={() => void cancelInspection()}>{cancelling ? 'Cancelling inspection…' : 'Cancel inspection'}</button>}
+      <SecurityRepair key={`repair:${website.id}`} websiteId={website.id}/>
       <div ref={bottom} />
     </div>
     {showLatest && <div className={styles.historyActions}><button type="button" className={styles.secondary} onClick={() => { followLatest.current = true; setShowLatest(false); bottom.current?.scrollIntoView({ block: 'nearest', behavior: 'instant' }); history.current?.focus({ preventScroll: true }); }}>Jump to latest message ↓</button></div>}

@@ -1,4 +1,4 @@
-"""Local mocked-target and receipt-storage tests. No managed provisioning, SSH or target mutation."""
+"""Local mocks and disposable real-file/codec tests. No managed provisioning or SSH."""
 import copy
 import hashlib
 import hmac
@@ -7,6 +7,7 @@ import pathlib
 import os
 import tempfile
 import unittest
+import subprocess
 from contextlib import contextmanager
 from unittest.mock import patch
 
@@ -111,6 +112,165 @@ def reconciliation_request(service, observation, issued=1300, expires=5100):
     return {"version": 1, "command": "RECONCILE", "scope": copy.deepcopy(SCOPE), "namespaceId": IDS[3], "targetId": IDS[4],
             "operationId": observation["operationId"], "observation": copy.deepcopy(observation),
             "permit": {"payload": payload, "mac": hmac.new(service.key, helper.canonical(payload), hashlib.sha256).hexdigest()}}
+
+
+def recovery_export_request(service, value, export_id=IDS[0], issued=1100, expires=5100):
+    payload = helper.recovery_export_payload(value, export_id, issued, expires)
+    return {"version": 1, "command": "EXPORT_RECOVERY", "scope": copy.deepcopy(value["scope"]),
+            "namespaceId": value["namespaceId"], "targetId": value["targetId"], "operationId": value["operationId"],
+            "exportId": export_id, "permit": {"payload": payload,
+            "mac": hmac.new(service.key, helper.canonical(payload), hashlib.sha256).hexdigest()}}
+
+
+class DisposableFilesystemHelper(helper.ManagedTarget):
+    """Real private temp files and AES codec; does not attest mount namespace isolation."""
+    def __init__(self, directory):
+        self.fds = []
+        self.intent_started = False
+        self.receipt_started = False
+        self.record = None
+        self.key = b"\x37" * 32
+        self.root = self.open_directory(str(pathlib.Path(directory, "root")), 0o700)
+        self.site = self.open_directory("site", 0o755, self.root)
+        self.state = self.open_directory(str(pathlib.Path(directory, "state")), 0o700)
+        def identity(info):
+            return {"device": str(info.st_dev), "inode": str(info.st_ino)}
+        self.manifest = {"namespaceId": IDS[3], "targetId": IDS[4], "scope": {key: SCOPE[key] for key in ("tenantId", "websiteId", "environment")},
+                         "root": identity(os.fstat(self.root)), "site": identity(os.fstat(self.site)),
+                         "state": identity(os.fstat(self.state)), "target": identity(os.stat("index.html", dir_fd=self.site))}
+        self.lock = os.open("lock", os.O_RDWR | helper.NOFOLLOW, dir_fd=self.state)
+        self.fds.append(self.lock)
+
+    def codec(self, mode, value):
+        # Exercise the actual AES-256-GCM implementation using a synthetic in-memory
+        # key; production fixed paths/mount checks and key loading remain unchanged.
+        program = "const fs=require('node:fs');const {run,canonical}=require(process.argv[1]);const v=JSON.parse(fs.readFileSync(0,'utf8'));const k=Buffer.from(v.key,'hex');try{process.stdout.write(canonical(run(v.mode,v.value,k)))}finally{k.fill(0)}"
+        output = subprocess.run(["node", "-e", program, str(pathlib.Path(__file__).with_name("recovery-codec.cjs"))],
+                                input=helper.canonical({"mode": mode, "value": value, "key": "45" * 32}),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False, timeout=10)
+        helper.require(output.returncode == 0 and len(output.stdout) <= helper.MAX_RECOVERY, "MANAGED_RECOVERY_INVALID")
+        return helper.load_json(output.stdout)
+
+
+@unittest.skipUnless(os.getuid() == 0, "real deployment UID checks require root; no permission checks are weakened")
+class RecoveryExportFilesystem(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix="managed-recovery-export-")
+        self.directory = pathlib.Path(self.temporary.name)
+        (self.directory / "root").mkdir(mode=0o700)
+        (self.directory / "root" / "site").mkdir(mode=0o755)
+        (self.directory / "state").mkdir(mode=0o700)
+        self.target = self.directory / "root" / "site" / "index.html"
+        self.target.write_bytes(b"<!doctype html><p>disposable synthetic recovery fixture</p>" * 1000)
+        self.target.chmod(0o666)
+        self.lock = self.directory / "state" / "lock"
+        self.lock.touch(mode=0o600)
+        self.service = DisposableFilesystemHelper(self.directory)
+        self.before_bytes = self.target.read_bytes()
+        self.before_stat = self.target.stat()
+        binding = {"scope": copy.deepcopy(SCOPE), "namespaceId": IDS[3], "targetId": IDS[4]}
+        observed = self.service.handle(dict(binding, version=1, command="OBSERVE"))
+        with patch.object(helper.time, "time", return_value=1.0):
+            self.prepared = self.service.handle(dict(binding, version=1, command="PREPARE", operationId=IDS[5], action="HARDEN",
+                                                     planDigest="b" * 64, authorityDigest="c" * 64, expectedSnapshot=observed["snapshot"]))
+
+    def tearDown(self):
+        self.service.close()
+        self.temporary.cleanup()
+
+    def assert_target_untouched(self):
+        self.assertEqual(self.target.read_bytes(), self.before_bytes)
+        current = self.target.stat()
+        self.assertEqual((current.st_ino, current.st_mode, current.st_mtime_ns, current.st_ctime_ns),
+                         (self.before_stat.st_ino, self.before_stat.st_mode, self.before_stat.st_mtime_ns, self.before_stat.st_ctime_ns))
+
+    def test_exact_encrypted_export_decrypts_checks_hash_and_consumes_only_read_receipt(self):
+        request = recovery_export_request(self.service, self.prepared)
+        journal = (self.directory / "state" / (IDS[5] + ".json")).read_bytes()
+        recovery = (self.directory / "state" / (IDS[5] + ".recovery")).read_bytes()
+        with patch.object(helper.time, "time", return_value=1.2):
+            exported = self.service.handle(request)
+        self.assertEqual(exported["state"], "RECOVERY_EXPORTED")
+        self.assertEqual(helper.canonical(exported["envelope"]), recovery)
+        self.assertEqual(helper.digest(recovery), exported["recoveryDigest"])
+        self.assertEqual(exported["before"], self.prepared["before"])
+        self.assertEqual(exported["envelope"]["aad"], self.service.recovery_aad(self.prepared))
+        verified = self.service.codec("verify", {"envelope": exported["envelope"],
+            "expectedAad": exported["envelope"]["aad"], "expectedSnapshot": exported["before"]})
+        self.assertEqual(verified["digest"], helper.digest(self.before_bytes))
+        serialized = helper.canonical(exported)
+        self.assertNotIn(b"disposable synthetic recovery fixture", serialized)
+        self.assertLess(len(serialized), helper.MAX_RECOVERY + helper.MAX_RECORD)
+        self.assertEqual((self.directory / "state" / (IDS[5] + ".json")).read_bytes(), journal)
+        receipt = self.directory / "state" / (IDS[0] + ".recovery-export")
+        self.assertEqual(receipt.stat().st_mode & 0o7777, 0o600)
+        reopened = DisposableFilesystemHelper(self.directory)
+        try:
+            with patch.object(helper.time, "time", return_value=1.2), self.assertRaisesRegex(helper.Refused, "MANAGED_RECOVERY_EXPORT_REPLAY_REFUSED"):
+                reopened.handle(request)
+        finally:
+            reopened.close()
+        self.assert_target_untouched()
+
+    def test_scope_purpose_expiry_and_record_digest_tampering_are_refused(self):
+        request = recovery_export_request(self.service, self.prepared)
+        for field, change in (("purpose", helper.RECONCILIATION_PURPOSE), ("recoveryDigest", "0" * 64),
+                              ("operationId", IDS[1]), ("exportId", IDS[1]), ("scope", dict(SCOPE, runId=IDS[1]))):
+            wrong = copy.deepcopy(request)
+            wrong["permit"]["payload"][field] = change
+            wrong["permit"]["mac"] = hmac.new(self.service.key, helper.canonical(wrong["permit"]["payload"]), hashlib.sha256).hexdigest()
+            with self.subTest(field=field), patch.object(helper.time, "time", return_value=1.2), self.assertRaises(helper.Refused):
+                self.service.handle(wrong)
+        for issued, expires, now in ((900, 5100, 1200), (1300, 5100, 1200), (1100, 17000, 1200), (1100, 5100, 5100)):
+            wrong = recovery_export_request(self.service, self.prepared, issued=issued, expires=expires)
+            with self.subTest(issued=issued, expires=expires), patch.object(helper.time, "time", return_value=now / 1000), self.assertRaises(helper.Refused):
+                self.service.handle(wrong)
+        wrong = copy.deepcopy(request)
+        wrong["scope"]["runId"] = IDS[1]
+        with self.assertRaisesRegex(helper.Refused, "MANAGED_SCOPE_MISMATCH"):
+            self.service.handle(wrong)
+        self.assertFalse(any(self.directory.joinpath("state").glob("*.recovery-export")))
+        self.assert_target_untouched()
+
+    def test_tampered_or_symlinked_recovery_never_exports_or_changes_target(self):
+        recovery = self.directory / "state" / (IDS[5] + ".recovery")
+        original = recovery.read_bytes()
+        recovery.write_bytes(original[:-1] + b" ")
+        with patch.object(helper.time, "time", return_value=1.2), self.assertRaisesRegex(helper.Refused, "MANAGED_RECOVERY_INVALID"):
+            self.service.handle(recovery_export_request(self.service, self.prepared))
+        recovery.unlink()
+        recovery.symlink_to(self.target)
+        with patch.object(helper.time, "time", return_value=1.2), self.assertRaises(OSError):
+            self.service.handle(recovery_export_request(self.service, self.prepared))
+        self.assertFalse(any(self.directory.joinpath("state").glob("*.recovery-export")))
+        self.assert_target_untouched()
+
+    def test_partial_receipt_is_retained_and_same_read_cannot_replay(self):
+        request = recovery_export_request(self.service, self.prepared)
+        real_write = os.write
+        def interrupted_receipt(fd, data):
+            if os.readlink("/proc/self/fd/" + str(fd)).endswith(".recovery-export"):
+                raise OSError("synthetic interrupted read receipt")
+            return real_write(fd, data)
+        with patch.object(helper.time, "time", return_value=1.2), patch.object(helper.os, "write", side_effect=interrupted_receipt):
+            with self.assertRaises(OSError):
+                self.service.handle(request)
+        receipt = self.directory / "state" / (IDS[0] + ".recovery-export")
+        self.assertTrue(receipt.exists())
+        with patch.object(helper.time, "time", return_value=1.2), self.assertRaisesRegex(helper.Refused, "MANAGED_RECOVERY_EXPORT_REPLAY_REFUSED"):
+            self.service.handle(request)
+        self.assert_target_untouched()
+
+    def test_expiry_during_durability_consumes_read_without_releasing_export(self):
+        request = recovery_export_request(self.service, self.prepared)
+        # Authorization is checked before recovery verification, before the
+        # receipt write, and once more immediately before returning the envelope.
+        with patch.object(helper.time, "time", side_effect=[1.2, 1.3, 5.1]), self.assertRaisesRegex(helper.Refused, "MANAGED_RECOVERY_EXPORT_AUTHORIZATION_EXPIRED"):
+            self.service.handle(request)
+        self.assertTrue((self.directory / "state" / (IDS[0] + ".recovery-export")).exists())
+        with patch.object(helper.time, "time", return_value=1.4), self.assertRaisesRegex(helper.Refused, "MANAGED_RECOVERY_EXPORT_REPLAY_REFUSED"):
+            self.service.handle(request)
+        self.assert_target_untouched()
 
 
 class SimulatedCrash(BaseException):

@@ -132,16 +132,21 @@ class IdentityTests(unittest.TestCase):
                                    source_archive=str(path), source_sha='f' * 64, node_modules='/not-mounted/node_modules')
             candidate = fixture.Fixture(args)
             candidate.docker = Mock(side_effect=AssertionError('Docker must not be called'))
-            with patch.object(fixture.os, 'geteuid', return_value=1000), patch.object(fixture.socket, 'gethostname', return_value='local-test'), self.assertRaisesRegex(RuntimeError, 'HASH_MISMATCH'):
+            original_fstat = fixture.os.fstat
+            def fixture_owner(fd):
+                fields = list(original_fstat(fd))
+                fields[4] = 1000  # Match the synthetic non-root fixture identity.
+                return fixture.os.stat_result(fields)
+            with patch.object(fixture.os, 'geteuid', return_value=1000), patch.object(fixture.os, 'fstat', side_effect=fixture_owner), patch.object(fixture.socket, 'gethostname', return_value='local-test'), self.assertRaisesRegex(RuntimeError, 'HASH_MISMATCH'):
                 candidate.create()
             candidate.docker.assert_not_called()
             self.assertIsNone(candidate.folder)
 
 
 class ArchiveTests(unittest.TestCase):
-    def test_required_schema_package_and31_migrations(self):
+    def test_required_schema_package_and32_migrations(self):
         records, lock = fixture.validated_source(archive())
-        self.assertEqual(len([name for name, *_ in records if name.endswith('/migration.sql')]), 31)
+        self.assertEqual(len([name for name, *_ in records if name.endswith('/migration.sql')]), 32)
         self.assertEqual(lock['lockfileVersion'], 3)
         for missing in ('packages/security-orchestration/package.json', 'packages/database/prisma/migrations/20261018000000_security_repair_journal/migration.sql'):
             files = required_files()
@@ -170,6 +175,9 @@ class ArchiveTests(unittest.TestCase):
                 fixture.validated_source(archive(extra=[('fixture.txt', tarfile.REGTYPE, body)]))
         records, _ = fixture.validated_source(archive(extra=[('.env.example', tarfile.REGTYPE, b'PUBLIC_EXAMPLE=yes')]))
         self.assertFalse(any(name.startswith('.env') for name, *_ in records))
+        for name in fixture.CLIENT_ADAPTER_FILES:
+            records, _ = fixture.validated_source(archive(extra=[(name, tarfile.REGTYPE, b'// reviewed client source')]))
+            self.assertTrue(any(record[0] == name for record in records))
 
     def test_real_bounds_and_bounded_logic(self):
         self.assertEqual(fixture.MAX_FILE, 16777216)

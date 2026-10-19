@@ -13,7 +13,20 @@ function fixture() {
   const run = { id: scope.runId, tenantId: scope.tenantId, websiteId: scope.websiteId, environment: scope.environment, actorId: randomUUID(), sessionId: randomUUID(), inputDigest: 'a'.repeat(64), authorityDigest: 'b'.repeat(64), allowanceMicros: 100, phase: 'PLANNING', expiresAt: new Date(now + 60000), leaseOwnerId: null, leaseExpiresAt: null } as SecurityRepairRun;
   const created = { id: randomUUID(), ...scope, eventKey: 'run.created', eventType: 'run.created', phase: 'PLANNING', dispatchVersion: 0, dispatchOwnerId: null, dispatchExpiresAt: null, dispatchAttempts: 0, publishedAt: null, createdAt: new Date(now) } as SecurityRepairOutbox;
   const events = [created], attempts: Array<{ stepKey: string; state: string; artifactId: string; artifactDigest: string }> = [];
-  let decision: { id: string; status: 'APPROVED' | 'DENIED'; artifactId: string; digest: string; expiresAt: Date } | null = null;
+  let decision: { id: string; kind: 'CANDIDATE' | 'PRODUCTION'; actorId: string; sessionId: string; status: 'APPROVED' | 'DENIED'; artifactId: string; digest: string; expiresAt: Date } | null = null;
+  function matches(row: Record<string, unknown>, where: Record<string, unknown>): boolean {
+    return Object.entries(where).every(([key, value]) => {
+      if (key === 'OR') return (value as Array<Record<string, unknown>>).some(clause => matches(row, clause));
+      const actual = row[key];
+      if (value && typeof value === 'object' && !(value instanceof Date)) {
+        const rule = value as { not?: unknown; in?: unknown[]; gt?: Date; lte?: Date };
+        if ('not' in rule && actual === rule.not || rule.in && !rule.in.includes(actual)) return false;
+        if (rule.gt && (!(actual instanceof Date) || actual <= rule.gt) || rule.lte && (!(actual instanceof Date) || actual > rule.lte)) return false;
+        return true;
+      }
+      return actual === value;
+    });
+  }
   const jobs = new Map<string, Job<SecurityWorkflowDispatchPayload>>(), order: string[] = [];
   const binding = () => ({ ...scope, actorId: run.actorId, sessionId: run.sessionId, inputDigest: run.inputDigest, authorityDigest: run.authorityDigest, allowanceMicros: run.allowanceMicros });
   let controllerRunning = false;
@@ -30,11 +43,11 @@ function fixture() {
       updateMany: vi.fn(async ({ where, data }: { where: { id: string; dispatchOwnerId: string; dispatchVersion: number }; data: { publishedAt: Date; dispatchOwnerId: null; dispatchExpiresAt: null } }) => { const event = events.find(event => event.id === where.id)!; if (event.dispatchOwnerId !== where.dispatchOwnerId || event.dispatchVersion !== where.dispatchVersion || !event.dispatchExpiresAt || event.dispatchExpiresAt.getTime() <= now) return { count: 0 }; Object.assign(event, data); return { count: 1 }; })
     },
     securityRepairAttempt: {
-      count: vi.fn(async ({ where }: { where: { OR?: unknown } }) => where.OR ? attempts.filter(attempt => attempt.stepKey !== 'plan' || attempt.state !== 'SUCCEEDED').length : attempts.length),
-      findFirst: vi.fn(async () => attempts.find(attempt => attempt.stepKey === 'plan' && attempt.state === 'SUCCEEDED' && attempt.artifactId === decision?.artifactId && attempt.artifactDigest === decision?.digest) ?? null)
+      count: vi.fn(async ({ where }: { where: Record<string, unknown> }) => attempts.filter(attempt => matches({ ...scope, ...attempt }, where)).length),
+      findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) => attempts.find(attempt => matches({ ...scope, ...attempt }, where)) ?? null)
     },
-    securityRepairDecision: { findFirst: vi.fn(async ({ where }: { where: { status: string } }) => decision && decision.status === where.status && decision.expiresAt.getTime() > now ? decision : null) },
-    careArtifact: { findFirst: vi.fn(async () => decision ? { id: decision.artifactId } : null) }
+    securityRepairDecision: { findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) => decision && matches({ ...scope, ...decision }, where) ? decision : null) },
+    careArtifact: { findFirst: vi.fn(async ({ where }: { where: Record<string, unknown> }) => decision && matches({ tenantId: scope.tenantId, websiteId: scope.websiteId, environment: scope.environment, id: decision.artifactId, digest: decision.digest, status: 'ACCEPTED', expiresAt: null }, where) ? { id: decision.artifactId } : null) }
   };
   const database = { $transaction: async <T>(work: (value: typeof tx) => Promise<T>) => work(tx) } as unknown as PrismaClient;
   const queue = { add: vi.fn(async (name: string, data: SecurityWorkflowDispatchPayload, opts: JobsOptions) => { const id = opts.jobId!; if (!jobs.has(id)) jobs.set(id, { id, name, data, opts, attemptsMade: 0, attemptsStarted: 1 } as Job<SecurityWorkflowDispatchPayload>); return jobs.get(id)!; }), setGlobalConcurrency: vi.fn(async (_value: number) => undefined), close: vi.fn(async () => { order.push('queue.close'); }) };
@@ -43,7 +56,11 @@ function fixture() {
   const connection = {} as Redis;
   const options: SecurityWorkflowDispatchOptions = { database, connection, dispatcherId: randomUUID(), controllerFactory, publishTimeoutMs: 100, shutdownTimeoutMs: 100, queueFactory: (_name, input) => { expect(input.connection).toBe(connection); return queue; }, workerFactory: (_name, processor, input) => { process = processor; workerOptions = input; return worker; } };
   const dispatch = createSecurityWorkflowDispatch(options);
-  return { scope, run, created, events, attempts, jobs, tx, queue, worker, controller, controllerFactory, options, dispatch, order, process: (job: Job<SecurityWorkflowDispatchPayload>) => process(job), get workerOptions() { return workerOptions; }, bindController: () => { controller.expectedCreateBinding = binding(); }, setControllerRunning(value: boolean) { controllerRunning = value; }, advance(ms: number) { now += ms; }, disableWebsite() { websiteActive = false; }, decide(status: 'APPROVED' | 'DENIED') { run.phase = 'AWAITING_APPROVAL'; const artifactId = randomUUID(); attempts.push({ stepKey: 'plan', state: 'SUCCEEDED', artifactId, artifactDigest: 'c'.repeat(64) }); decision = { id: randomUUID(), artifactId, digest: 'c'.repeat(64), expiresAt: new Date(now + 50000), status }; const event = { ...created, id: randomUUID(), eventKey: `decision.${decision.id}.recorded`, eventType: status === 'APPROVED' ? 'decision.approved' : 'decision.denied', phase: 'AWAITING_APPROVAL' } as SecurityRepairOutbox; events.push(event); return { decision, event }; } };
+  return { scope, run, created, events, attempts, jobs, tx, queue, worker, controller, controllerFactory, options, dispatch, order, process: (job: Job<SecurityWorkflowDispatchPayload>) => process(job), get workerOptions() { return workerOptions; }, bindController: () => { controller.expectedCreateBinding = binding(); }, setControllerRunning(value: boolean) { controllerRunning = value; }, advance(ms: number) { now += ms; }, disableWebsite() { websiteActive = false; }, decide(status: 'APPROVED' | 'DENIED', kind: 'CANDIDATE' | 'PRODUCTION' = 'CANDIDATE') {
+    run.phase = 'AWAITING_APPROVAL'; const artifactId = randomUUID();
+    if (kind === 'PRODUCTION') { run.executionProfile = 'MANAGED_STATIC_PERMISSION_V1'; run.admissionArtifactId = randomUUID(); run.admissionDigest = 'e'.repeat(64); for (const stepKey of ['plan', 'snapshot', 'candidate', 'verify']) attempts.push({ stepKey, state: 'SUCCEEDED', artifactId: randomUUID(), artifactDigest: 'd'.repeat(64) }); }
+    attempts.push({ stepKey: kind === 'CANDIDATE' ? 'plan' : 'proposal', state: 'SUCCEEDED', artifactId, artifactDigest: 'c'.repeat(64) }); decision = { id: randomUUID(), kind, actorId: run.actorId, sessionId: run.sessionId, artifactId, digest: 'c'.repeat(64), expiresAt: new Date(now + 50000), status }; const event = { ...created, id: randomUUID(), eventKey: `decision.${decision.id}.recorded`, eventType: status === 'APPROVED' ? 'decision.approved' : 'decision.denied', phase: 'AWAITING_APPROVAL' } as SecurityRepairOutbox; events.push(event); return { decision, event };
+  } };
 }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 
@@ -76,6 +93,34 @@ describe('dormant workflow dispatch protocol fixtures (not real PostgreSQL/Redis
   });
   it.each(['APPROVED', 'DENIED'] as const)('derives exact saved %s candidate decisions, not arbitrary resume identifiers', async status => {
     const f = fixture(), saved = f.decide(status); expect(await f.dispatch.flush()).toEqual({ claimed: 1, published: 1, unconfirmed: 0 }); const job = f.jobs.get(securityWorkflowDispatchJobId(saved.event.id))!; expect(job.data).toEqual({ ...f.scope, mode: 'resume', decisionId: saved.decision.id }); expect(await f.process(job)).toMatchObject({ disposition: 'CONTROLLER' }); expect(f.controllerFactory).toHaveBeenCalledWith(f.scope); expect(f.controller.run).toHaveBeenCalledWith({ mode: 'resume', decisionId: saved.decision.id }); await f.dispatch.close();
+  });
+  it.each(['APPROVED', 'DENIED'] as const)('dispatches an exact saved %s change decision only for an admitted STAGING proposal', async status => {
+    const f = fixture(), saved = f.decide(status, 'PRODUCTION');
+    expect(await f.dispatch.flush()).toEqual({ claimed: 1, published: 1, unconfirmed: 0 });
+    const job = f.jobs.get(securityWorkflowDispatchJobId(saved.event.id))!;
+    expect(job.data).toEqual({ ...f.scope, mode: 'resume', decisionId: saved.decision.id });
+    expect(await f.process(job)).toMatchObject({ disposition: 'CONTROLLER' });
+    expect(f.controller.run).toHaveBeenCalledWith({ mode: 'resume', decisionId: saved.decision.id }); await f.dispatch.close();
+  });
+  it('refuses a change event with a missing admission, wrong profile, changed receipt, session or expired exact decision', async () => {
+    for (const alter of [
+      (f: ReturnType<typeof fixture>) => { f.run.admissionArtifactId = null; },
+      (f: ReturnType<typeof fixture>) => { f.run.admissionDigest = null; },
+      (f: ReturnType<typeof fixture>) => { f.run.executionProfile = null; },
+      (f: ReturnType<typeof fixture>) => { f.run.executionProfile = 'UNREVIEWED'; },
+      (f: ReturnType<typeof fixture>) => { f.attempts.find(row => row.stepKey === 'proposal')!.artifactDigest = 'f'.repeat(64); },
+      (f: ReturnType<typeof fixture>) => { f.run.sessionId = randomUUID(); },
+      (f: ReturnType<typeof fixture>) => { f.advance(50001); }
+    ]) {
+      const f = fixture(); f.decide('APPROVED', 'PRODUCTION'); alter(f);
+      expect(await f.dispatch.flush()).toEqual({ claimed: 0, published: 0, unconfirmed: 0 }); expect(f.controllerFactory).not.toHaveBeenCalled(); await f.dispatch.close();
+    }
+  });
+  it('does not dispatch a change approval if any apply attempt exists or any earlier effect is unfinished/unknown', async () => {
+    for (const [stepKey, state] of [['apply', 'SUCCEEDED'], ['apply', 'STARTED'], ['snapshot', 'OUTCOME_UNKNOWN'], ['candidate', 'STARTED']] as const) {
+      const f = fixture(); f.decide('APPROVED', 'PRODUCTION'); f.attempts.push({ stepKey, state, artifactId: randomUUID(), artifactDigest: 'f'.repeat(64) });
+      expect(await f.dispatch.flush()).toEqual({ claimed: 0, published: 0, unconfirmed: 0 }); expect(f.controllerFactory).not.toHaveBeenCalled(); await f.dispatch.close();
+    }
   });
   it('does not reuse an old candidate event at production approval or automatically restart an unfinished lease', async () => {
     const f = fixture(); f.decide('APPROVED'); f.attempts.push({ stepKey: 'snapshot', state: 'SUCCEEDED', artifactId: randomUUID(), artifactDigest: 'd'.repeat(64) }); expect(await f.dispatch.flush()).toEqual({ claimed: 0, published: 0, unconfirmed: 0 }); await f.dispatch.close(); const leased = fixture(); leased.run.leaseOwnerId = randomUUID(); leased.run.leaseExpiresAt = new Date(0); expect(await leased.dispatch.flush()).toEqual({ claimed: 0, published: 0, unconfirmed: 0 }); await leased.dispatch.close();

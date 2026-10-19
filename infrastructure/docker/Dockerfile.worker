@@ -3,6 +3,7 @@ WORKDIR /workspace
 COPY package.json package-lock.json ./
 COPY apps ./apps
 COPY packages ./packages
+COPY infrastructure/security-managed-target/broker.cjs infrastructure/security-managed-target/broker.d.cts infrastructure/security-managed-target/recovery-codec.cjs ./infrastructure/security-managed-target/
 COPY tsconfig.base.json ./
 RUN npm ci
 RUN npm run db:generate && npm run build -w @zerochack/worker

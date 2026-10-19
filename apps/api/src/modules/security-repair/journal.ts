@@ -15,19 +15,28 @@ export type SecurityJournalOptions = {
   /** Trusted test clock only. Production defaults to the database clock. */
   now?: () => Date;
   leaseMs?: number;
+  /** Code-owned managed STAGING adapter only. A run field or request flag alone
+   * cannot authorize a write. Production/recovery effects remain unavailable. */
+  stagingMutation?: {
+    profile: 'MANAGED_STATIC_PERMISSION_V1';
+    assertReady(tx: Prisma.TransactionClient, scope: SecurityScope, run: SecurityRepairRun, action: 'DECIDE' | 'APPLY' | 'POST_VERIFY' | 'SETTLE', receipt?: ArtifactReceipt): Promise<void>;
+  };
 };
 const terminal = ['COMPLETED', 'FAILED', 'CANCELLED'];
 const codeSchema = z.string().regex(/^[A-Z][A-Z0-9_]{2,79}$/u);
 const money = z.number().int().min(0).max(100_000_000);
 const fenceSchema = z.object({ ownerId: uuid, version: z.number().int().positive(), expiresAt: z.date() }).strict();
-const createSchema = scopeSchema.extend({ actorId: uuid, sessionId: uuid, requestKey: uuid, inputDigest: sha256, authorityDigest: sha256, allowanceMicros: money, expiresAt: z.date() }).strict();
+const createSchema = scopeSchema.extend({ actorId: uuid, sessionId: uuid, requestKey: uuid, inputDigest: sha256, authorityDigest: sha256, allowanceMicros: money, expiresAt: z.date(), admissionArtifactId: uuid.optional(), admissionDigest: sha256.optional(), executionProfile: z.literal('MANAGED_STATIC_PERMISSION_V1').optional() }).strict().superRefine((value, context) => {
+  const fields = [value.admissionArtifactId, value.admissionDigest, value.executionProfile];
+  if (fields.some(Boolean) && (value.environment !== 'STAGING' || fields.some(field => !field))) context.addIssue({ code: 'custom', message: 'Complete managed staging admission is required' });
+});
 const stepSchema = z.object({ stepKey: z.string().regex(/^[a-z][a-z0-9_.:-]{0,95}$/u), kind: z.enum(effectKinds), inputDigest: sha256, reserveMicros: money }).strict();
 const receiptSchema = z.object({ artifactId: uuid, digest: sha256, costMicros: money }).strict();
 const decisionSchema = artifactReceiptSchema.extend({ actorId: uuid, sessionId: uuid, requestKey: uuid, status: z.enum(['APPROVED', 'DENIED']) }).strict();
 const transitions: Record<SecurityPhase, readonly SecurityPhase[]> = {
   PLANNING: ['WAITING_FOR_INPUT', 'AWAITING_APPROVAL'],
   WAITING_FOR_INPUT: ['PLANNING', 'AWAITING_APPROVAL', 'SNAPSHOTTING', 'CANDIDATE_WORK', 'VERIFYING', 'READY_FOR_RELEASE'],
-  AWAITING_APPROVAL: ['SNAPSHOTTING'],
+  AWAITING_APPROVAL: ['SNAPSHOTTING', 'APPLYING'],
   SNAPSHOTTING: ['CANDIDATE_WORK', 'WAITING_FOR_INPUT'],
   CANDIDATE_WORK: ['VERIFYING', 'WAITING_FOR_INPUT'],
   VERIFYING: ['READY_FOR_RELEASE', 'WAITING_FOR_INPUT'],
@@ -110,6 +119,28 @@ export function createSecurityRepairJournal(options: SecurityJournalOptions) {
     if (!decision || decision.status !== 'APPROVED' || decision.actorId !== run.actorId || decision.sessionId !== run.sessionId || decision.digest !== plan.artifactDigest) fail('SECURITY_DECISION_BINDING_CHANGED');
     if (decision.expiresAt <= now || decision.expiresAt > run.expiresAt) fail('SECURITY_DECISION_EXPIRED');
   }
+  async function stagingAuthority(tx: Prisma.TransactionClient, scope: SecurityScope, run: SecurityRepairRun, now: Date, action: 'DECIDE' | 'APPLY' | 'POST_VERIFY' | 'SETTLE', receipt?: ArtifactReceipt) {
+    const policy = options.stagingMutation;
+    if (!policy || scope.environment !== 'STAGING' || run.executionProfile !== policy.profile || !run.admissionArtifactId || !run.admissionDigest) fail('UNREGISTERED_SECURITY_EXECUTOR');
+    await artifact(tx, scope, { artifactId: run.admissionArtifactId, digest: run.admissionDigest }, now);
+    await policy.assertReady(tx, scope, run, action, receipt ? { artifactId: receipt.artifactId, digest: receipt.digest } : undefined);
+  }
+  async function proposalReceipt(tx: Prisma.TransactionClient, scope: SecurityScope, receipt: ArtifactReceipt, now: Date) {
+    const proposal = await tx.securityRepairAttempt.findFirst({ where: { ...refs(scope), stepKey: 'proposal' }, orderBy: { attemptNumber: 'desc' } });
+    if (!proposal || proposal.state !== 'SUCCEEDED' || proposal.artifactId !== receipt.artifactId || proposal.artifactDigest !== receipt.digest) fail('SECURITY_DECISION_RECEIPT_CHANGED');
+    await artifact(tx, scope, receipt, now);
+  }
+  async function changeEffectAuthority(tx: Prisma.TransactionClient, scope: SecurityScope, run: SecurityRepairRun, now: Date) {
+    await candidateEffectAuthority(tx, scope, run, now);
+    const proposal = await tx.securityRepairAttempt.findFirst({ where: { ...refs(scope), stepKey: 'proposal', state: 'SUCCEEDED' } });
+    if (!proposal?.artifactId || !proposal.artifactDigest) fail('SECURITY_DECISION_RECEIPT_CHANGED');
+    const receipt = { artifactId: proposal.artifactId, digest: proposal.artifactDigest };
+    await proposalReceipt(tx, scope, receipt, now);
+    const decision = await tx.securityRepairDecision.findFirst({ where: { ...refs(scope), kind: 'PRODUCTION', artifactId: receipt.artifactId } });
+    if (!decision || decision.status !== 'APPROVED' || decision.actorId !== run.actorId || decision.sessionId !== run.sessionId || decision.digest !== receipt.digest) fail('SECURITY_DECISION_BINDING_CHANGED');
+    if (decision.expiresAt <= now || decision.expiresAt > run.expiresAt) fail('SECURITY_DECISION_EXPIRED');
+    await stagingAuthority(tx, scope, run, now, 'APPLY', receipt);
+  }
   return {
     async createRun(input: z.input<typeof createSchema>) {
       const value = createSchema.parse(input);
@@ -117,11 +148,12 @@ export function createSecurityRepairJournal(options: SecurityJournalOptions) {
         if (value.expiresAt <= now || value.expiresAt.getTime() - now.getTime() > 86_400_000) fail('SECURITY_AUTHORITY_EXPIRED');
         const existing = await tx.securityRepairRun.findUnique({ where: { tenantId_websiteId_environment_requestKey: { tenantId: scope.tenantId, websiteId: scope.websiteId, environment: scope.environment, requestKey: value.requestKey } } });
         if (existing) {
-          if (existing.id !== scope.runId || existing.actorId !== value.actorId || existing.sessionId !== value.sessionId || existing.inputDigest !== value.inputDigest || existing.authorityDigest !== value.authorityDigest || existing.allowanceMicros !== value.allowanceMicros || existing.expiresAt.getTime() !== value.expiresAt.getTime()) fail('SECURITY_REQUEST_BINDING_CHANGED');
+          if (existing.id !== scope.runId || existing.actorId !== value.actorId || existing.sessionId !== value.sessionId || existing.inputDigest !== value.inputDigest || existing.authorityDigest !== value.authorityDigest || existing.allowanceMicros !== value.allowanceMicros || existing.expiresAt.getTime() !== value.expiresAt.getTime() || (existing.admissionArtifactId ?? undefined) !== value.admissionArtifactId || (existing.admissionDigest ?? undefined) !== value.admissionDigest || (existing.executionProfile ?? undefined) !== value.executionProfile) fail('SECURITY_REQUEST_BINDING_CHANGED');
           return existing;
         }
         await noOtherWork(tx, scope);
-        const run = await tx.securityRepairRun.create({ data: { ...key(scope), requestKey: value.requestKey, actorId: value.actorId, sessionId: value.sessionId, inputDigest: value.inputDigest, authorityDigest: value.authorityDigest, allowanceMicros: value.allowanceMicros, expiresAt: value.expiresAt } });
+        if (value.admissionArtifactId && value.admissionDigest) await artifact(tx, scope, { artifactId: value.admissionArtifactId, digest: value.admissionDigest }, now);
+        const run = await tx.securityRepairRun.create({ data: { ...key(scope), requestKey: value.requestKey, actorId: value.actorId, sessionId: value.sessionId, inputDigest: value.inputDigest, authorityDigest: value.authorityDigest, allowanceMicros: value.allowanceMicros, expiresAt: value.expiresAt, ...(value.admissionArtifactId ? { admissionArtifactId: value.admissionArtifactId, admissionDigest: value.admissionDigest!, executionProfile: value.executionProfile! } : {}) } });
         await event(tx, scope, 'run.created', 'run.created', run.phase);
         return run;
       });
@@ -194,12 +226,64 @@ export function createSecurityRepairJournal(options: SecurityJournalOptions) {
         return decision.status;
       });
     },
+    async recordChangeDecision(input: SecurityScope, inputDecision: z.input<typeof decisionSchema>): Promise<string> {
+      if (!options.stagingMutation) fail('UNREGISTERED_SECURITY_EXECUTOR');
+      const value = decisionSchema.parse(inputDecision);
+      return transaction(input, 'DECIDE', async (tx, scope, now) => {
+        const run = await getRun(tx, scope);
+        if (run.actorId !== value.actorId || run.sessionId !== value.sessionId) fail('SECURITY_ACTOR_BINDING_CHANGED');
+        await stagingAuthority(tx, scope, run, now, 'DECIDE', value);
+        const prior = await tx.securityRepairDecision.findUnique({ where: { tenantId_websiteId_environment_runId_requestKey: { ...refs(scope), requestKey: value.requestKey } } });
+        if (prior) {
+          if (prior.kind !== 'PRODUCTION' || prior.actorId !== value.actorId || prior.sessionId !== value.sessionId || prior.artifactId !== value.artifactId || prior.digest !== value.digest || prior.status !== value.status) fail('SECURITY_DECISION_BINDING_CHANGED');
+          return prior.id;
+        }
+        active(run, now);
+        if (run.phase !== 'AWAITING_APPROVAL' || run.leaseOwnerId || run.leaseExpiresAt) fail('SECURITY_DECISION_NOT_WAITING');
+        await candidateEffectAuthority(tx, scope, run, now);
+        await proposalReceipt(tx, scope, value, now);
+        if (await tx.securityRepairAttempt.count({ where: { ...refs(scope), stepKey: 'apply' } })) fail('SECURITY_EFFECT_UNRESOLVED');
+        if (await tx.securityRepairDecision.findUnique({ where: { runId_kind_artifactId: { runId: scope.runId, kind: 'PRODUCTION', artifactId: value.artifactId } } })) fail('SECURITY_DECISION_ALREADY_RECORDED');
+        const decision = await tx.securityRepairDecision.create({ data: { ...refs(scope), ...value, kind: 'PRODUCTION', expiresAt: new Date(Math.min(now.getTime() + 300_000, run.expiresAt.getTime())), createdAt: now } });
+        await event(tx, scope, `decision.${decision.id}.recorded`, value.status === 'APPROVED' ? 'decision.approved' : 'decision.denied', run.phase);
+        return decision.id;
+      });
+    },
+    async resolveChangeDecision(input: SecurityScope, inputFence: SecurityLeaseFence, inputDecisionId: string, inputArtifact: ArtifactReceipt): Promise<'APPROVED' | 'DENIED'> {
+      if (!options.stagingMutation) fail('UNREGISTERED_SECURITY_EXECUTOR');
+      const fence = fenceSchema.parse(inputFence), decisionId = uuid.parse(inputDecisionId), receipt = artifactReceiptSchema.parse(inputArtifact);
+      return transaction(input, 'DECIDE', async (tx, scope, now) => {
+        const run = await getRun(tx, scope); lease(run, fence, now);
+        if (!['AWAITING_APPROVAL', 'APPLYING', 'POST_VERIFYING'].includes(run.phase)) fail('SECURITY_DECISION_NOT_WAITING');
+        await stagingAuthority(tx, scope, run, now, 'DECIDE', receipt);
+        await proposalReceipt(tx, scope, receipt, now);
+        const decision = await tx.securityRepairDecision.findFirst({ where: { ...refs(scope), id: decisionId, kind: 'PRODUCTION' } });
+        if (!decision || decision.actorId !== run.actorId || decision.sessionId !== run.sessionId || decision.artifactId !== receipt.artifactId || decision.digest !== receipt.digest) fail('SECURITY_DECISION_BINDING_CHANGED');
+        if (decision.expiresAt <= now || decision.expiresAt > run.expiresAt) fail('SECURITY_DECISION_EXPIRED');
+        if (decision.status !== 'APPROVED' && decision.status !== 'DENIED') fail('SECURITY_DECISION_BINDING_CHANGED');
+        return decision.status;
+      });
+    },
     async transition(input: SecurityScope, inputFence: SecurityLeaseFence, inputPhase: SecurityPhase, inputCode?: string) {
       const fence = fenceSchema.parse(inputFence); const phase = z.enum(phases).parse(inputPhase); const code = inputCode === undefined ? undefined : codeSchema.parse(inputCode);
-      if (phase === 'APPLYING' || phase === 'POST_VERIFYING') fail('UNREGISTERED_SECURITY_EXECUTOR');
+      if ((phase === 'APPLYING' || phase === 'POST_VERIFYING') && !options.stagingMutation) fail('UNREGISTERED_SECURITY_EXECUTOR');
       return transaction(input, 'TRANSITION', async (tx, scope, now) => {
         const run = await getRun(tx, scope); lease(run, fence, now);
         if (run.phase === phase && run.errorCode === (code ?? null)) return run;
+        if (phase === 'APPLYING') await changeEffectAuthority(tx, scope, run, now);
+        if (phase === 'POST_VERIFYING') {
+          await stagingAuthority(tx, scope, run, now, 'POST_VERIFY');
+          const applied = await tx.securityRepairAttempt.findFirst({ where: { ...refs(scope), stepKey: 'apply', state: 'SUCCEEDED', kind: { in: ['STAGING_WRITE', 'STAGING_RECOVERY'] } } });
+          if (!applied?.artifactId || !applied.artifactDigest) fail('SECURITY_MUTATION_NOT_VERIFIED');
+          await artifact(tx, scope, { artifactId: applied.artifactId, digest: applied.artifactDigest }, now);
+        }
+        if (phase === 'COMPLETED' && run.executionProfile === 'MANAGED_STATIC_PERMISSION_V1') {
+          const verified = await tx.securityRepairAttempt.findFirst({ where: { ...refs(scope), stepKey: 'post_verify', state: 'SUCCEEDED', kind: 'READ' } });
+          if (!verified?.artifactId || !verified.artifactDigest) fail('SECURITY_MUTATION_NOT_VERIFIED');
+          const receipt = { artifactId: verified.artifactId, digest: verified.artifactDigest };
+          await artifact(tx, scope, receipt, now);
+          await stagingAuthority(tx, scope, run, now, 'POST_VERIFY', receipt);
+        }
         const outstanding = await tx.securityRepairAttempt.findMany({ where: { ...refs(scope), state: { not: 'SUCCEEDED' } } });
         if (phase !== 'OUTCOME_UNKNOWN' && outstanding.length) fail('SECURITY_EFFECT_UNRESOLVED');
         if (!['FAILED', 'CANCELLED', 'STALE', 'OUTCOME_UNKNOWN'].includes(phase) && !transitions[run.phase as SecurityPhase]?.includes(phase)) fail('SECURITY_TRANSITION_INVALID');
@@ -224,6 +308,10 @@ export function createSecurityRepairJournal(options: SecurityJournalOptions) {
           await artifact(tx, scope, receipt, now);
           return { outcome: 'SUCCEEDED', artifact: receipt, costMicros: existing.costMicros };
         }
+        if (step.kind === 'STAGING_WRITE' || step.kind === 'STAGING_RECOVERY') {
+          if (step.stepKey !== 'apply' || run.phase !== 'APPLYING') fail('SECURITY_TRANSITION_INVALID');
+          await changeEffectAuthority(tx, scope, run, now);
+        }
         // Recheck the actual immutable candidate decision in this same admission
         // transaction. Graph entry/readiness checks are not authority to start a
         // new paid/runtime effect after that approval expires. Completed receipts
@@ -246,6 +334,7 @@ export function createSecurityRepairJournal(options: SecurityJournalOptions) {
         const attempt = await tx.securityRepairAttempt.findFirst({ where: { ...refs(scope), id: attemptId } });
         if (!attempt) fail('SECURITY_ATTEMPT_NOT_FOUND');
         if (attempt.kind === 'PRODUCTION_WRITE' || attempt.kind === 'RECOVERY_WRITE') fail('UNREGISTERED_SECURITY_EXECUTOR');
+        if (attempt.kind === 'STAGING_WRITE' || attempt.kind === 'STAGING_RECOVERY') await stagingAuthority(tx, scope, run, now, 'SETTLE', receipt);
         await artifact(tx, scope, receipt, now);
         if (attempt.state === 'SUCCEEDED') {
           if (attempt.artifactId !== receipt.artifactId || attempt.artifactDigest !== receipt.digest || attempt.costMicros !== receipt.costMicros) fail('SECURITY_RECEIPT_BINDING_CHANGED');

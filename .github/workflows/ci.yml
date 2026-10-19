@@ -55,8 +55,14 @@ jobs:
       - run: npm run test:build-toolchain
       - run: npm run typecheck
       - run: npm test
+      - name: Managed adapter and runtime guard tests (disposable fixtures only)
+        run: |
+          node --test infrastructure/security-managed-target/codec.test.cjs infrastructure/security-managed-target/broker.test.cjs
+          sudo python3 -B infrastructure/security-managed-target/helper_test.py
+          python3 -B -m unittest discover -s scripts/security-runtime -p 'test_*.py'
       - run: npm run test:integration
       - run: npm run build
+      - run: node scripts/security/check-compiled-product.mjs
       - run: npm run openapi:generate
       - run: git diff --exit-code -- docs/openapi.json
       - run: npx playwright install --with-deps chromium

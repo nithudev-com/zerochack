@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { createHash, createHmac, randomUUID, timingSafeEqual } = require('node:crypto');
 const { Client, utils } = require('ssh2');
-const { canonical } = require('./recovery-codec.cjs');
-const { createManagedTargetBroker, COMMAND } = require('./broker.cjs');
+const { canonical, run: verifyRecoveryCodec } = require('./recovery-codec.cjs');
+const { createManagedTargetBroker, COMMAND, buildRecoveryExportPermitPayload } = require('./broker.cjs');
 if (process.getuid() !== 0 || process.env.MANAGED_TARGET_DISPOSABLE_FIXTURE !== '1') throw new Error('FIXTURE_ONLY');
 function privateFile(name, maximum = 16384) {
   const fd = fs.openSync(`/fixture-control/${name}`, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
@@ -17,6 +17,7 @@ function privateFile(name, maximum = 16384) {
 }
 const identity = JSON.parse(privateFile('fixture.json'));
 const privateKey = privateFile('client.key'); const permitKey = privateFile('permit.key');
+const recoveryKey = privateFile('recovery.key', 32);
 const binding = { scope: identity.scope, namespaceId: identity.namespaceId, targetId: identity.targetId };
 const access = { address: 'managed-target-helper', port: 2222, username: 'codebandage-managed-target', hostKeyFingerprint: identity.fingerprint, privateKey };
 async function disconnect(client) {
@@ -61,7 +62,27 @@ async function authorizeAndIssuePermit(prepared) {
   lastPermit = { payload, mac: createHmac('sha256', permitKey).update(canonical(payload)).digest('hex') };
   return lastPermit;
 }
-const broker = createManagedTargetBroker(access, { connectPinned: fixtureConnect, authorizeAndIssuePermit });
+let lastExportPermit;
+async function authorizeAndIssueRecoveryExportPermit({ prepared, exportId }) {
+  assert.deepEqual(prepared.scope, expectedApproval.scope);
+  for (const field of ['namespaceId','targetId','action','planDigest','authorityDigest','snapshotDigest']) assert.equal(prepared[field], expectedApproval[field]);
+  const issuedAt = Date.now();
+  const payload = buildRecoveryExportPermitPayload(prepared, exportId, issuedAt, issuedAt + 10000);
+  lastExportPermit = { payload, mac: createHmac('sha256', permitKey).update(canonical(payload)).digest('hex') };
+  return lastExportPermit;
+}
+const broker = createManagedTargetBroker(access, { connectPinned: fixtureConnect, authorizeAndIssuePermit, authorizeAndIssueRecoveryExportPermit });
+async function exportAndVerify(prepared) {
+  const exportId = randomUUID();
+  const result = await broker.exportRecovery(prepared, exportId);
+  assert.equal(result.recoveryDigest, createHash('sha256').update(canonical(result.envelope)).digest('hex'));
+  assert.deepEqual(result.before, prepared.before);
+  assert.deepEqual(verifyRecoveryCodec('verify', { envelope: result.envelope, expectedAad: result.envelope.aad,
+    expectedSnapshot: prepared.before }, recoveryKey), { verified: true, snapshotDigest: prepared.snapshotDigest, digest: prepared.before.digest });
+  const replay = await raw({ version: 1, command: 'EXPORT_RECOVERY', ...binding, operationId: prepared.operationId, exportId, permit: lastExportPermit });
+  assert.deepEqual(replay, { ok: false, errorCode: 'MANAGED_RECOVERY_EXPORT_REPLAY_REFUSED' });
+  assert.deepEqual((await broker.observe(binding)).snapshot, prepared.before);
+}
 async function raw(request, execCommand = COMMAND) {
   const client = await fixtureConnect();
   try {
@@ -123,6 +144,7 @@ async function main() {
   const pathInjection = await raw({ version: 1, command: 'OBSERVE', ...binding, path: '/etc/passwd' });
   assert.equal(pathInjection.ok, false);
   const harden = await prepare('HARDEN', observed);
+  await exportAndVerify(harden);
   const beforeBadPermit = await raw({ version: 1, command: 'COMMIT', ...binding, operationId: harden.operationId, permit: { payload: {}, mac: '0'.repeat(64) } });
   assert.equal(beforeBadPermit.ok, false); assert.deepEqual((await broker.observe(binding)).snapshot, observed.snapshot);
   if (process.env.MANAGED_TARGET_FIXTURE_DROP_COMMIT_ACK === '1') {
@@ -140,6 +162,7 @@ async function main() {
   assert.deepEqual(replay, { ok: false, errorCode: 'MANAGED_REPLAY_REFUSED' });
   const current = await broker.observe(binding);
   const restore = await prepare('RESTORE', current, harden.operationId);
+  await exportAndVerify(restore);
   assert.notEqual(restore.operationId, harden.operationId); assert.notEqual(restore.challenge, harden.challenge);
   const restored = await broker.commit(restore);
   assert.equal(authorityCalls, 2); assert.equal(restored.after.mode, 0o666); assert.equal(restored.after.digest, observed.snapshot.digest);
@@ -147,4 +170,4 @@ async function main() {
   process.stdout.write('MANAGED_STATIC_FIXTURE_HARDEN_REPLAY_REFUSAL_AND_SEPARATE_RESTORE_VERIFIED\n');
 }
 main().catch(() => { process.stderr.write('MANAGED_STATIC_FIXTURE_FAILED\n'); process.exitCode = 1; })
-  .finally(() => { privateKey.fill(0); permitKey.fill(0); });
+  .finally(() => { privateKey.fill(0); permitKey.fill(0); recoveryKey.fill(0); });

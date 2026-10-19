@@ -32,9 +32,13 @@ LABEL = 'codebandage.scope=local-p1-tls-fixture-v1'
 FORBIDDEN = {'.git', 'node_modules', '.next', 'dist', 'coverage', 'test-results', 'playwright-report',
              '.ssh', '.aws', '.codex', '.cache', '.npm', '.auth', 'auth-state'}
 EXCLUDED_PREFIXES = ('infrastructure/security-managed-target', 'infrastructure/security-runtime', 'scripts/security-runtime')
+CLIENT_ADAPTER_FILES = {'infrastructure/security-managed-target/broker.cjs',
+                        'infrastructure/security-managed-target/broker.d.cts',
+                        'infrastructure/security-managed-target/recovery-codec.cjs'}
 REQUIRED = {'package.json', 'package-lock.json', 'tsconfig.base.json', 'eslint.config.mjs',
             'vitest.config.ts', 'vitest.integration.config.ts', 'packages/database/prisma/schema.prisma',
             'packages/database/prisma/migrations/20261018000000_security_repair_journal/migration.sql',
+            'packages/database/prisma/migrations/20261019000000_security_repair_product/migration.sql',
             'packages/security-orchestration/package.json'}
 MAX_ARCHIVE = 67108864
 MAX_FILE = 16777216
@@ -168,8 +172,8 @@ r=new R(v.href,{lazyConnect:true,connectTimeout:2500,retryStrategy:()=>null,maxR
 const migrations=await d.$queryRawUnsafe('SELECT count(*)::int AS count FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL');
 const b=await d.$queryRawUnsafe("SELECT current_database() AS name,shobj_description(oid,'pg_database') AS marker,datdba=(SELECT oid FROM pg_roles WHERE rolname=current_user) AS owned FROM pg_database WHERE datname=current_database()");
 const ssl=await d.$queryRawUnsafe('SELECT ssl FROM pg_stat_ssl WHERE pid=pg_backend_pid()');await r.connect();const pong=await r.ping();
-if(migrations[0]?.count!==31||b.length!==1||b[0].name!==n||b[0].marker!==m||b[0].owned!==true||ssl[0]?.ssl!==true||pong!=='PONG'||r.connector.stream.encrypted!==true||r.connector.stream.authorized!==true)throw Error('positive');
-console.log(JSON.stringify({service:'both',check:'positive',result:'PASS',postgresTls:true,redisTls:true,migrations:31,fixtureMarker:true,fixtureOwner:true}));
+if(migrations[0]?.count!==32||b.length!==1||b[0].name!==n||b[0].marker!==m||b[0].owned!==true||ssl[0]?.ssl!==true||pong!=='PONG'||r.connector.stream.encrypted!==true||r.connector.stream.authorized!==true)throw Error('positive');
+console.log(JSON.stringify({service:'both',check:'positive',result:'PASS',postgresTls:true,redisTls:true,migrations:32,fixtureMarker:true,fixtureOwner:true}));
 }catch{console.log(JSON.stringify({service:'both',check:'positive',result:'FAIL',code:'POSITIVE_OR_GUARD_FAILED'}));process.exitCode=1;}
 finally{r?.disconnect();await d.$disconnect();}})().catch(()=>{console.log(JSON.stringify({result:'FAIL',code:'POSITIVE_PROCESS_FAILED'}));process.exitCode=1;});'''
 
@@ -205,7 +209,7 @@ def validated_source(payload):
             parts = name.split('/')
             require(not any(part in ('', '.', '..') or part in FORBIDDEN for part in parts) and
                     posixpath.normpath(name) == name and name not in seen, 'SOURCE_ARCHIVE_PATH_SCOPE')
-            require(not any(name == prefix or name.startswith(prefix + '/') for prefix in EXCLUDED_PREFIXES), 'SOURCE_ARCHIVE_EXCLUDED_SCOPE')
+            require(name in CLIENT_ADAPTER_FILES or not any(name == prefix or name.startswith(prefix + '/') for prefix in EXCLUDED_PREFIXES), 'SOURCE_ARCHIVE_EXCLUDED_SCOPE')
             seen.add(name)
             base = parts[-1].lower()
             env_file = base == '.env' or base.startswith('.env.') or base.endswith('.env')
@@ -229,7 +233,7 @@ def validated_source(payload):
                 records.append((name, member.isdir(), bool(member.mode & 0o111), body))
     require(REQUIRED.issubset(seen) and REQUIRED.issubset(bodies), 'REQUIRED_P1_SOURCE_MISSING')
     migrations = [name for name in seen if re.fullmatch(r'packages/database/prisma/migrations/[^/]+/migration\.sql', name)]
-    require(len(migrations) == 31, 'EXACT_31_MIGRATIONS_REQUIRED')
+    require(len(migrations) == 32, 'EXACT_32_MIGRATIONS_REQUIRED')
     schema = bodies['packages/database/prisma/schema.prisma']
     require(b'model SecurityRepairRun {' in schema and b'model SecurityRepairAttempt {' in schema, 'P1_JOURNAL_SCHEMA_REQUIRED')
     require(json.loads(bodies['packages/security-orchestration/package.json'])['name'] == '@zerochack/security-orchestration', 'P1_ORCHESTRATION_PACKAGE_REQUIRED')
@@ -442,11 +446,11 @@ class Fixture:
                    'binding': binding, 'clientArguments': self.client_arguments,
                    'network': stem, 'database': database, 'databaseMarker': marker, 'images': IMAGES,
                    'containerIds': self.created, 'tls': 'PASS', 'negativeTlsAuthChecks': 6,
-                   'migrations': 31, 'servicePortsPublished': False,
+                   'migrations': 32, 'servicePortsPublished': False,
                    'dataStorage': 'bounded tmpfs; disposable on stop', 'externalProviders': 'NOT_CALLED',
                    'developmentFixtureNotCustomerSandbox': True}, indent=2) + '\n')
         print(json.dumps({'result': 'LOCAL_P1_TLS_FIXTURE_READY', 'fixtureDirectory': str(self.folder),
-                          'network': stem, 'migrations': 31, 'secretsPrinted': False,
+                          'network': stem, 'migrations': 32, 'secretsPrinted': False,
                           'servicesRetainedForReviewedTests': True}))
 
 

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { createHash, randomUUID } = require('node:crypto');
 const { canonical } = require('./recovery-codec.cjs');
-const { createManagedTargetBroker, COMMAND } = require('./broker.cjs');
+const { createManagedTargetBroker, COMMAND, RECOVERY_EXPORT_PURPOSE, buildRecoveryExportPermitPayload } = require('./broker.cjs');
 function fixtures() {
   const binding = { scope: { tenantId: randomUUID(), websiteId: randomUUID(), environment: 'STAGING', runId: randomUUID() }, namespaceId: randomUUID(), targetId: randomUUID() };
   const before = { device: '2049', inode: '3344', uid: 0, gid: 0, mode: 0o666, size: 4, mtimeNs: '1792000000000000000', ctimeNs: '1792000000000000000', digest: 'a'.repeat(64) };
@@ -129,4 +129,75 @@ test('reconciliation inspect/status verify exact binding, snapshot relationships
   }
   const wrongReceipt = transport(({ stream }) => reply(stream, { ok: true, result: { ...receipt, receiptDigest: '0'.repeat(64) } }));
   await assert.rejects(createManagedTargetBroker(access, wrongReceipt).reconciliationStatus(input), /MANAGED_PROTOCOL_INVALID/);
+});
+function recoveryExportFixture() {
+  const { prepared } = fixtures(); const exportId = randomUUID();
+  const envelope = { version: 1, algorithm: 'AES-256-GCM', aad: { protocol: 1, scope: prepared.scope,
+    namespaceId: prepared.namespaceId, targetId: prepared.targetId, operationId: prepared.operationId, snapshotDigest: prepared.snapshotDigest },
+    iv: Buffer.alloc(12, 11).toString('base64'), tag: Buffer.alloc(16, 12).toString('base64'),
+    ciphertext: Buffer.alloc(50000, 13).toString('base64') };
+  // Structural wire fixture only. Actual decryption and byte verification are tested
+  // by the real recovery codec and helper disposable-filesystem tests.
+  prepared.recoveryDigest = createHash('sha256').update(canonical(envelope)).digest('hex');
+  const exportedAt = prepared.preparedAt + 1;
+  const result = { version: 1, adapter: prepared.adapter, state: 'RECOVERY_EXPORTED', scope: prepared.scope,
+    namespaceId: prepared.namespaceId, targetId: prepared.targetId, operationId: prepared.operationId, exportId,
+    planDigest: prepared.planDigest, authorityDigest: prepared.authorityDigest, snapshotDigest: prepared.snapshotDigest,
+    recoveryDigest: prepared.recoveryDigest, before: prepared.before, envelope, exportedAt };
+  const authorizeAndIssueRecoveryExportPermit = async (input) => ({ payload: buildRecoveryExportPermitPayload(input.prepared,
+    input.exportId, prepared.preparedAt, prepared.preparedAt + 10000), mac: 'f'.repeat(64) });
+  return { prepared, exportId, result, authorizeAndIssueRecoveryExportPermit };
+}
+test('encrypted recovery export uses distinct read authority, exact digests and only fixed command', async () => {
+  const value = recoveryExportFixture(); let reads = 0;
+  const fixture = transport(({ request, stream }) => {
+    assert.equal(request.command, 'EXPORT_RECOVERY'); assert.equal(request.exportId, value.exportId);
+    assert.equal(request.permit.payload.purpose, RECOVERY_EXPORT_PURPOSE);
+    reply(stream, { ok: true, result: value.result });
+  });
+  const broker = createManagedTargetBroker(access, { ...fixture,
+    authorizeAndIssuePermit: () => assert.fail('mutation authority must not be used for export'),
+    authorizeAndIssueReconciliationPermit: () => assert.fail('reconciliation authority must not be used for export'),
+    authorizeAndIssueRecoveryExportPermit: async (input) => { reads += 1; assert.deepEqual(input, { prepared: value.prepared, exportId: value.exportId });
+      return value.authorizeAndIssueRecoveryExportPermit(input); } });
+  assert.deepEqual(await broker.exportRecovery(value.prepared, value.exportId), value.result);
+  assert.equal(reads, 1); assert.equal(fixture.evidence.calls, 1); assert.deepEqual(fixture.evidence.commands, [COMMAND]);
+  assert.equal(fixture.evidence.ended, 1); assert.equal(fixture.evidence.destroyed, 1);
+  assert.ok(Buffer.byteLength(canonical(value.result)) > 32768);
+});
+test('export has no implicit mutation authority, refuses malformed signed read binding and pre-cancellation', async () => {
+  const value = recoveryExportFixture(); const fixture = transport(() => assert.fail('must not connect'));
+  const broker = createManagedTargetBroker(access, { ...fixture, authorizeAndIssuePermit: permit });
+  await assert.rejects(broker.exportRecovery(value.prepared, value.exportId), /UNREGISTERED_SECURITY_EXECUTOR/);
+  await assert.rejects(broker.exportRecovery(value.prepared, value.prepared.operationId), /MANAGED_TARGET_INVALID/);
+  const wrong = createManagedTargetBroker(access, { ...fixture, authorizeAndIssueRecoveryExportPermit: async (input) => {
+    const signed = await value.authorizeAndIssueRecoveryExportPermit(input); signed.payload.purpose = 'COMMIT'; return signed;
+  } });
+  await assert.rejects(wrong.exportRecovery(value.prepared, value.exportId), /MANAGED_RECOVERY_EXPORT_AUTHORIZATION_MISMATCH/);
+  const abort = new AbortController(); abort.abort();
+  await assert.rejects(wrong.exportRecovery(value.prepared, value.exportId, abort.signal), /MANAGED_CANCELLED/);
+  assert.equal(fixture.evidence.calls, 0);
+});
+test('export response cannot substitute envelope, tenant, snapshot, operation or add plaintext', async () => {
+  const value = recoveryExportFixture();
+  for (const result of [{ ...value.result, operationId: randomUUID() }, { ...value.result, recoveryDigest: '0'.repeat(64) },
+    { ...value.result, scope: { ...value.result.scope, tenantId: randomUUID() } }, { ...value.result, before: { ...value.result.before, mode: 0o664 } },
+    { ...value.result, envelope: { ...value.result.envelope, tag: Buffer.alloc(16, 99).toString('base64') } },
+    { ...value.result, plaintext: 'refused' }, { ...value.result, exportedAt: value.prepared.preparedAt + 10000 }]) {
+    const fixture = transport(({ stream }) => reply(stream, { ok: true, result }));
+    await assert.rejects(createManagedTargetBroker(access, { ...fixture, authorizeAndIssueRecoveryExportPermit: value.authorizeAndIssueRecoveryExportPermit })
+      .exportRecovery(value.prepared, value.exportId), /MANAGED_PROTOCOL_INVALID/);
+    assert.equal(fixture.evidence.calls, 1);
+  }
+});
+test('export is bounded, one transport request, and a lost read acknowledgement never claims mutation uncertainty', async () => {
+  const value = recoveryExportFixture();
+  const lost = transport(({ client }) => client.emit('close'));
+  await assert.rejects(createManagedTargetBroker(access, { ...lost, authorizeAndIssueRecoveryExportPermit: value.authorizeAndIssueRecoveryExportPermit })
+    .exportRecovery(value.prepared, value.exportId), (error) => error.code === 'MANAGED_TRANSPORT_FAILED' && !error.uncertain);
+  assert.equal(lost.evidence.calls, 1);
+  const huge = transport(({ stream }) => stream.emit('data', Buffer.alloc(524288 + 32768 + 1, 65)));
+  await assert.rejects(createManagedTargetBroker(access, { ...huge, authorizeAndIssueRecoveryExportPermit: value.authorizeAndIssueRecoveryExportPermit })
+    .exportRecovery(value.prepared, value.exportId), /MANAGED_OUTPUT_LIMIT/);
+  assert.equal(huge.evidence.calls, 1);
 });

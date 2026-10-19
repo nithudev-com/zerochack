@@ -7,6 +7,13 @@ const valid = {
 };
 
 describe('environment configuration', () => {
+  it('keeps managed staging repair disabled and requires complete operator configuration to opt in', () => {
+    expect(loadEnvironment(valid).SECURITY_REPAIR_ENABLED).toBe(false);
+    expect(() => loadEnvironment({ ...valid, SECURITY_REPAIR_ENABLED: 'true' })).toThrow(/Managed staging/);
+    expect(() => loadEnvironment({ ...valid, SECURITY_REPAIR_CONFIG_FILE: '/tmp/customer.json' })).toThrow(/SECURITY_REPAIR_CONFIG_FILE/);
+    const configured = { ...valid, CARE_ENABLED: 'true', CARE_VAULT_KEY: Buffer.alloc(32, 11).toString('base64'), CARE_ARTIFACT_KEY: Buffer.alloc(32, 12).toString('base64'), SECURITY_REPAIR_ENABLED: 'true', SECURITY_REPAIR_CONFIG_FILE: '/etc/codebandage/security-repair/enrollments.json', SECURITY_REPAIR_IMPLEMENTATION_DIGEST: 'a'.repeat(64) };
+    expect(loadEnvironment(configured).SECURITY_REPAIR_ENABLED).toBe(true);
+  });
   it('parses mandatory values', () => expect(loadEnvironment(valid).API_PORT).toBe(4000));
   it('requires the care flag for source reviews and bounds the review allowance', () => {
     expect(() => loadEnvironment({ ...valid, CARE_REVIEW_ENABLED: 'true' })).toThrow(/CARE_ENABLED/);

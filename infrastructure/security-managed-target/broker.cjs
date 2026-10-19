@@ -7,10 +7,13 @@ const { canonical } = require('./recovery-codec.cjs');
 const COMMAND = 'codebandage-managed-target-v1';
 const MAX_REQUEST = 32768;
 const MAX_RESPONSE = 32768;
+const MAX_RECOVERY = 524288;
+const MAX_EXPORT_RESPONSE = MAX_RECOVERY + MAX_RESPONSE;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const HEX = /^[0-9a-f]{64}$/;
 const ADAPTER = 'MANAGED_STATIC_PERMISSION_V1';
 const RECONCILIATION_PURPOSE = 'OBSERVATION_RECONCILIATION_V1';
+const RECOVERY_EXPORT_PURPOSE = 'RECOVERY_EXPORT_V1';
 
 class ManagedTargetError extends Error {
   constructor(code, uncertain = false) { super(code); this.code = code; this.uncertain = uncertain; }
@@ -33,6 +36,31 @@ function exact(value, fields) {
   requireValue(value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).sort().join(',') === [...fields].sort().join(','), 'MANAGED_PROTOCOL_INVALID');
 }
 function hash(value) { return createHash('sha256').update(canonical(value)).digest('hex'); }
+function recoveryEnvelope(value) {
+  exact(value, ['version','algorithm','aad','iv','ciphertext','tag']);
+  exact(value.aad, ['protocol','scope','namespaceId','targetId','operationId','snapshotDigest']);
+  base(value.aad);
+  requireValue(value.version === 1 && value.algorithm === 'AES-256-GCM' && value.aad.protocol === 1 &&
+    UUID.test(value.aad.operationId) && HEX.test(value.aad.snapshotDigest) && Buffer.byteLength(canonical(value)) <= MAX_RECOVERY,
+  'MANAGED_PROTOCOL_INVALID');
+  for (const [field, maximum, length] of [['iv',12,12],['tag',16,16],['ciphertext',400000,undefined]]) {
+    requireValue(typeof value[field] === 'string' && value[field].length <= Math.ceil(maximum / 3) * 4 &&
+      /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value[field]), 'MANAGED_PROTOCOL_INVALID');
+    const bytes = Buffer.from(value[field], 'base64');
+    requireValue(bytes.length <= maximum && (length === undefined ? bytes.length > 0 : bytes.length === length) &&
+      bytes.toString('base64') === value[field], 'MANAGED_PROTOCOL_INVALID');
+  }
+}
+function buildRecoveryExportPermitPayload(prepared, exportId, issuedAt, expiresAt) {
+  requireValue(UUID.test(exportId) && exportId !== prepared.operationId && Number.isSafeInteger(issuedAt) &&
+    Number.isSafeInteger(expiresAt) && issuedAt >= prepared.preparedAt && expiresAt > issuedAt && expiresAt - issuedAt <= 15000,
+  'MANAGED_RECOVERY_EXPORT_AUTHORIZATION_MISMATCH');
+  return { version: 1, adapter: ADAPTER, purpose: RECOVERY_EXPORT_PURPOSE, scope: prepared.scope,
+    namespaceId: prepared.namespaceId, targetId: prepared.targetId, operationId: prepared.operationId, exportId,
+    action: prepared.action, planDigest: prepared.planDigest, authorityDigest: prepared.authorityDigest,
+    snapshotDigest: prepared.snapshotDigest, recoveryDigest: prepared.recoveryDigest, targetMode: prepared.targetMode,
+    challenge: prepared.challenge, issuedAt, expiresAt };
+}
 function reconciliationObservation(value) {
   exact(value, ['version','adapter','state','scope','namespaceId','targetId','operationId','reconciliationId','sourceState','sourceDigest',
     'sourceSnapshotDigest','recoveryDigest','action','targetMode','before','current','currentSnapshotDigest','classification','observedAt','challenge']);
@@ -116,6 +144,23 @@ function validateResponse(request, value) {
   requireValue(value.ok === true && Object.keys(value).sort().join(',') === 'ok,result' && value.result?.adapter === ADAPTER,
     'MANAGED_PROTOCOL_INVALID');
   const result = value.result;
+  if (request.command === 'EXPORT_RECOVERY') {
+    exact(result, ['version','adapter','state','scope','namespaceId','targetId','operationId','exportId','planDigest',
+      'authorityDigest','snapshotDigest','recoveryDigest','before','envelope','exportedAt']);
+    base(result); snapshot(result.before); recoveryEnvelope(result.envelope);
+    const payload = request.permit.payload;
+    requireValue(result.version === 1 && result.state === 'RECOVERY_EXPORTED' && result.operationId === request.operationId &&
+      result.exportId === request.exportId && result.namespaceId === request.namespaceId && result.targetId === request.targetId &&
+      canonical(result.scope) === canonical(request.scope), 'MANAGED_PROTOCOL_INVALID');
+    for (const field of ['planDigest','authorityDigest','snapshotDigest','recoveryDigest'])
+      requireValue(HEX.test(result[field]) && result[field] === payload[field], 'MANAGED_PROTOCOL_INVALID');
+    requireValue(hash(result.before) === result.snapshotDigest && hash(result.envelope) === result.recoveryDigest &&
+      canonical(result.envelope.aad) === canonical({ protocol: 1, scope: result.scope, namespaceId: result.namespaceId,
+        targetId: result.targetId, operationId: result.operationId, snapshotDigest: result.snapshotDigest }) &&
+      Number.isSafeInteger(result.exportedAt) && payload.issuedAt <= result.exportedAt && result.exportedAt < payload.expiresAt,
+    'MANAGED_PROTOCOL_INVALID');
+    return result;
+  }
   if (request.command === 'RECONCILE_OBSERVE' || request.command === 'RECONCILE' || request.command === 'RECONCILIATION_STATUS') {
     if (request.command === 'RECONCILE_OBSERVE') reconciliationObservation(result); else reconciliationReceipt(result);
     const observation = request.command === 'RECONCILE_OBSERVE' ? result : result.observation;
@@ -172,7 +217,8 @@ function command(client, request, signal) {
         if (ended) { stream?.destroy(); return; }
         if (error) return failed('MANAGED_COMMAND_REFUSED');
         channel = stream;
-        stream.on('data', (chunk) => { output += chunk.toString('utf8'); if (Buffer.byteLength(output) > MAX_RESPONSE) failed('MANAGED_OUTPUT_LIMIT'); });
+        stream.on('data', (chunk) => { output += chunk.toString('utf8'); if (Buffer.byteLength(output) >
+          (request.command === 'EXPORT_RECOVERY' ? MAX_EXPORT_RESPONSE : MAX_RESPONSE)) failed('MANAGED_OUTPUT_LIMIT'); });
         stream.stderr.on('data', (chunk) => { stderrSize += chunk.length; if (stderrSize > 1024) failed('MANAGED_OUTPUT_LIMIT'); });
         stream.once('error', () => failed('MANAGED_TRANSPORT_FAILED'));
         stream.once('exit', (code) => { exitCode = code; });
@@ -216,6 +262,33 @@ function createManagedTargetBroker(access, dependencies = {}) {
     status: (input, signal) => request({ ...input, command: 'STATUS' }, signal),
     inspectReconciliation: (input, signal) => request({ ...input, command: 'RECONCILE_OBSERVE' }, signal),
     reconciliationStatus: (input, signal) => request({ ...input, command: 'RECONCILIATION_STATUS' }, signal),
+    async exportRecovery(prepared, exportId, signal) {
+      if (signal?.aborted) throw new ManagedTargetError('MANAGED_CANCELLED');
+      prepared = JSON.parse(canonical(prepared));
+      base(prepared);
+      exact(prepared, ['scope','namespaceId','targetId','adapter','state','operationId','action','planDigest','authorityDigest',
+        'snapshotDigest','recoveryDigest','challenge','preparedAt','before','targetMode']);
+      validateResponse({ ...prepared, command: 'PREPARE', expectedSnapshot: prepared.before }, { ok: true, result: prepared });
+      requireValue(UUID.test(exportId) && exportId !== prepared.operationId);
+      requireValue(typeof dependencies.authorizeAndIssueRecoveryExportPermit === 'function', 'UNREGISTERED_SECURITY_EXECUTOR');
+      let timer; let aborted; let permit;
+      try {
+        permit = await Promise.race([
+          dependencies.authorizeAndIssueRecoveryExportPermit(Object.freeze({ prepared: Object.freeze(JSON.parse(canonical(prepared))), exportId }), signal),
+          new Promise((_, reject) => { timer = setTimeout(() => reject(new ManagedTargetError('MANAGED_AUTHORIZATION_TIMEOUT')), 5000);
+            aborted = () => reject(new ManagedTargetError('MANAGED_CANCELLED'));
+            if (signal?.aborted) aborted(); else signal?.addEventListener('abort', aborted, { once: true }); })
+        ]);
+      } catch (error) { throw error instanceof ManagedTargetError ? error : new ManagedTargetError('MANAGED_AUTHORIZATION_REFUSED'); }
+      finally { clearTimeout(timer); if (aborted) signal?.removeEventListener('abort', aborted); }
+      if (signal?.aborted) throw new ManagedTargetError('MANAGED_CANCELLED');
+      exact(permit, ['payload','mac']);
+      requireValue(HEX.test(permit.mac) && permit.payload && canonical(permit.payload) === canonical(
+        buildRecoveryExportPermitPayload(prepared, exportId, permit.payload.issuedAt, permit.payload.expiresAt)),
+      'MANAGED_RECOVERY_EXPORT_AUTHORIZATION_MISMATCH');
+      return request({ scope: prepared.scope, namespaceId: prepared.namespaceId, targetId: prepared.targetId,
+        operationId: prepared.operationId, exportId, command: 'EXPORT_RECOVERY', permit }, signal);
+    },
     async reconcile(observation, signal) {
       if (signal?.aborted) throw new ManagedTargetError('MANAGED_CANCELLED');
       observation = JSON.parse(canonical(observation));
@@ -259,4 +332,5 @@ function createManagedTargetBroker(access, dependencies = {}) {
     }
   });
 }
-module.exports = { createManagedTargetBroker, ManagedTargetError, COMMAND, isPublicIpv4, RECONCILIATION_PURPOSE };
+module.exports = { createManagedTargetBroker, ManagedTargetError, COMMAND, isPublicIpv4, RECONCILIATION_PURPOSE,
+  RECOVERY_EXPORT_PURPOSE, buildRecoveryExportPermitPayload };

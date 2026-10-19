@@ -71,14 +71,21 @@ export function createSecurityWorkflowDispatch(options: SecurityWorkflowDispatch
     const website = await tx.website.findFirst({ where: { id: scope.websiteId, tenantId: scope.tenantId, lifecycle: 'ACTIVE' }, select: { id: true } }); if (!website) return null;
     // A crash/stall is not an instruction to replay. Even an expired run lease
     // requires explicit reconciliation; this transport consumes only quiescent
-    // newly admitted work or a saved first candidate decision.
+    // newly admitted work or one saved exact approval. It never restarts a lease
+    // or replays an unfinished/uncertain effect.
     if (run.leaseOwnerId || run.leaseExpiresAt) return null;
     const where = { tenantId: scope.tenantId, websiteId: scope.websiteId, environment: scope.environment, runId: scope.runId };
     if (event.eventType === 'run.created') return event.eventKey === 'run.created' && event.phase === 'PLANNING' && run.phase === 'PLANNING' && await tx.securityRepairAttempt.count({ where }) === 0 ? { ...scope, mode: 'start' } : null;
-    if (run.phase !== 'AWAITING_APPROVAL' || event.phase !== 'AWAITING_APPROVAL' || await tx.securityRepairAttempt.count({ where: { ...where, OR: [{ stepKey: { not: 'plan' } }, { state: { not: 'SUCCEEDED' } }] } })) return null;
-    const decision = await tx.securityRepairDecision.findFirst({ where: { ...where, kind: 'CANDIDATE', actorId: run.actorId, sessionId: run.sessionId, status: event.eventType === 'decision.approved' ? 'APPROVED' : 'DENIED', expiresAt: { gt: now, lte: run.expiresAt } } });
+    if (run.phase !== 'AWAITING_APPROVAL' || event.phase !== 'AWAITING_APPROVAL' || await tx.securityRepairAttempt.count({ where: { ...where, state: { not: 'SUCCEEDED' } } })) return null;
+    const match = /^decision\.([a-f0-9-]{36})\.recorded$/u.exec(event.eventKey); if (!match) return null;
+    const decision = await tx.securityRepairDecision.findFirst({ where: { ...where, id: uuid.parse(match[1]), kind: { in: ['CANDIDATE', 'PRODUCTION'] }, actorId: run.actorId, sessionId: run.sessionId, status: event.eventType === 'decision.approved' ? 'APPROVED' : 'DENIED', expiresAt: { gt: now, lte: run.expiresAt } } });
     if (!decision || event.eventKey !== `decision.${decision.id}.recorded`) return null;
-    const plan = await tx.securityRepairAttempt.findFirst({ where: { ...where, stepKey: 'plan', state: 'SUCCEEDED', artifactId: decision.artifactId, artifactDigest: decision.digest } }); if (!plan) return null;
+    if (decision.kind === 'CANDIDATE') {
+      if (await tx.securityRepairAttempt.count({ where: { ...where, stepKey: { not: 'plan' } } })) return null;
+    } else if (decision.kind === 'PRODUCTION') {
+      if (scope.environment !== 'STAGING' || run.executionProfile !== 'MANAGED_STATIC_PERMISSION_V1' || !run.admissionArtifactId || !run.admissionDigest || await tx.securityRepairAttempt.count({ where: { ...where, stepKey: 'apply' } })) return null;
+    } else return null;
+    const plan = await tx.securityRepairAttempt.findFirst({ where: { ...where, stepKey: decision.kind === 'CANDIDATE' ? 'plan' : 'proposal', state: 'SUCCEEDED', artifactId: decision.artifactId, artifactDigest: decision.digest } }); if (!plan) return null;
     const artifact = await tx.careArtifact.findFirst({ where: { tenantId: scope.tenantId, websiteId: scope.websiteId, environment: scope.environment, id: decision.artifactId, digest: decision.digest, status: 'ACCEPTED', OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }, select: { id: true } });
     return artifact ? { ...scope, mode: 'resume', decisionId: decision.id } : null;
   }
@@ -86,7 +93,30 @@ export function createSecurityWorkflowDispatch(options: SecurityWorkflowDispatch
     return transaction(async (tx, now) => {
       // Eligibility prevents stale/terminal or invalid old events from starving
       // newer events. Non-dispatch progress/history rows are never consumed.
-      const rows = await tx.$queryRaw<Array<{ id: string }>>`SELECT o.id FROM security_repair_outbox o JOIN security_repair_runs r ON r.id=o.run_id AND r.tenant_id=o.tenant_id AND r.website_id=o.website_id AND r.environment=o.environment JOIN websites w ON w.id=r.website_id AND w.tenant_id=r.tenant_id WHERE o.published_at IS NULL AND o.dispatch_attempts<3 AND (o.dispatch_expires_at IS NULL OR o.dispatch_expires_at<=${now}) AND w.lifecycle='ACTIVE' AND r.expires_at>${now} AND r.lease_owner_id IS NULL AND r.lease_expires_at IS NULL AND ((o.event_type='run.created' AND o.event_key='run.created' AND o.phase='PLANNING' AND r.phase='PLANNING' AND NOT EXISTS (SELECT 1 FROM security_repair_attempts a WHERE a.run_id=r.id)) OR (o.event_type IN ('decision.approved','decision.denied') AND o.phase='AWAITING_APPROVAL' AND r.phase='AWAITING_APPROVAL' AND NOT EXISTS (SELECT 1 FROM security_repair_attempts a WHERE a.run_id=r.id AND (a.step_key<>'plan' OR a.state<>'SUCCEEDED')) AND EXISTS (SELECT 1 FROM security_repair_decisions d JOIN security_repair_attempts a ON a.run_id=r.id AND a.step_key='plan' AND a.state='SUCCEEDED' AND a.artifact_id=d.artifact_id AND a.artifact_digest=d.digest JOIN care_artifacts f ON f.id=d.artifact_id AND f.tenant_id=r.tenant_id AND f.website_id=r.website_id AND f.environment=r.environment AND f.status='ACCEPTED' AND f.digest=d.digest AND (f.expires_at IS NULL OR f.expires_at>${now}) WHERE d.run_id=r.id AND d.tenant_id=r.tenant_id AND d.website_id=r.website_id AND d.environment=r.environment AND d.kind='CANDIDATE' AND d.actor_id=r.actor_id AND d.session_id=r.session_id AND d.expires_at>${now} AND d.expires_at<=r.expires_at AND o.event_key='decision.'||d.id::text||'.recorded' AND ((o.event_type='decision.approved' AND d.status='APPROVED') OR (o.event_type='decision.denied' AND d.status='DENIED'))))) ORDER BY o.created_at,o.id LIMIT ${batchSize} FOR UPDATE OF o SKIP LOCKED`;
+      const rows = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT o.id FROM security_repair_outbox o
+        JOIN security_repair_runs r ON r.id=o.run_id AND r.tenant_id=o.tenant_id AND r.website_id=o.website_id AND r.environment=o.environment
+        JOIN websites w ON w.id=r.website_id AND w.tenant_id=r.tenant_id
+        WHERE o.published_at IS NULL AND o.dispatch_attempts<3 AND (o.dispatch_expires_at IS NULL OR o.dispatch_expires_at<=${now})
+        AND w.lifecycle='ACTIVE' AND r.expires_at>${now} AND r.lease_owner_id IS NULL AND r.lease_expires_at IS NULL
+        AND ((o.event_type='run.created' AND o.event_key='run.created' AND o.phase='PLANNING' AND r.phase='PLANNING'
+          AND NOT EXISTS (SELECT 1 FROM security_repair_attempts a WHERE a.run_id=r.id))
+        OR (o.event_type IN ('decision.approved','decision.denied') AND o.phase='AWAITING_APPROVAL' AND r.phase='AWAITING_APPROVAL'
+          AND NOT EXISTS (SELECT 1 FROM security_repair_attempts a WHERE a.run_id=r.id AND a.state<>'SUCCEEDED')
+          AND EXISTS (SELECT 1 FROM security_repair_decisions d
+            JOIN security_repair_attempts a ON a.run_id=r.id AND a.step_key=CASE WHEN d.kind='CANDIDATE' THEN 'plan' ELSE 'proposal' END
+              AND a.state='SUCCEEDED' AND a.artifact_id=d.artifact_id AND a.artifact_digest=d.digest
+            JOIN care_artifacts f ON f.id=d.artifact_id AND f.tenant_id=r.tenant_id AND f.website_id=r.website_id
+              AND f.environment=r.environment AND f.status='ACCEPTED' AND f.digest=d.digest AND (f.expires_at IS NULL OR f.expires_at>${now})
+            WHERE d.run_id=r.id AND d.tenant_id=r.tenant_id AND d.website_id=r.website_id AND d.environment=r.environment
+              AND d.actor_id=r.actor_id AND d.session_id=r.session_id AND d.expires_at>${now} AND d.expires_at<=r.expires_at
+              AND o.event_key='decision.'||d.id::text||'.recorded'
+              AND ((d.kind='CANDIDATE' AND NOT EXISTS (SELECT 1 FROM security_repair_attempts x WHERE x.run_id=r.id AND x.step_key<>'plan'))
+                OR (d.kind='PRODUCTION' AND r.environment='STAGING' AND r.execution_profile='MANAGED_STATIC_PERMISSION_V1'
+                  AND r.admission_artifact_id IS NOT NULL AND r.admission_digest IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM security_repair_attempts x WHERE x.run_id=r.id AND x.step_key='apply')))
+              AND ((o.event_type='decision.approved' AND d.status='APPROVED') OR (o.event_type='decision.denied' AND d.status='DENIED')))))
+        ORDER BY o.created_at,o.id LIMIT ${batchSize} FOR UPDATE OF o SKIP LOCKED`;
       const claimed: Published[] = [];
       for (const row of rows) {
         const event = await tx.securityRepairOutbox.findUniqueOrThrow({ where: { id: row.id }, include: { run: true } }); const payload = await derive(tx, { event, run: event.run }, now); if (!payload) continue;

@@ -29,6 +29,7 @@ file(`${ROOT}/config/permit.key`, permitKey, 0o400);
 file(`${ROOT}/config/recovery.key`, recoveryKey, 0o400);
 // Control copy is mounted ONLY into the trusted test client, never the publisher/model.
 file(`${ROOT}/control/permit.key`, permitKey, 0o400);
+file(`${ROOT}/control/recovery.key`, recoveryKey, 0o400);
 permitKey.fill(0); recoveryKey.fill(0);
 const host = utils.generateKeyPairSync('ed25519'); const client = utils.generateKeyPairSync('ed25519');
 file(`${ROOT}/ssh/host.key`, host.private, 0o400);

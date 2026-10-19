@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-10-19T03:18:35Z",
+  "updatedAt": "2026-10-19T12:35:00Z",
   "branch": "codex/security-workplace-vps-execution",
   "baseline": "fa4e8668fc4a773372f9b44d8e2b39037b4f92d2",
   "testedCandidate": "98ffec14410272e35c5a0201b2fb9552f899e1bd",
   "currentPhase": "P1",
   "phaseStatus": {
     "P0": "AUDIT_AND_BASELINE_RECORDED",
-    "P1": "FOUNDATION_TESTED_PRODUCT_ADMISSION_AND_HANDLERS_PENDING",
-    "P2": "REAL_MANAGED_STAGING_DRILL_PASSED_PRODUCT_INTEGRATION_PENDING",
+    "P1": "MANAGED_STAGING_PRODUCT_IMPLEMENTED_FINAL_CI_PENDING",
+    "P2": "MANAGED_STAGING_PRODUCT_LOCAL_TESTS_PASSED_NEW_SSH_DRILL_PENDING",
     "P3": "OFFICIAL_GVISOR_JOB_CREATION_FAILED_RUNTIME_STOPPED",
     "P4": "NOT_IMPLEMENTED",
     "P5": "NOT_IMPLEMENTED",
@@ -29,7 +29,13 @@
     "Local-only observation reconciliation that cannot convert uncertain state into repair success or admit further mutation",
     "Guarded separate VPS runtime provenance/provision/probe/stop tools and explicit compatibility ADR",
     "24 predeclared tuning/held-out incidents and strict reporting harness; actual executor registry remains empty",
-    "Source/run-bound GitHub-hosted disposable test-database compatibility with existing blocking audit retained"
+    "Source/run-bound GitHub-hosted disposable test-database compatibility with existing blocking audit retained",
+    "Server-derived managed STAGING admission with current actor/session/RBAC, fresh MFA, explicit paid entitlement and exact operator enrollment/credential binding",
+    "Registered deterministic managed-static permission handlers, independently verified encrypted recovery export, separate candidate/change decisions and separately approved RESTORE runs",
+    "Inline security-only capabilities, plan/diff/approval/recovery/result/history cards with authority-expiry cache clearing and truthful cancellation",
+    "Protected operator registry, default-disabled API/worker composition, narrow additive 32nd migration and optional VPS read-only configuration overlay",
+    "Durable bounded fixed-profile runtime broker implemented; actual guest execution remains unavailable and disabled",
+    "Tailwind 4.3.3 official PostCSS upgrade resolves all current npm audit findings; existing custom CSS preserved"
   ],
   "verified": [
     "Exact 7279 deployed production images and prior compiled API/worker/TLS checks",
@@ -42,10 +48,13 @@
     "Managed helper:21 Python,6 AES-GCM codec and11 broker local tests",
     "Earlier exact 584c source-manifest actual VPS managed-static SSH harden/separate restore/lost-ack drill",
     "Actual separate rootless engine namespaces and aggregate cgroup limits; no passing guest execution",
-    "19 October npm production:0 findings/full:5 HIGH and reviewed 98ffec1 source-secret scan:0"
+    "19 October npm production:0 findings/full:5 HIGH and reviewed 98ffec1 source-secret scan:0",
+    "19 October continuation: 1,051 unit tests/63 files, full lint; 13 local TLS-fixture guards, 26 managed helper, 21 broker/codec and 59 runtime guard tests pass",
+    "66 unique synthetic browser checks (53 preservation and 13 repair), including narrow/mobile layouts; no live customer or SSH execution claim",
+    "Compiled API startup and unauthenticated security route smoke passed; all workspace typechecks and optimized API/worker/Next production build passed; hosted integration pending"
   ],
   "notVerified": [
-    "Complete customer-to-authorized-security-repair product journey",
+    "New product journey against actual PostgreSQL/Redis (test source ready; final hosted CI pending); new recovery export on real SSH",
     "VPS-local gVisor guest isolation, adversarial limits or PHP/WP/Node candidate loops",
     "Later observation-reconciliation extension on real SSH/crash fixtures",
     "Any new customer production security repair or recovery",
@@ -73,18 +82,18 @@
     "unrelatedUserContainersStopped": false
   },
   "blockers": [
-    "UNFINISHED_LOCAL: product current-actor/session/MFA/pricing/grant admission, gateway/runtime handlers and exact-production decision integration",
-    "UNFINISHED_LOCAL: connected inline plan/diff/approval/recovery/results and supported tracks B-I",
     "RUNTIME_COMPATIBILITY: pinned official gVisor failed user-systemd cgroup authorization before guest creation; see ADR002",
-    "DEPLOYMENT_GATE: no verified guest network/resource/storage/timeout boundaries or trusted job broker; no unsafe fallback",
     "HOSTING_GATE: ordinary shared SFTP lacks enforced independent-writer/inode/link prerequisites; fresh managed staging proof does not make customer hosting eligible",
-    "RELEASE_GATE:5 HIGH npm development findings and prior deployed-container HIGH/CRITICAL findings unresolved",
     "RECOVERY_GATE: customer operation recovery and approved off-server storage not established",
-    "EVALUATION_GATE: all 24 actual benchmark trials remain NOT_RUN"
+    "EVALUATION_GATE: all 24 actual benchmark trials remain NOT_RUN",
+    "UNFINISHED_LOCAL: general malware/WordPress/PHP/Node repair tracks and exact production-write authority remain unavailable",
+    "DEPLOYMENT_GATE: runtime broker guard tests are not proof of actual gVisor guest network/resource/storage/timeout boundaries",
+    "RELEASE_GATE: current npm audit is zero; exact final application container images and prior deployed-image findings still require rebuild/audit",
+    "VERIFICATION_GATE: local environment cannot run non-root PostgreSQL; actual hosted database integration must pass before claiming full product verification"
   ],
   "next": [
-    "Inspect current branch/worktree and preserve all subsequent commits; use this tested source as a checkpoint, not a completed release",
-    "Implement trusted product admission/current authority using existing actor/session/MFA/payment/grants, then managed target enrollment and inline journey; retain generic SFTP/production-write refusal",
+    "Finish final typecheck/build, commit and push existing branch, then inspect exact-source hosted PostgreSQL/Redis integration and browser CI",
+    "Run a separately authorized real managed STAGING recovery-export/product drill before live activation",
     "Only with explicit approval, evaluate a pinned custom runtime fix; otherwise await a reviewed fixed official build. Keep execution disabled until actual adversarial gates pass",
     "Complete each B-I vertical slice and real incident trials with exact evidence; no catalogue/fixture-only completion claims",
     "Build/audit/test exact final application images and perform separately authorized canary/migration/activation only after all gates pass"

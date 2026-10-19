@@ -2127,6 +2127,7 @@ model CareArtifact {
   website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: Cascade)
   securityRepairAttempts SecurityRepairAttempt[] @relation("SecurityRepairArtifact")
   securityRepairDecisions SecurityRepairDecision[] @relation("SecurityDecisionArtifact")
+  securityRepairAdmissions SecurityRepairRun[] @relation("SecurityAdmissionArtifact")
   @@unique([tenantId, websiteId, id])
   @@index([tenantId, websiteId, environment, status])
   @@map("care_artifacts")
@@ -2265,6 +2266,9 @@ model SecurityRepairRun {
   sessionId String @map("session_id") @db.Uuid
   inputDigest String @map("input_digest") @db.Char(64)
   authorityDigest String @map("authority_digest") @db.Char(64)
+  admissionArtifactId String? @map("admission_artifact_id") @db.Uuid
+  admissionDigest String? @map("admission_digest") @db.Char(64)
+  executionProfile String? @map("execution_profile") @db.VarChar(64)
   policyVersion String @default("security-workflow-v1") @map("policy_version") @db.VarChar(64)
   phase String @default("PLANNING") @db.VarChar(32)
   errorCode String? @map("error_code") @db.VarChar(80)
@@ -2279,6 +2283,7 @@ model SecurityRepairRun {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   website Website @relation(fields: [tenantId, websiteId], references: [tenantId, id], onDelete: NoAction, map: "security_repair_runs_website_fkey")
+  admissionArtifact CareArtifact? @relation("SecurityAdmissionArtifact", fields: [tenantId, websiteId, admissionArtifactId], references: [tenantId, websiteId, id], onDelete: NoAction, map: "security_repair_runs_admission_fkey")
   attempts SecurityRepairAttempt[]
   decisions SecurityRepairDecision[]
   costs SecurityRepairCostEntry[]
@@ -2289,6 +2294,7 @@ model SecurityRepairRun {
   @@unique([tenantId, websiteId, environment, requestKey], map: "security_repair_runs_request_key")
   @@index([tenantId, websiteId, createdAt(sort: Desc), id(sort: Desc)], map: "security_repair_runs_history_idx")
   @@index([phase, leaseExpiresAt], map: "security_repair_runs_lease_idx")
+  @@index([tenantId, websiteId, admissionArtifactId], map: "security_repair_runs_admission_idx")
   @@map("security_repair_runs")
 }
 

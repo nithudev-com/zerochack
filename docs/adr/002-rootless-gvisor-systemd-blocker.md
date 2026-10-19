@@ -40,3 +40,37 @@ not an unprivileged workaround; it requires its own decision and authorization.
 Independent journal/approval/typed-adapter development may continue. Sandbox
 availability and customer repair success must remain false until their own gates
 pass. This ADR is not P3/P4/P5 completion or a claim that the VPS lacks resources.
+
+## Read-only source check and candidate broker, 19 October 2026
+
+The official [release list](https://github.com/google/gvisor/releases) still marks
+`20261012.0` latest; [PR13853](https://github.com/google/gvisor/pull/13853) remains
+open. No runtime bytes, pins, system services or permissions were changed in this
+development session. The local development environment has neither Docker nor
+runsc, so it cannot validate a guest or replace VPS execution evidence.
+
+An external user-systemd transient unit is a possible separate design review, not
+a supported workaround established here. The official
+[container implementation](https://github.com/google/gvisor/blob/master/runsc/container/container.go)
+`createRoot` assigns a default `CgroupsPath` when empty (apart from the explicitly
+test-only no-chroot path) and invokes `setupCgroupForRoot` before starting gofer/
+sentry whenever `IgnoreCgroups` is false. Therefore omitting OCI resource settings
+does not establish that runsc stops managing cgroups. These current-master source
+observations are not byte-level verification of the pinned binary. Systemd's
+[transient units](https://www.freedesktop.org/software/systemd/man/255/systemd-run.html)
+and [resource controls](https://www.freedesktop.org/software/systemd/man/255/systemd.resource-control.html)
+can enforce limits, but any proposed direct OCI route must prove the pinned
+runtime joins that exact unit with every helper, retains UID/network isolation,
+and cannot migrate helpers or workload outside it. No ignore-cgroups, test-only
+flag, rootless cgroupfs switch or expanded root/polkit trust is enabled.
+
+The additive `scripts/security-runtime/broker.py` implements a bounded one-shot
+JSON protocol, exact image/profile admission, process I/O limits, exact-job
+cleanup and durable consumed admissions/results. Its only candidate profile is
+offline Python syntax/unittest verification; it is not a customer SSH write,
+malware cleanup, npm install or general repair executor. It requires fresh
+actual `candidateBroker` fault/containment proof in the root-owned verification
+receipt. The current verifier does not emit those unpassed gates, so even a
+historical basic probe PASS cannot activate this broker. Local transport fixtures
+and real benign subprocess tests verify the implementation without claiming
+gVisor availability. The VPS compatibility blocker remains open.

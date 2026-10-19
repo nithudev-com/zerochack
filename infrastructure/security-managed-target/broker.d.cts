@@ -5,6 +5,13 @@ export type ManagedPrepared = ManagedBinding & Readonly<{ adapter: 'MANAGED_STAT
 export type ManagedObserved = Readonly<{ adapter: 'MANAGED_STATIC_PERMISSION_V1'; state: 'OBSERVED'; snapshot: ManagedSnapshot; snapshotDigest: string }>;
 export type ManagedResult = Omit<ManagedPrepared, 'state'> & Readonly<{ state: 'VERIFIED' | 'OUTCOME_UNKNOWN'; after?: ManagedSnapshot; verifiedAt?: number }>;
 export type ManagedPermit = Readonly<{ payload: Readonly<Record<string, unknown>>; mac: string }>;
+export type ManagedRecoveryEnvelope = Readonly<{ version: 1; algorithm: 'AES-256-GCM';
+  aad: ManagedBinding & Readonly<{ protocol: 1; operationId: string; snapshotDigest: string }>;
+  iv: string; ciphertext: string; tag: string }>;
+export type ManagedRecoveryExportAuthorityInput = Readonly<{ prepared: ManagedPrepared; exportId: string }>;
+export type ManagedRecoveryExport = ManagedBinding & Readonly<{ version: 1; adapter: 'MANAGED_STATIC_PERMISSION_V1';
+  state: 'RECOVERY_EXPORTED'; operationId: string; exportId: string; planDigest: string; authorityDigest: string;
+  snapshotDigest: string; recoveryDigest: string; before: ManagedSnapshot; envelope: ManagedRecoveryEnvelope; exportedAt: number }>;
 export type ManagedPreparation = ManagedBinding & Readonly<{ operationId: string; planDigest: string; authorityDigest: string; expectedSnapshot: ManagedSnapshot }> & ({ action: 'HARDEN' } | { action: 'RESTORE'; recoveryOperationId: string });
 export type ManagedAccess = Readonly<{ address: string; port: number; username: 'codebandage-managed-target'; hostKeyFingerprint: string; privateKey: Buffer }>;
 export type ManagedReconciliationInput = ManagedBinding & Readonly<{ operationId: string; reconciliationId: string }>;
@@ -21,6 +28,7 @@ export type ManagedReconciliationReceipt = Readonly<{
 export type ManagedBroker = Readonly<{
   observe(binding: ManagedBinding, signal?: AbortSignal): Promise<ManagedObserved>;
   prepare(input: ManagedPreparation, signal?: AbortSignal): Promise<ManagedPrepared>;
+  exportRecovery(prepared: ManagedPrepared, exportId: string, signal?: AbortSignal): Promise<ManagedRecoveryExport>;
   commit(prepared: ManagedPrepared, signal?: AbortSignal): Promise<ManagedResult>;
   status(binding: ManagedBinding & { operationId: string }, signal?: AbortSignal): Promise<ManagedPrepared | ManagedResult>;
   inspectReconciliation(input: ManagedReconciliationInput, signal?: AbortSignal): Promise<ManagedReconciliationObservation>;
@@ -32,6 +40,10 @@ export class ManagedTargetError extends Error { code: string; uncertain: boolean
 export function createManagedTargetBroker(access: ManagedAccess, dependencies?: {
   authorizeAndIssuePermit?: (prepared: ManagedPrepared, signal?: AbortSignal) => Promise<ManagedPermit>;
   authorizeAndIssueReconciliationPermit?: (observation: ManagedReconciliationObservation, signal?: AbortSignal) => Promise<ManagedPermit>;
+  authorizeAndIssueRecoveryExportPermit?: (input: ManagedRecoveryExportAuthorityInput, signal?: AbortSignal) => Promise<ManagedPermit>;
 }): ManagedBroker;
 export const COMMAND: 'codebandage-managed-target-v1';
+export function isPublicIpv4(address: unknown): boolean;
 export const RECONCILIATION_PURPOSE: 'OBSERVATION_RECONCILIATION_V1';
+export const RECOVERY_EXPORT_PURPOSE: 'RECOVERY_EXPORT_V1';
+export function buildRecoveryExportPermitPayload(prepared: ManagedPrepared, exportId: string, issuedAt: number, expiresAt: number): Readonly<Record<string, unknown>>;

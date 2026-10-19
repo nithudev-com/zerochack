@@ -143,6 +143,64 @@ tenant/credential boundaries, benign repair/restore drills, release audits and
 representative application-headroom measurements. No live customer work or
 general hostile-code containment is certified by this probe.
 
+## One-shot candidate broker (implemented locally; runtime admission unavailable)
+
+`scripts/security-runtime/broker.py` accepts one bounded JSON request on stdin and
+returns one JSON result on stdout. The exact contracts are
+[`broker-request.schema.json`](broker-request.schema.json) and
+[`broker-response.schema.json`](broker-response.schema.json). It has no caller-
+supplied shell command, image, environment, host path, mount, device or network
+field. The only profile, `PYTHON_UNITTEST_V1`, writes at most32 flat regular `.py`
+files (256KiB total UTF-8 source) into the isolated64MiB `/work` tmpfs. A fixed
+Python harness compiles their syntax and runs discovered stdlib unittest cases;
+zero tests is a failure. It does not install dependencies, run npm, edit any
+customer host, detect all malware or certify the correctness of supplied tests.
+
+The broker uses only the separate rootless socket and immutable image from the
+trusted proof, verifies current binaries/configuration/engine, serializes with
+the existing global lock, inspects the actual job's namespace/cgroup and fixed
+Docker boundaries before sending source, then stops only that job. It retains
+containers, logs, admissions and receipts; there is no automatic retry or delete.
+Each subprocess has concurrent bounded stdin/stdout/stderr, a deadline, sanitized
+environment and process-group termination. Guest source and test logs are not
+returned or logged; receipt hashes bind the scope, input, image, runtime proof,
+bounded outputs and result. A successful receipt requires a confirmed stopped
+container and unchanged production health.
+
+The historical basic probe is deliberately insufficient. The root-private
+`offline-verification.json` must contain a `candidateBroker` object with the
+canonical runtime-profile digest, `verifiedAtMs` no more than five minutes old,
+and actual PASS results for every `allHelperCgroups`, `resourceExhaustion`,
+`networkDenial`, `crashCancellationCleanup` and `tenantIsolation` check. The
+current verifier never manufactures this object: those real runtime checks have
+not passed and the known gVisor launch still fails. The broker therefore remains
+unavailable. Do not create a fake proof or change the phase to pass admission.
+
+A separately trusted product authority must create an exact root-owned0600
+`candidate-admissions/<jobId>.json` in a root-owned0700 directory inside the runtime
+state. It must bind version, scope, jobId, profile, inputDigest, imageId,
+runtimeProofDigest, issuedAtMs and expiresAtMs with TTL<=15seconds. Actor/session,
+approval, lease/fence and budget validation belongs to that issuer; it is not
+implemented or installed by this CLI and submitted JSON never grants permission.
+After those checks, the broker appends/fsyncs a one-shot `.consumed` INTENT before
+create and a `.result.json` receipt after verified cleanup. Lost acknowledgement
+uses the existing exact receipt via the fixed `--status` invocation; it never
+reruns, starts a service or checks the daemon during status reads. A failure after
+consumption returns scoped `UNCONFIRMED`, not a successful check or a claim that
+execution never began. A consumed admission without a
+valid completed receipt blocks all subsequent jobs pending separate review.
+Root-private state is capped at3000 entries and never pruned automatically.
+
+No privileged API service, sudo rule, socket mount, provisioned namespace or
+application feature is installed by adding these files. A production transport
+must receive its own review before product activation. The runnable tests use
+in-memory engine replies plus real literal benign local subprocesses; they do
+not run the candidate harness on the host or demonstrate gVisor isolation:
+
+```sh
+python3 -B -m unittest discover -s scripts/security-runtime -p 'test_*.py' -v
+```
+
 ## Emergency disable / rollback without data deletion
 
 ```sh

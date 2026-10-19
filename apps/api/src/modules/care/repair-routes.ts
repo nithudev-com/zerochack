@@ -68,6 +68,7 @@ export async function repairRoutes(app: FastifyInstance, options: { environment:
       if (await tx.careRelease.count({ where: { websiteId: artifact.websiteId, state: { in: ['QUEUED','RUNNING','VERIFYING','OUTCOME_UNKNOWN'] } } })) throw new ApiError(409, 'RELEASE_ACTIVE', 'Keep recovery artifacts until the release outcome is reconciled.');
       if (await tx.securityRepairAttempt.count({ where: { tenantId: artifact.tenantId, websiteId: artifact.websiteId, artifactId: artifact.id } })) throw new ApiError(409, 'SECURITY_ARTIFACT_RETAINED', 'This artifact is retained as security workflow evidence and cannot be wiped.');
       if (await tx.securityRepairDecision.count({ where: { tenantId: artifact.tenantId, websiteId: artifact.websiteId, artifactId: artifact.id } })) throw new ApiError(409, 'SECURITY_ARTIFACT_RETAINED', 'This artifact is retained as security workflow decision evidence and cannot be wiped.');
+      if (await tx.securityRepairRun.count({ where: { tenantId: artifact.tenantId, websiteId: artifact.websiteId, admissionArtifactId: artifact.id } })) throw new ApiError(409, 'SECURITY_ARTIFACT_RETAINED', 'This artifact is retained as security workflow authorization evidence and cannot be wiped.');
       await tx.careArtifact.update({ where: { id }, data: { status: 'DELETED', encryptedBody: '' } });
       await careEvent(tx, artifact, 'artifact.deleted', 'DELETED', 'Attachment content removed. Dependent approvals must be reviewed.', artifact.jobId ? { jobId: artifact.jobId } : undefined);
     }); return reply.code(204).send();

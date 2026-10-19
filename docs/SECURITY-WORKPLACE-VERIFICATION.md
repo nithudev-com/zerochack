@@ -3,13 +3,17 @@
 Dates: 18–19 October 2026. All timestamps below are UTC. This is a living evidence record;
 pending checks are not passes. No new live customer repair has been verified.
 
-Current tested source is `98ffec14410272e35c5a0201b2fb9552f899e1bd` on
-`codex/security-workplace-vps-execution`; production remains `7279cda` in restricted
-preview. The later continuation sections supersede earlier pending observations.
-The complete owner specification is **not implemented**. Product admission,
-exact production authority, inline plan/approval/results and tracks B–I remain
-unfinished local work. The VPS-local sandbox has a separate demonstrated runtime
-compatibility blocker. Neither issue is represented as a missing user password.
+Historical evidence below identifies its exact tested source. The 19 October
+product continuation adds trusted managed-STAGING admission, operator enrollment,
+registered permission/recovery handlers and inline approval/results UI; see
+`SECURITY-WORKPLACE-PRODUCT.md`. Final hosted integration is pending. Last recorded
+production remains `7279cda` in restricted preview; this continuation has not
+connected to or deployed on the VPS.
+
+The complete owner specification is **not implemented**. General malware,
+WordPress/PHP/Node tracks and exact production-write authority remain unfinished.
+The actual gVisor runtime compatibility blocker remains; local broker tests do
+not certify guest execution.
 
 ## Exact scope-hotfix candidate
 
@@ -373,3 +377,29 @@ canary and resource-appropriate recovery. No new Claude request, SMTP test,
 customer scan, production mutation, DNS/TLS/proxy setting change or other-workplace
 activation occurred. Owner/SMTP/provider/branding configuration remains preserved.
 Existing same-disk backup evidence does not establish off-server disaster recovery.
+
+## 19 October managed-STAGING product continuation
+
+The new opt-in profile is `MANAGED_STATIC_PERMISSION_V1`: exactly one enrolled
+managed-static staging `index.html`, remove only world-write, retain original bytes
+and metadata in independently verified encrypted recovery, and require a separate
+run and fresh approvals to restore. Current actor/session/RBAC, fresh MFA, paid
+entitlement, exact grant/credential version, candidate and change decisions, lease,
+expiry and receipts are checked server-side. Generic production writes remain denied.
+The default environment flag is false. No production migration or activation occurred.
+
+Local continuation checks: 1,051 unit tests across 63 files and full lint passed;
+13 TLS-fixture guard tests, 26 managed helper tests, 21 broker/codec tests and 59
+runtime guard tests passed. The browser work verified 66 unique synthetic cases
+(53 preservation plus 13 repair), including mobile/desktop inspection. The compiled
+API starts and the new unauthenticated route returns the expected no-store 401.
+Current npm audit reports zero findings after the official Tailwind/PostCSS update;
+that is not a certificate for the existing deployed container images.
+
+The actual database HTTP-to-journal/graph-to-managed-adapter harden/restore tests
+are implemented with simulated remote transport, but have not yet run in this
+continuation. This local container permits only UID 0; native PostgreSQL refuses
+root. No safety guard was patched or bypassed. GitHub CI provides disposable real
+PostgreSQL/Redis services for that check. Final workspace typecheck and optimized API/worker/Next build passed. Hosted CI
+results will be recorded after completion. Existing historical failures and exact-source evidence
+below are retained as history, not attributed to this new source.
