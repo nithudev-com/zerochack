@@ -403,3 +403,34 @@ root. No safety guard was patched or bypassed. GitHub CI provides disposable rea
 PostgreSQL/Redis services for that check. Final workspace typecheck and optimized API/worker/Next build passed. Hosted CI
 results will be recorded after completion. Existing historical failures and exact-source evidence
 below are retained as history, not attributed to this new source.
+
+## Hosted database verification and browser continuation
+
+Exact source `e7a009c3f5bb87a5913dc1e35c24f5437554772a`, PR CI
+[39200821988](https://github.com/nithudev-com/zerochack/actions/runs/39200821988):
+**249 PostgreSQL/Redis integration tests passed; 1 optional live-scan skipped**.
+All 32 migrations applied. This includes actual HTTP admission, encrypted graph
+checkpoints/journal, separate candidate/change approvals, managed handler hardening
+and a separately approved restoration. Remote target transport is explicitly
+simulated; it is not a real SSH drill. The four staging journal boundary and 13
+real PostgreSQL/BullMQ dispatch cases passed.
+
+Hosted audit (zero), lint, 1,051 unit tests, typechecks, optimized build, compiled
+protected-route smoke, OpenAPI consistency and six static browser checks passed.
+The first source `5517dad` failed three integration assertions: invalid test-only
+unknown-state metadata violated the existing DB CHECK, caused a following dispatch
+case to observe that unprepared fixture, and a zero-call assertion omitted two
+new permit counters. Source `e7a009c` corrects the fixtures without weakening the
+database constraints, and all integration tests pass.
+
+The e7a009c run later failed two of eight portal browser cases: old tests expected
+website creation to bypass the existing service chooser and expected an obsolete
+mobile Menu control. Source `587872b` follows the existing services/security entry
+and More dialog, while retaining general-conversation access, secret exclusion,
+persistence, recovery, connection, settings and overflow coverage. Product UI was
+not changed to satisfy those obsolete expectations. Final full browser checks are
+running; use the published branch checks and PR #2 for subsequent results.
+
+No VPS connection, deployment, production migration or live customer change was
+performed in this continuation. Historical exact-source failures above remain
+part of the evidence record.
