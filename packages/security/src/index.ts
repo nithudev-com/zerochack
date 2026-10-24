@@ -30,3 +30,4 @@ export function assertTenantAccess(policy: TenantAccessPolicy): void {
 }
 
 export * from './remediation.js';
+export * from './remediation-actions.js';
