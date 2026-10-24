@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Client } from 'ssh2';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { database } from '@zerochack/database';
 import { encryptSecret, hashOpaqueToken } from '@zerochack/auth';
 import { loadEnvironment } from '@zerochack/config';
@@ -27,7 +27,8 @@ const web = vi.fn(syntheticWeb);
 const current = () => { const account = accounts[0]; if (!account) throw new Error('Assessment fixture not initialized'); return account; };
 const other = () => { const account = accounts[1]; if (!account) throw new Error('Assessment isolation fixture not initialized'); return account; };
 function request(method: 'GET' | 'POST', suffix = '', cookie = current().cookie, websiteId = current().websiteId) { return app.inject({ method, url: `/v1/websites/${websiteId}/assessment${suffix}`, headers: { cookie } }); }
-function boundedInspection(): ServerInspection { return { platform: 'Linux synthetic', roots: ['/srv/www/fixture'], scannedFiles: 3, scanLimitReached: false, malwareScanner: 'CLAMAV', malwareScannerStatus: 'COMPLETED', coverageState: 'BOUNDED', coverageLimitations: ['Only the bounded synthetic fixture was inspected.'], observations: [] }; }
+const websiteRoot = '/srv/www/example.com/public_html';
+function boundedInspection(): ServerInspection { return { scope: { mode: 'WEBSITE', hostname: 'example.com', rootBinding: 'DOMAIN_DIRECTORY_CONVENTION' }, platform: 'Linux synthetic', roots: [websiteRoot], scannedFiles: 3, scanLimitReached: false, malwareScanner: 'SIGNATURES_ONLY', malwareScannerStatus: 'NOT_INSTALLED', coverageState: 'INCOMPLETE', coverageLimitations: ['Only the bounded synthetic fixture was inspected; external antivirus did not run.'], observations: [] }; }
 function delayInspection(respondAsync = false) {
   let entered!: () => void; let release!: () => void;
   const started = new Promise<void>((resolve) => { entered = resolve; }); const released = new Promise<void>((resolve) => { release = resolve; });
@@ -95,7 +96,10 @@ describe.sequential('authoritative security assessment lifecycle', () => {
       expect((await request('GET')).json().scan).toMatchObject({ id: accepted.json().scanId, status: 'RUNNING', stage: 'INSPECTING_SSH' });
       expect((await request('POST')).statusCode).toBe(409);
       gate.release(); pausedInspection = undefined;
-      await vi.waitFor(async () => expect((await request('GET')).json().scan).toMatchObject({ id: accepted.json().scanId, status: 'SUCCEEDED', repairApplied: false }));
+      await vi.waitFor(async () => {
+        const saved = (await request('GET')).json().scan;
+        expect(saved, JSON.stringify(saved)).toMatchObject({ id: accepted.json().scanId, status: 'SUCCEEDED', repairApplied: false });
+      }, { timeout: 5000 });
       expect(web).toHaveBeenCalledTimes(1);
     } finally { gate.release(); pausedInspection = undefined; }
   });
@@ -115,31 +119,102 @@ describe.sequential('authoritative security assessment lifecycle', () => {
   });
 
   it('persists completed bounded results, truthful capability flags and the reloadable stage audit', async () => {
-    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: '/srv/www/fixture/index.html', detail: 'Synthetic permission indicator' }];
+    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: `${websiteRoot}/index.html`, detail: 'Synthetic permission indicator' }];
     const response = await request('POST'); expect(response.statusCode, response.body).toBe(201);
     const scan = await database.scan.findFirstOrThrow({ where: { tenantId: current().tenantId, websiteId: current().websiteId } });
     expect(scan).toMatchObject({ status: 'SUCCEEDED', progress: 100, errorCode: null }); expect(scan.completedAt).not.toBeNull();
     const dto = (await request('GET')).json().scan;
-    expect(dto).toMatchObject({ id: scan.id, status: 'SUCCEEDED', stage: 'COMPLETED', errorCode: null, repairApplied: false, coverageState: 'BOUNDED', coverageLimitations: inspection.coverageLimitations });
+    expect(dto).toMatchObject({ id: scan.id, status: 'SUCCEEDED', stage: 'COMPLETED', errorCode: null, repairApplied: false, coverageState: 'INCOMPLETE', coverageLimitations: inspection.coverageLimitations });
     expect(Number.isNaN(Date.parse(dto.updatedAt))).toBe(false);
     const findings = await database.securityFinding.findMany({ where: { scanId: scan.id } }); expect(findings).toHaveLength(1); expect(findings.every((finding) => finding.remediationSupported === false)).toBe(true);
     expect(await database.findingEvidence.count({ where: { scanId: scan.id } })).toBe(1);
     const audits = await database.auditLog.findMany({ where: { tenantId: current().tenantId, resourceType: 'scan', resourceId: scan.id } });
     expect(audits.some((audit) => { const metadata = audit.metadata as Record<string, unknown> | null; return metadata?.websiteId === current().websiteId && metadata.stage === 'COMPLETED'; })).toBe(true);
     expect(JSON.stringify(audits)).not.toContain('synthetic-assessment-password'); expect(end).toHaveBeenCalledTimes(1);
+    expect(inspect).toHaveBeenCalledWith(expect.anything(), 'example.com', expect.objectContaining({ onProgress: expect.any(Function) }));
+    expect(dto.scopeWarning).toBeUndefined();
+    const evidence = await database.findingEvidence.findFirstOrThrow({ where: { scanId: scan.id } });
+    expect(evidence.metadata).toMatchObject({ scope: boundedInspection().scope });
+    expect(response.json().coverage.scope).toEqual(boundedInspection().scope);
     const cancel = await request('POST', `/${scan.id}/cancel`); expect(cancel.statusCode).toBe(409); expect(cancel.json().error.code).toBe('ASSESSMENT_NOT_ACTIVE');
     expect((await request('GET')).json().scan).toMatchObject({ status: 'SUCCEEDED', stage: 'COMPLETED' });
   });
 
   it('retains incomplete coverage without turning an unobserved clean result into HEALTHY', async () => {
-    inspection = { ...boundedInspection(), coverageState: 'INCOMPLETE', scanLimitReached: true, malwareScanner: 'CLAMAV', malwareScannerStatus: 'TIMED_OUT', coverageLimitations: ['Synthetic antivirus timed out; clean coverage cannot be claimed.'] };
+    inspection = { ...boundedInspection(), coverageState: 'INCOMPLETE', scanLimitReached: true, malwareScanner: 'CLAMAV', malwareScannerStatus: 'NOT_RUN_SCOPE', coverageLimitations: ['Synthetic antivirus is present but not run; clean coverage cannot be claimed.'] };
     const response = await request('POST'); expect(response.statusCode, response.body).toBe(201);
     expect((await request('GET')).json().scan).toMatchObject({ status: 'SUCCEEDED', stage: 'COMPLETED', repairApplied: false, coverageState: 'INCOMPLETE', coverageLimitations: inspection.coverageLimitations });
     expect(await database.website.findUniqueOrThrow({ where: { id: current().websiteId } })).toMatchObject({ securityStatus: 'UNKNOWN' });
   });
 
+  it.each(['hostname', 'root', 'observation', 'account-global'] as const)('rejects a runner result with invalid %s scope before HTTP work or persistence', async kind => {
+    if (kind === 'hostname') inspection.scope.hostname = 'sibling.example';
+    if (kind === 'root') inspection.roots = ['/srv/www/sibling.example/public_html'];
+    if (kind === 'observation') inspection.observations = [{ kind: 'WORLD_WRITABLE', path: '/srv/www/sibling.example/public_html/index.php' }];
+    if (kind === 'account-global') inspection.observations = [{ kind: 'SUSPICIOUS_CRON', path: `${websiteRoot}/cron` }];
+    const response = await request('POST');
+    expect(response.statusCode, response.body).toBe(409);
+    expect(response.json().error.code).toBe('ASSESSMENT_SCOPE_VIOLATION');
+    expect(response.body).not.toContain('sibling.example');
+    expect(web).not.toHaveBeenCalled();
+    const scan = await database.scan.findFirstOrThrow({ where: { tenantId: current().tenantId, websiteId: current().websiteId } });
+    await noAcceptedResults(scan.id);
+  });
+
+  it('does not expand unresolved filesystem scope; preserves an explicit limited result plus selected-domain HTTP checks', async () => {
+    inspection = { ...boundedInspection(), scope: { mode: 'WEBSITE', hostname: 'example.com', rootBinding: 'UNRESOLVED' }, roots: [], scannedFiles: 0, scanLimitReached: true, coverageState: 'INCOMPLETE', coverageLimitations: ['The selected website directory could not be identified safely; no filesystem checks ran.'] };
+    const response = await request('POST'); expect(response.statusCode, response.body).toBe(201);
+    expect(web).toHaveBeenCalledWith(targetUrl, expect.anything());
+    expect(response.json().coverage).toMatchObject({ scope: inspection.scope, codeFilesAnalyzed: 0, webRoots: [], coverageState: 'INCOMPLETE' });
+    expect((await request('GET')).json().scan.scopeWarning).toBeUndefined();
+    expect(await database.securityFinding.count({ where: { tenantId: current().tenantId } })).toBe(0);
+  });
+
+  it('preserves legacy and mixed unscoped SSH evidence but excludes it from current website findings and AI explanation', async () => {
+    const account = current();
+    const scan = await database.scan.create({ data: { tenantId: account.tenantId, websiteId: account.websiteId, status: 'SUCCEEDED', completedAt: new Date() } });
+    await database.auditLog.createMany({ data: ['website.ai_assessment_started', 'website.ai_assessment_completed'].map(action => ({ tenantId: account.tenantId, actorUserId: account.userId, requestId: crypto.randomUUID(), resourceType: 'scan', resourceId: scan.id, action, metadata: { websiteId: account.websiteId, stage: action.endsWith('completed') ? 'COMPLETED' : 'CONNECTING', coverageState: 'INCOMPLETE', webRoots: ['/srv/www/sibling.example/public_html'] } })) });
+    const validScope = { scope: { mode: 'WEBSITE', hostname: 'example.com' } };
+    const legacyIds: string[] = [];
+    const cases = [{}, { scope: null }, { scope: {} }, { scope: { mode: 'WEBSITE' } }, { scope: { hostname: 'example.com' } }, { scope: { mode: 'WEBSITE', hostname: 'sibling.example' } }, { scope: { mode: 'ACCOUNT', hostname: 'example.com' } }, Prisma.JsonNull];
+    const createFinding = async (metadata: Prisma.InputJsonValue | typeof Prisma.JsonNull, mixed: boolean, engine = 'ssh-forensics') => {
+      const affectedResource = metadata === validScope ? `${websiteRoot}/index.php` : engine === 'ssh-forensics' ? '/srv/www/sibling.example/public_html/secret.php' : targetUrl;
+      const finding = await database.securityFinding.create({ data: { tenantId: account.tenantId, websiteId: account.websiteId, scanId: scan.id, fingerprint: crypto.randomUUID().replaceAll('-', '').padEnd(64, '0'), title: 'Synthetic scope evidence', severity: 'HIGH', confidence: 0.9, affectedResource, recommendation: 'Synthetic fixture only' } });
+      for (const value of mixed ? [validScope, metadata] : [metadata]) await database.findingEvidence.create({ data: { tenantId: account.tenantId, websiteId: account.websiteId, scanId: scan.id, findingId: finding.id, engine, engineVersion: 'fixture', observedAt: new Date(), summary: 'Synthetic fixture', metadata: value, integrityHash: 'a'.repeat(64) } });
+      return finding.id;
+    };
+    for (const metadata of cases) {
+      legacyIds.push(await createFinding(metadata, false), await createFinding(metadata, true));
+    }
+    const scopedId = await createFinding(validScope, false);
+    const publicId = await createFinding({}, false, 'http-configuration');
+    const response = await app.inject({ url: `/v1/websites/${account.websiteId}`, headers: { cookie: account.cookie } });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().findings.map((item: { id: string }) => item.id).sort()).toEqual([scopedId, publicId].sort());
+    expect(response.json().historicalUnscopedFindingCount).toBe(legacyIds.length);
+    expect(await database.securityFinding.count({ where: { scanId: scan.id } })).toBe(legacyIds.length + 2);
+    expect((await request('GET')).json().scan.scopeWarning).toContain('historical inspection');
+    const explain = await app.inject({ method: 'POST', url: `/v1/websites/${account.websiteId}/findings/${legacyIds[0]}/explain`, headers: { cookie: account.cookie }, payload: { idempotencyKey: crypto.randomUUID() } });
+    expect(explain.statusCode).toBe(404);
+    for (const [method, path, payload, expected] of [
+      ['GET', `/security-fix-offers?findingId=${legacyIds[0]}`, undefined, 404],
+      ['POST', '/security-fix-checkouts', { priceId: crypto.randomUUID(), findingId: legacyIds[0], idempotencyKey: crypto.randomUUID() }, 404],
+      ['POST', `/findings/${legacyIds[0]}/request-fix`, {}, 404],
+      ['POST', '/tickets', { title: 'Legacy scope must be reviewed', findingId: legacyIds[0] }, 400],
+      ['POST', '/chat/ai', { content: 'What is the price?', findingId: legacyIds[0], idempotencyKey: crypto.randomUUID() }, 400]
+    ] as const) {
+      const rejected = await app.inject({ method, url: `/v1/websites/${account.websiteId}${path}`, headers: { cookie: account.cookie }, ...(payload ? { payload } : {}) });
+      expect(rejected.statusCode, rejected.body).toBe(expected);
+      expect(rejected.body).not.toContain('sibling.example');
+    }
+    expect(await database.securityFixOrder.count({ where: { tenantId: account.tenantId } })).toBe(0);
+    expect(await database.ticket.count({ where: { tenantId: account.tenantId } })).toBe(0);
+    expect(await database.aiUsage.count({ where: { tenantId: account.tenantId } })).toBe(0);
+    expect(connect).not.toHaveBeenCalled(); expect(inspect).not.toHaveBeenCalled(); expect(web).not.toHaveBeenCalled();
+  });
+
   it('persists public-runner failure without exposing sensitive raw errors or accepting partial evidence', async () => {
-    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: '/srv/www/fixture/index.html' }];
+    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: `${websiteRoot}/index.html` }];
     const sensitiveError = 'password=synthetic-should-not-appear token=synthetic-should-not-appear'; web.mockRejectedValueOnce(new Error(sensitiveError));
     const response = await request('POST'); expect(response.statusCode, response.body).toBe(409); expect(response.body).not.toContain(sensitiveError); expect(response.body).not.toContain('synthetic-should-not-appear');
     const scan = await database.scan.findFirstOrThrow({ where: { tenantId: current().tenantId, websiteId: current().websiteId } }); expect(scan).toMatchObject({ status: 'FAILED', errorCode: response.json().error.code }); expect(scan.errorCode).toMatch(/^[A-Z_]+$/); expect(scan.completedAt).not.toBeNull();
@@ -177,8 +252,36 @@ describe.sequential('authoritative security assessment lifecycle', () => {
     expect(connect).not.toHaveBeenCalled(); expect(inspect).not.toHaveBeenCalled(); expect(web).not.toHaveBeenCalled();
   });
 
+  it.each([false, true])('rechecks authority after transient session bookkeeping contention; revoked=%s, without replaying inspection', async revoked => {
+    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: `${websiteRoot}/index.html` }];
+    const connection = new PrismaClient(); let release!: () => void; let locked!: () => void;
+    const releaseLock = new Promise<void>(resolve => { release = resolve; });
+    const acquired = new Promise<void>(resolve => { locked = resolve; });
+    let holding: Promise<void> | undefined; let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+    const prices = vi.spyOn(database.securityFixPrice, 'findMany').mockImplementationOnce(() => {
+      holding = connection.$transaction(async tx => {
+        // Same row lock as authentication's activity timestamp, not an implicit
+        // privilege change. The optional revocation must still fence results.
+        await tx.session.update({ where: { id: current().sessionId }, data: { lastSeenAt: new Date(), ...(revoked ? { revokedAt: new Date() } : {}) } });
+        locked(); await releaseLock;
+      }, { timeout: 15_000 });
+      return Promise.race([acquired.then(() => { releaseTimer = setTimeout(release, 150); return []; }), holding.then(() => { throw new Error('Synthetic lock ended before acquisition'); })]) as ReturnType<typeof database.securityFixPrice.findMany>;
+    });
+    try {
+      const response = await request('POST');
+      const scan = await database.scan.findFirstOrThrow({ where: { tenantId: current().tenantId, websiteId: current().websiteId } });
+      if (revoked) { expect(response.statusCode, response.body).toBe(403); expect(response.json().error.code).toBe('AUTHORIZATION_REQUIRED'); await noAcceptedResults(scan.id); }
+      else {
+        expect(response.statusCode, response.body).toBe(201); expect(scan.status).toBe('SUCCEEDED');
+        expect(await database.securityFinding.count({ where: { scanId: scan.id } })).toBe(1);
+        expect(await database.auditLog.count({ where: { resourceId: scan.id, action: 'website.ai_assessment_completed' } })).toBe(1);
+      }
+      expect(connect).toHaveBeenCalledTimes(1); expect(inspect).toHaveBeenCalledTimes(1); expect(web).toHaveBeenCalledTimes(1);
+    } finally { clearTimeout(releaseTimer); release(); try { await holding; } finally { prices.mockRestore(); await connection.$disconnect(); } }
+  });
+
   it('fails closed on a competing session update before final evidence commit', async () => {
-    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: '/srv/www/fixture/index.html' }];
+    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: `${websiteRoot}/index.html` }];
     const connection = new PrismaClient(); let release!: () => void; let locked!: () => void;
     const releaseLock = new Promise<void>((resolve) => { release = resolve; }); const acquired = new Promise<void>((resolve) => { locked = resolve; });
     let holding: Promise<void> | undefined;
@@ -198,7 +301,7 @@ describe.sequential('authoritative security assessment lifecycle', () => {
   });
 
   it('cancels a delayed assessment without accepting later findings or overwriting CANCELLED', async () => {
-    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: '/srv/www/fixture/index.html' }]; const gate = delayInspection(); await gate.started; const scan = await runningScan();
+    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: `${websiteRoot}/index.html` }]; const gate = delayInspection(); await gate.started; const scan = await runningScan();
     try {
       expect((await request('GET')).json().scan).toMatchObject({ id: scan.id, status: 'RUNNING', stage: 'INSPECTING_SSH', repairApplied: false });
       const response = await request('POST', `/${scan.id}/cancel`); expect(response.statusCode, response.body).toBe(200); expect((await request('GET')).json().scan).toMatchObject({ id: scan.id, status: 'FAILED', stage: 'CANCELLED', errorCode: 'ASSESSMENT_CANCELLED', repairApplied: false });
@@ -211,7 +314,7 @@ describe.sequential('authoritative security assessment lifecycle', () => {
   });
 
   for (const condition of ['target', 'access', 'session'] as const) it(`rejects ${condition} drift during the runner before accepting results`, async () => {
-    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: '/srv/www/fixture/index.html' }]; const gate = delayInspection(); await gate.started; const scan = await runningScan();
+    inspection.observations = [{ kind: 'WORLD_WRITABLE', path: `${websiteRoot}/index.html` }]; const gate = delayInspection(); await gate.started; const scan = await runningScan();
     try {
       if (condition === 'target') await database.website.update({ where: { id: current().websiteId }, data: { url: 'https://changed.example.com/', normalizedHost: 'changed.example.com' } });
       if (condition === 'access') await database.websiteAccessCredential.update({ where: { websiteId: current().websiteId }, data: { username: 'different-account', encryptedSecret: encryptSecret('synthetic-rotated-password', environment.INTEGRATION_CREDENTIAL_ENCRYPTION_KEY) } });

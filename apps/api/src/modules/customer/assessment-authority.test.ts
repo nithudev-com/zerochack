@@ -1,6 +1,9 @@
 import type { Prisma } from '@prisma/client';
-import { describe, expect, it, vi } from 'vitest';
-import { assessmentAccessDigest, assertActiveAssessment, lockAssessmentAuthority, type AssessmentBinding } from './assessment-authority.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../errors.js';
+import { assessmentAccessDigest, assertActiveAssessment, lockAssessmentAuthority, retryAssessmentAuthority, type AssessmentBinding } from './assessment-authority.js';
+
+afterEach(() => vi.useRealTimers());
 
 const now = new Date('2026-10-18T12:00:00Z');
 const access = { id: 'access', tenantId: 'tenant', websiteId: 'website', updatedAt: now, host: 'ssh.example.test', port: 22, username: 'fixture', authMethod: 'PASSWORD', hostKeyFingerprint: 'SHA256:fixture-pin', vaultCredentialId: null as string | null, encryptedSecret: 'synthetic-encrypted-value', status: 'READY_FOR_SECURE_SESSION' };
@@ -106,5 +109,69 @@ describe('assessment authority and exact target fences', () => {
     expect(error).toMatchObject({ statusCode: 503, code: 'ASSESSMENT_AUTHORITY_UNAVAILABLE' }); expect(String(error)).not.toContain('synthetic-private');
     mock.$queryRaw.mockResolvedValue([]); mock.session.findFirst.mockResolvedValue(null);
     await expect(lockAssessmentAuthority(tx, binding)).rejects.toMatchObject({ code: 'AUTHORIZATION_REQUIRED' });
+  });
+});
+
+describe('bounded retry of rolled-back assessment authority transactions', () => {
+  const busy = () => new ApiError(409, 'ASSESSMENT_AUTHORITY_BUSY', 'Synthetic known-rolled-back lock contention');
+
+  it('rechecks authority and succeeds after one known rolled-back BUSY rejection', async () => {
+    vi.useFakeTimers();
+    const transaction = vi.fn(async () => 'saved').mockRejectedValueOnce(busy());
+    const beforeAttempt = vi.fn(async () => undefined);
+    const result = retryAssessmentAuthority(transaction, beforeAttempt);
+    await vi.advanceTimersByTimeAsync(24);
+    expect(transaction).toHaveBeenCalledTimes(1); expect(beforeAttempt).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(result).resolves.toBe('saved');
+    expect(transaction).toHaveBeenCalledTimes(2); expect(beforeAttempt).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('stops after exactly four BUSY attempts and bounded 25/50/100 millisecond delays', async () => {
+    vi.useFakeTimers(); const contention = busy();
+    const transaction = vi.fn(async () => 'saved').mockRejectedValue(contention);
+    const beforeAttempt = vi.fn(async () => undefined);
+    const result = expect(retryAssessmentAuthority(transaction, beforeAttempt)).rejects.toBe(contention);
+    await vi.advanceTimersByTimeAsync(24); expect(transaction).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1); expect(transaction).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(49); expect(transaction).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1); expect(transaction).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(99); expect(transaction).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1); await result;
+    expect(transaction).toHaveBeenCalledTimes(4); expect(beforeAttempt).toHaveBeenCalledTimes(4); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('observes revocation after BUSY before opening any additional transaction', async () => {
+    vi.useFakeTimers(); const revoked = new ApiError(403, 'AUTHORIZATION_REQUIRED', 'Synthetic revoked binding');
+    const transaction = vi.fn(async () => 'saved').mockRejectedValue(busy());
+    const beforeAttempt = vi.fn(async () => undefined).mockResolvedValueOnce(undefined).mockRejectedValue(revoked);
+    const result = expect(retryAssessmentAuthority(transaction, beforeAttempt)).rejects.toBe(revoked);
+    await vi.advanceTimersByTimeAsync(25); await result;
+    expect(transaction).toHaveBeenCalledTimes(1); expect(beforeAttempt).toHaveBeenCalledTimes(2); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    new ApiError(403, 'AUTHORIZATION_REQUIRED', 'Synthetic revocation'),
+    new ApiError(409, 'ASSESSMENT_CANCELLED', 'Synthetic cancellation'),
+    new ApiError(409, 'ASSESSMENT_TIMEOUT', 'Synthetic deadline'),
+    new ApiError(409, 'ASSESSMENT_BINDING_CHANGED', 'Synthetic target drift'),
+    new ApiError(503, 'ASSESSMENT_AUTHORITY_UNAVAILABLE', 'Synthetic unknown authority failure'),
+    new Error('Synthetic uncertain commit failure'),
+    { code: 'ASSESSMENT_AUTHORITY_BUSY', message: 'Not the recognized rolled-back ApiError' },
+    { code: 'P2010', meta: { code: '55P03' } }
+  ])('does not retry, sleep or disguise any other/uncertain transaction failure: %j', async failure => {
+    vi.useFakeTimers();
+    const transaction = vi.fn(async () => 'saved').mockRejectedValue(failure);
+    const beforeAttempt = vi.fn(async () => undefined);
+    await expect(retryAssessmentAuthority(transaction, beforeAttempt)).rejects.toBe(failure);
+    expect(transaction).toHaveBeenCalledTimes(1); expect(beforeAttempt).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not open a transaction or retry when the fresh pre-attempt guard fails', async () => {
+    vi.useFakeTimers(); const failure = busy();
+    const beforeAttempt = vi.fn(async () => undefined).mockRejectedValue(failure);
+    const transaction = vi.fn(async () => 'saved');
+    await expect(retryAssessmentAuthority(transaction, beforeAttempt)).rejects.toBe(failure);
+    expect(transaction).not.toHaveBeenCalled(); expect(beforeAttempt).toHaveBeenCalledTimes(1); expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -4,19 +4,31 @@ import { websiteServices } from '../lib/website-services';
 
 const id = 'e43690a6-6d5e-4f7b-9e86-5f8f7913d2ea';
 const base = `/customer/websites/${id}`;
-async function fixture(page: Page) {
+async function fixture(page: Page, historicalUnscopedFindingCount = 0) {
   const writes: string[] = [];
   await page.route('**/v1/**', async route => {
     const request = route.request(); const path = new URL(request.url()).pathname;
-    const headers = { 'access-control-allow-origin': new URL(page.url()).origin, 'access-control-allow-credentials': 'true', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
+    const headers = { 'access-control-allow-origin': new URL(page.url()).origin, 'access-control-allow-credentials': 'true', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-allow-headers': 'content-type,prefer' };
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (request.method() !== 'GET') writes.push(path);
     if (path.endsWith('/care')) return route.fulfill({ status: 403, headers, json: { error: { code: 'CAPABILITY_DISABLED', message: 'Care is disabled.' } } });
-    const body = path.endsWith('/auth/me') ? { roles: ['Customer'] } : path === `/v1/websites/${id}` ? { id, name: 'Nithudev fixture', url: 'https://example.test/', connectionStatus: 'PENDING', findings: [], scans: [], tickets: [], backups: [], reports: [] } : [];
+    const body = path.endsWith('/auth/me') ? { roles: ['Customer'] } : path === `/v1/websites/${id}` ? { id, name: 'Nithudev fixture', url: 'https://example.test/', connectionStatus: 'PENDING', historicalUnscopedFindingCount, findings: [], scans: [], tickets: [], backups: [], reports: [] } : [];
     await route.fulfill({ headers, json: body });
   });
   return writes;
 }
+
+test('findings disclose excluded historical account-wide SSH results without claiming fixes or starting work', async ({ page }) => {
+  const writes = await fixture(page, 3); await page.goto(`${base}/findings`);
+  const warning = page.getByRole('status').filter({ hasText: 'Historical account-wide results excluded' });
+  await expect(warning).toBeVisible(); await expect(warning).toContainText('3 older SSH findings have no verified website-only scope.');
+  await expect(warning).toContainText('They remain stored in history and audit records');
+  await expect(warning).toContainText('not listed as current findings for this website or supplied to AI.');
+  await expect(warning).toContainText('This does not mean those issues were fixed.');
+  await expect(page.locator('.report-summary strong')).toHaveText(['0', '0', '0', '0']);
+  await expect(page.getByRole('button', { name: 'Start AI assessment', exact: true })).toBeVisible();
+  expect(writes).toEqual([]);
+});
 
 for (const width of [320, 390, 1440]) test(`all-in-one workbench is accessible, honest and unobstructed at ${width}px`, async ({ page }) => {
   const writes = await fixture(page); await page.setViewportSize({ width, height: 844 }); await page.goto(base);

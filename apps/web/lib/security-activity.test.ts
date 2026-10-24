@@ -16,9 +16,29 @@ describe('truthful security activity', () => {
   it('clears stale data on errors and distinguishes incomplete, interrupted, cancelled and failed', () => {
     expect(securityActivity(data(), true, false, false, null)).toBeNull();
     const incomplete = data('SUCCEEDED', 'COMPLETED'); incomplete.scan!.coverageState = 'INCOMPLETE';
-    expect(securityActivity(incomplete, false, false, false, null)?.state).toBe('blocked');
+    expect(securityActivity(incomplete, false, false, false, null)?.state).toBe('completed_limited');
     expect(securityActivity(data('RUNNING', 'INTERRUPTED'), false, false, false, null)?.state).toBe('blocked');
     expect(securityActivity(data('FAILED', 'CANCELLED'), false, false, false, null)?.state).toBe('cancelled');
     expect(securityActivity(data('FAILED', 'FAILED'), false, false, false, null)?.state).toBe('failed');
+  });
+  it('preserves real limited-coverage reasons as normalized text without creating a blocked or repaired result', () => {
+    const incomplete = data('SUCCEEDED', 'COMPLETED'); incomplete.scan!.coverageState = 'INCOMPLETE';
+    incomplete.scan!.coverageLimitations = ['  Antivirus did not complete.  ', '', 'Antivirus did not complete.', '  ', '<script>literal recorded text</script>', null] as unknown as string[];
+    expect(securityActivity(incomplete, false, false, false, null)).toEqual({ state: 'completed_limited', coverageLimitations: ['Antivirus did not complete.', '<script>literal recorded text</script>'] });
+  });
+  it('does not invent reasons when a limited-coverage record has no detailed explanation', () => {
+    const incomplete = data('SUCCEEDED', 'COMPLETED'); incomplete.scan!.coverageState = 'INCOMPLETE';
+    expect(securityActivity(incomplete, false, false, false, null)).toEqual({ state: 'completed_limited', coverageLimitations: [] });
+    incomplete.scan!.coverageLimitations = 'not a reason array' as unknown as string[];
+    expect(securityActivity(incomplete, false, false, false, null)).toEqual({ state: 'completed_limited', coverageLimitations: [] });
+  });
+  it('forwards a recorded historical scope warning without inventing one for fresh results', () => {
+    const completed = data('SUCCEEDED', 'COMPLETED'); const warning = 'This historical inspection was not limited to the selected website.';
+    expect(securityActivity(completed, false, false, false, null)).not.toHaveProperty('scopeWarning');
+    completed.scan!.scopeWarning = `  ${warning}  `;
+    expect(securityActivity(completed, false, false, false, null)).toMatchObject({ state: 'completed', scopeWarning: warning });
+    completed.scan!.coverageState = 'INCOMPLETE';
+    expect(securityActivity(completed, false, false, false, null)).toMatchObject({ state: 'completed_limited', scopeWarning: warning });
+    expect(securityActivity(completed, true, false, false, null)).toBeNull();
   });
 });
