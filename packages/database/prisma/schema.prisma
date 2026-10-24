@@ -516,6 +516,7 @@ model Website {
   restoreOperations         RestoreOperation[]
   accessCredential          WebsiteAccessCredential?
   securityFixOrders         SecurityFixOrder[]
+  securityFixRuns           SecurityFixRun[]
   careCredentials CareCredential[]
   careJobs CareJob[]
   careEvents CareEvent[]
@@ -743,6 +744,7 @@ model SecurityFinding {
   messages             ChatMessage[]
   evidence             FindingEvidence[]
   securityFixOrders    SecurityFixOrder[]
+  securityFixRuns      SecurityFixRun[]
 
   @@unique([scanId, fingerprint])
   @@index([tenantId, websiteId, status])
@@ -1120,6 +1122,29 @@ model RemediationRun {
 
   @@index([tenantId, ticketId, createdAt])
   @@map("remediation_runs")
+}
+
+// Self-serve, approval-only reversible fixes applied by the customer-facing
+// agent. One row per applied (or rolled-back) safe fix, with the undo token
+// captured at apply time so every change can be reverted.
+model SecurityFixRun {
+  id           String          @id @default(uuid()) @db.Uuid
+  tenantId     String          @map("tenant_id") @db.Uuid
+  websiteId    String          @map("website_id") @db.Uuid
+  findingId    String          @map("finding_id") @db.Uuid
+  actorUserId  String          @map("actor_user_id") @db.Uuid
+  actionKey    String          @map("action_key") @db.VarChar(64)
+  targetPath   String          @map("target_path") @db.VarChar(2048)
+  status       String          @db.VarChar(16)
+  undoToken    String          @default("") @map("undo_token") @db.VarChar(2048)
+  detail       String?         @db.VarChar(500)
+  appliedAt    DateTime        @default(now()) @map("applied_at") @db.Timestamptz(6)
+  rolledBackAt DateTime?       @map("rolled_back_at") @db.Timestamptz(6)
+  website      Website         @relation(fields: [websiteId], references: [id], onDelete: Cascade)
+  finding      SecurityFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, websiteId, findingId])
+  @@map("security_fix_runs")
 }
 
 model WarrantyPolicy {

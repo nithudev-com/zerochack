@@ -20,7 +20,8 @@ import type { AiService } from '../ai/service.js';
 import { AiGatewayError } from '@zerochack/ai-gateway';
 import { verifyReport, reportTypes, type ReportDocument } from '@zerochack/reports';
 import { publishTenantEvent } from '../communications/service.js';
-import { connectSsh, inspectServerReadOnly, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
+import { connectSsh, inspectServerReadOnly, applyRemediationFix, rollbackRemediationFix, type ServerInspection, type ServerObservation } from './ssh-toolkit.js';
+import { planFixForFinding, type FixActionKey } from '@zerochack/security';
 import { connectionSummary } from './connection-summary.js';
 import { verifySshHost } from './ssh-host-trust.js';
 import { navigationActivity, navigationClickAction, navigationClickInput } from './overview-activity.js';
@@ -83,7 +84,7 @@ function serverObservationFinding(observation: ServerObservation, inspection: Se
     SUSPICIOUS_CRON: { title: 'Suspicious persistence pattern detected in user cron', description: 'The SSH user crontab contains a downloader, decoder, temporary-memory path, or known malware indicator. Command contents were not collected.', severity: 'HIGH', confidence: 0.86, recommendation: 'Preserve the crontab for evidence, validate each scheduled command, remove unauthorized persistence, and investigate account compromise.', cwe: 'CWE-506', owaspCategory: 'A08:2021' }
   };
   const rule = rules[observation.kind];
-  return { fingerprint: evidenceHash(`ssh-forensics-v3\0${inspection.scope.hostname}\0${observation.kind}\0${observation.path}`), ...rule, affectedResource: observation.path, remediationSupported: false, evidence: { summary: `${rule.title} observed by the website-only SSH assessment. No credential or file content was returned to AI.`, metadata: { path: observation.path, detail: observation.detail ?? null, scope: inspection.scope, platform: inspection.platform, malwareScanner: inspection.malwareScanner, scannedFiles: inspection.scannedFiles, rootCount: inspection.roots.length } }, engine: 'ssh-forensics', engineVersion: '3.0.0', observedAt };
+  return { fingerprint: evidenceHash(`ssh-forensics-v3\0${inspection.scope.hostname}\0${observation.kind}\0${observation.path}`), ...rule, affectedResource: observation.path, remediationSupported: false, evidence: { summary: `${rule.title} observed by the website-only SSH assessment. No credential or file content was returned to AI.`, metadata: { kind: observation.kind, path: observation.path, detail: observation.detail ?? null, scope: inspection.scope, platform: inspection.platform, malwareScanner: inspection.malwareScanner, scannedFiles: inspection.scannedFiles, rootCount: inspection.roots.length, roots: inspection.roots.join('\n') } }, engine: 'ssh-forensics', engineVersion: '3.0.0', observedAt };
 }
 
 async function websiteForTenant(tenantId: string, websiteId: string) {
@@ -361,9 +362,13 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     const scopedFindings = websiteFindingScope(website.normalizedHost);
     const [site, historicalUnscopedFindingCount] = await Promise.all([database.website.findFirst({ where: { id: websiteId, tenantId }, include: {
       findings: { where: scopedFindings, orderBy: { createdAt: 'desc' }, include: { evidence: { orderBy: { observedAt: 'desc' } } } }, scans: { orderBy: { requestedAt: 'desc' }, take: 50 },
-      tickets: { orderBy: { createdAt: 'desc' } }, backups: { orderBy: { requestedAt: 'desc' }, take: 50 }, reports: { orderBy: { createdAt: 'desc' }, take: 50 }
+      tickets: { orderBy: { createdAt: 'desc' } }, backups: { orderBy: { requestedAt: 'desc' }, take: 50 }, reports: { orderBy: { createdAt: 'desc' }, take: 50 },
+      securityFixRuns: { where: { status: 'APPLIED', rolledBackAt: null }, orderBy: { appliedAt: 'desc' }, take: 100, select: { id: true, findingId: true, actionKey: true, targetPath: true, appliedAt: true } }
     } }), database.securityFinding.count({ where: { tenantId, websiteId, NOT: scopedFindings } })]);
-    return { ...site, historicalUnscopedFindingCount };
+    // Flag which findings have a safe, reversible automatic fix available (dry-run plan; never mutates).
+    const autoFixAvailable = (finding: { evidence?: { metadata: unknown }[] }) => { try { const md = finding.evidence?.[0]?.metadata; return md ? planFixForFinding(md as { kind?: unknown; path?: unknown; roots?: unknown }, { runId: 'preview' }).supported : false; } catch { return false; } };
+    const findings = site?.findings.map((finding) => ({ ...finding, autoFixAvailable: autoFixAvailable(finding) })) ?? [];
+    return { ...site, findings, historicalUnscopedFindingCount };
   });
 
   app.patch('/websites/:websiteId', async (request) => {
@@ -632,6 +637,65 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
     return reply.code(201).send(ticket);
   });
 
+  // Self-serve reversible fix: applied only on the customer's authenticated
+  // click (never by the AI), over the verified, host-pinned, vault-brokered SSH
+  // access, running one validated reversible fix and recording its undo token.
+  const openWebsiteSsh = async (tenantId: string, websiteId: string, actorUserId: string, requestId: string) => {
+    const access = await database.websiteAccessCredential.findFirst({ where: { tenantId, websiteId } });
+    if (!access) throw new ApiError(409, 'ACCESS_NOT_CONFIGURED', 'Add your encrypted SSH access in Secure Access before applying a fix.');
+    if (access.status !== 'READY_FOR_SECURE_SESSION') throw new ApiError(409, 'SSH_ACCESS_NOT_READY', 'Verify your SSH access in Secure Access before applying a fix.');
+    const connection = await connectSsh({ host: access.host, port: access.port, username: access.username, authMethod: access.authMethod, secret: await brokerSecret(access, options.environment), hostKeyFingerprint: access.hostKeyFingerprint }, verifySshHost(access, actorUserId, requestId));
+    return connection.client;
+  };
+
+  app.post('/websites/:websiteId/findings/:findingId/apply-fix', async (request, reply) => {
+    requirePermission(request, 'websites.manage');
+    const { websiteId, findingId } = parse(z.object({ websiteId: z.string().uuid(), findingId: z.string().uuid() }), request.params);
+    const tenantId = request.tenantId!;
+    const website = await websiteForTenant(tenantId, websiteId);
+    const finding = await database.securityFinding.findFirst({ where: { id: findingId, tenantId, websiteId, AND: [websiteFindingScope(website.normalizedHost)] }, include: { evidence: { orderBy: { observedAt: 'desc' }, take: 1, select: { metadata: true } } } });
+    if (!finding) throw new ApiError(404, 'FINDING_NOT_FOUND', 'Finding was not found');
+    if (finding.status === 'RESOLVED') throw new ApiError(409, 'FINDING_ALREADY_RESOLVED', 'This finding is already resolved.');
+    const metadata = (finding.evidence[0]?.metadata ?? {}) as { kind?: unknown; path?: unknown; roots?: unknown };
+    const runId = crypto.randomUUID();
+    const plan = planFixForFinding(metadata, { runId });
+    if (!plan.supported) throw new ApiError(409, 'FIX_NOT_SUPPORTED', plan.reason);
+
+    const client = await openWebsiteSsh(tenantId, websiteId, request.userId!, request.id);
+    let outcome; try { outcome = await applyRemediationFix(client, plan.actionKey, plan.path, { runId }); } finally { client.end(); }
+
+    const resolved = outcome.status === 'APPLIED' || outcome.status === 'NOOP' || outcome.status === 'SKIPPED';
+    const run = await database.securityFixRun.create({ data: { id: runId, tenantId, websiteId, findingId, actorUserId: request.userId!, actionKey: plan.actionKey, targetPath: plan.path, status: outcome.status, undoToken: outcome.undoToken, detail: outcome.detail } });
+    if (resolved) await database.securityFinding.update({ where: { id: findingId }, data: { status: 'RESOLVED' } });
+    const message = await database.chatMessage.create({ data: { tenantId, websiteId, type: 'SYSTEM', findingId, content: outcome.status === 'FAILED' ? `The fix for “${finding.title}” did not apply: ${outcome.detail}. Nothing was changed.` : `Applied a reversible fix for “${finding.title}” (${plan.title}). You can undo it at any time.` } });
+    const eventKey = `${tenantId}:${websiteId}`; if (chatPublisher) await chatPublisher.publish('zerochack:chat', JSON.stringify({ key: eventKey, message })); else chatEvents.emit(eventKey, message);
+    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'finding.fix_applied', resourceType: 'security_fix_run', resourceId: run.id, ipAddress: request.ip, metadata: { websiteId, findingId, actionKey: plan.actionKey, status: outcome.status } });
+    const canUndo = outcome.status === 'APPLIED' && outcome.undoToken.length > 0;
+    return reply.code(outcome.status === 'FAILED' ? 422 : 201).send({ runId: run.id, actionKey: plan.actionKey, title: plan.title, status: outcome.status, detail: outcome.detail, resolved, canUndo, undoPath: canUndo ? `/customer/websites/${websiteId}/fix-runs/${run.id}/undo` : null, website: website.name });
+  });
+
+  app.post('/websites/:websiteId/fix-runs/:runId/undo', async (request, reply) => {
+    requirePermission(request, 'websites.manage');
+    const { websiteId, runId } = parse(z.object({ websiteId: z.string().uuid(), runId: z.string().uuid() }), request.params);
+    const tenantId = request.tenantId!;
+    await websiteForTenant(tenantId, websiteId);
+    const run = await database.securityFixRun.findFirst({ where: { id: runId, tenantId, websiteId } });
+    if (!run) throw new ApiError(404, 'FIX_RUN_NOT_FOUND', 'Fix run was not found');
+    if (run.rolledBackAt) throw new ApiError(409, 'FIX_ALREADY_ROLLED_BACK', 'This fix was already undone.');
+    if (run.status !== 'APPLIED' || run.undoToken.length === 0) throw new ApiError(409, 'FIX_NOT_REVERSIBLE', 'This fix has nothing to undo.');
+
+    const client = await openWebsiteSsh(tenantId, websiteId, request.userId!, request.id);
+    let outcome; try { outcome = await rollbackRemediationFix(client, run.actionKey as FixActionKey, run.targetPath, run.undoToken); } finally { client.end(); }
+    if (outcome.status === 'FAILED') throw new ApiError(422, 'FIX_UNDO_FAILED', `The fix could not be undone: ${outcome.detail}`);
+
+    await database.securityFixRun.update({ where: { id: run.id }, data: { status: 'ROLLED_BACK', rolledBackAt: new Date() } });
+    await database.securityFinding.update({ where: { id: run.findingId }, data: { status: 'OPEN' } });
+    const message = await database.chatMessage.create({ data: { tenantId, websiteId, type: 'SYSTEM', findingId: run.findingId, content: `The fix on ${run.targetPath} was undone and the finding was reopened.` } });
+    const eventKey = `${tenantId}:${websiteId}`; if (chatPublisher) await chatPublisher.publish('zerochack:chat', JSON.stringify({ key: eventKey, message })); else chatEvents.emit(eventKey, message);
+    await writeAudit({ tenantId, actorUserId: request.userId!, requestId: request.id, action: 'finding.fix_rolled_back', resourceType: 'security_fix_run', resourceId: run.id, ipAddress: request.ip, metadata: { websiteId, findingId: run.findingId, actionKey: run.actionKey, status: outcome.status } });
+    return reply.code(200).send({ runId: run.id, status: 'ROLLED_BACK', detail: outcome.detail });
+  });
+
   app.get('/websites/:websiteId/chat', async (request) => {
     requirePermission(request, 'chat.read'); const { websiteId } = parse(idParams, request.params); const tenantId = request.tenantId!; await websiteForTenant(tenantId, websiteId);
     const { environment, before } = parse(z.object({ environment: z.enum(['PRODUCTION','STAGING']).default('PRODUCTION'), before: z.string().uuid().optional() }), request.query);
@@ -755,6 +819,20 @@ export async function customerRoutes(app: FastifyInstance, options: { environmen
         const { findingId } = parse(z.object({ findingId: z.string().uuid() }), argumentsValue);
         const inspected = await database.securityFinding.findFirst({ where: { id: findingId, tenantId, websiteId, AND: [scopedFindings] }, select: { id: true, scanId: true, title: true, description: true, severity: true, confidence: true, status: true, affectedResource: true, recommendation: true, cwe: true, cve: true, owaspCategory: true, remediationSupported: true, evidence: { select: { engine: true, engineVersion: true, observedAt: true, summary: true, metadata: true, integrityHash: true } } } });
         return inspected ? { ok: true, finding: inspected, secretExposed: false, rawFileContentsExposed: false } : { ok: false, errorCode: 'FINDING_NOT_FOUND', guidance: 'The requested finding does not belong to this website or no longer exists.' };
+      }
+    }, {
+      name: 'propose_security_fix',
+      description: 'Check whether a verified finding has a safe, automatic, reversible fix and return the exact change and how to undo it. Use when the user asks to fix, repair, harden, or clean up a specific finding. This tool PLANS ONLY and changes nothing; the customer must approve at the returned approvePath before anything is applied. If no safe reversible fix exists, it says so and the finding still needs a specialist.',
+      parameters: { type: 'object', properties: { findingId: { type: 'string', description: 'UUID of a finding returned by get_latest_assessment_evidence.' } }, additionalProperties: false, required: ['findingId'] },
+      execute: async (argumentsValue: unknown) => {
+        requirePermission(request, 'findings.read');
+        const { findingId } = parse(z.object({ findingId: z.string().uuid() }), argumentsValue);
+        const target = await database.securityFinding.findFirst({ where: { id: findingId, tenantId, websiteId, AND: [scopedFindings] }, select: { id: true, title: true, severity: true, status: true, evidence: { orderBy: { observedAt: 'desc' }, take: 1, select: { metadata: true } } } });
+        if (!target) return { ok: false, errorCode: 'FINDING_NOT_FOUND', guidance: 'That finding does not belong to this website.' };
+        if (target.status === 'RESOLVED') return { ok: true, findingId, alreadyResolved: true, guidance: 'This finding is already resolved; no fix is needed.' };
+        let plan; try { plan = planFixForFinding((target.evidence[0]?.metadata ?? {}) as { kind?: unknown; path?: unknown; roots?: unknown }, { runId: 'preview' }); } catch { plan = { supported: false as const, reason: 'The recorded target is not safe to fix automatically.' }; }
+        if (!plan.supported) return { ok: true, findingId, supported: false, reason: plan.reason, guidance: 'No safe automatic fix is available; recommend the specialist fix path.', requestFixPath: `/customer/websites/${websiteId}/findings/${findingId}/request-fix` };
+        return { ok: true, findingId, supported: true, actionKey: plan.actionKey, title: plan.title, whatItDoes: plan.summary, howToUndo: plan.undoSummary, reversible: true, requiresApproval: true, approvePath: `/customer/websites/${websiteId}/findings/${findingId}/apply-fix`, guidance: 'Describe the exact change and the undo, then ask the customer to approve. Do not claim it is done until the approval route reports APPLIED.', secretExposed: false };
       }
     }, {
       name: 'request_live_access_specialist',
